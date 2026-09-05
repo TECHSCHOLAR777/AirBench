@@ -57,3 +57,9 @@ A document that will not parse goes to a review queue, never a silent drop, beca
 Core: the parser, the manifest, the strategy runner, the search and rerank mechanics, the version and clearance handling.
 
 Pack: the document profiles, which documents are authoritative, and the clearance model.
+
+## Harness access
+
+Research, reasoning, and verification workers access knowledge through clearance-filtered retrieval requests. The Knowledge and Retrieval Engine returns typed evidence references and bounded excerpts with source, confidence, clearance, and taint intact.
+
+Workers cannot bypass retrieval controls by reading the index or document store directly. A team may run independent searches, but every query, result set, reranking decision, and evidence handoff is recorded and remains subject to the same clearance and provenance gates.

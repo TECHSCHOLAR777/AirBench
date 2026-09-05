@@ -57,3 +57,9 @@ If a required value is missing or unverified, the deliverable is not produced, t
 Core: the source of truth discipline, the words versus numbers rule, the render machinery, the file verification, the sign off flow.
 
 Pack: the deliverable templates and the field checks that apply to them.
+
+## Deliverables in a worker team
+
+In team mode, generation workers may propose prose and named field bindings, while the Deliverable Engine remains the only component that owns layout, formulas, numeric values, chart ranges, and artifact hashes. A render worker cannot write a final number or mark an artifact verified.
+
+The render stage consumes verified facts and accepted WorkPackets. The finished file then goes through structural, numeric, visual, and independent review checks from a fresh context. A team that produces prose but cannot complete the artifact checks remains incomplete and cannot pass the completion gate.

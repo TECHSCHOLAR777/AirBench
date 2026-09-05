@@ -49,3 +49,22 @@ Because it is append only, storage grows and never shrinks, so it uses periodic 
 Core: the append only store, the chaining and sealing, the provenance gate, the clearance filtered reads, the snapshotting.
 
 Pack: the clearance model and what counts as sensitive.
+
+## Sessions, teams, and handoffs
+
+The ledger is also the authoritative session history for the AirBench Harness. It records task, team, worker, stage, and parent-child relationships for every execution. A worker's private context and scratch directory are temporary; they are not authoritative memory.
+
+Team and worker events include:
+
+- TaskEnvelope and TeamPlan versions;
+- worker assignments, role, target, and hardware lease;
+- context manifests and compaction input/output manifests;
+- WorkPacket and handoff hashes;
+- join barriers, missing packets, and disagreements;
+- tool proposals, tool results, and sandbox manifests;
+- verification, evaluator, retry, cancellation, and completion events;
+- artifact revisions and evidence-package hashes.
+
+Every handoff preserves source, confidence, clearance, and taint for each fact. A worker cannot pass a fact through an informal peer channel or replace an earlier packet. Handoffs are immutable records with explicit supersession when a later checked result replaces them.
+
+The harness rebuilds context from committed ledger state and verified packets after a restart or compaction. It never treats a model-generated conversation summary as the authoritative task state. Ledger failure prevents the next consequential transition or tool action from being committed.

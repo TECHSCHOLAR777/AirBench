@@ -58,3 +58,31 @@ This reference roster was sized for a large single-card deployment. The first sc
 Nothing on this list is trusted because it is named here. Each model is trusted only for the jobs it has been qualified for, and the router enforces that. Replacing or upgrading a model means qualifying the new one for those jobs first. This is what lets the roster improve over time without changing the engine, and it is what lets the organization say that nothing runs that was not cleared for the exact job it is doing.
 
 Sources: Qwen3-Coder ( https://github.com/QwenLM/Qwen3-Coder ), Qwen3-Coder-30B-A3B-Instruct ( https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct ).
+
+## Worker role mapping
+
+The roster supplies targets for worker roles, but a model name is never a role contract by itself. A target must be separately qualified for each worker capability it fills.
+
+- Gemma 4 31B may fill lead, reasoning, or prose-drafting assignments only under the certificates it holds.
+- Gemma 4 26B-A4B may fill efficient low-risk assignments only when the step and risk policy allow it.
+- Qwen3-Coder may fill code and executable-calculation assignments through the sandbox.
+- Qwen2.5-VL may fill vision and scanned-document assignments after qualification for the relevant document profiles.
+- BGE-M3 and the reranker serve retrieval roles through their typed interfaces, not as general worker chat targets.
+- The independent verifier may use a different model target when the measured hardware permits it. If it uses the same model family, it still receives a separate call, fresh context, separate assignment, and independent qualification.
+
+For a complex task, the router makes a decision for each worker assignment. It does not select one model for the whole team. A single-GPU deployment may run these assignments serially while preserving their separate identities and audit events.
+
+## Initial target choices for the first deployment
+
+These are the deliberate reference targets for the first AirBench vertical slice. They are selected for the stated problem: local reasoning and drafting, coding and executable calculations, scanned inspection reports and images, and local retrieval. Exact artifact commits, quantization files, runtime versions, and capability certificates are frozen by the P1-3 implementation issue before a target is allowed to run.
+
+| Capability | Reference target | Preferred execution profile |
+|---|---|---|
+| Lead reasoning, planning, and high-quality prose | `google/gemma-4-31b-it` | BF16 on a large server profile; not assumed on a mid-range workstation |
+| Workstation lead, fast reasoning, and low-risk substeps | `google/gemma-4-26b-a4b-it` | Q4_0 or the measured equivalent on a mid-range profile |
+| Coding and executable calculations | `Qwen/Qwen3-Coder-30B-A3B-Instruct` | A qualified 4-bit AWQ or GPTQ artifact in the serial slot unless measured hardware supports more |
+| Scanned documents, photographs, handwriting, and image understanding | `Qwen/Qwen2.5-VL-7B-Instruct` | A qualified 4-bit vision artifact with page and image limits |
+| Dense and sparse retrieval embeddings | `BAAI/bge-m3` | CPU or a small dedicated local service |
+| Retrieval reranking | `BAAI/bge-reranker-v2-m3` | CPU or a small dedicated local service |
+
+The 31B target is the quality ceiling for the lead role, while the 26B A4B target is the practical default for a mid-range workstation. A smaller target is an explicit hardware profile decision, not a silent quality downgrade. Coding remains assigned to the coder target even though Gemma 4 supports coding, because the coding role requires its own tool-use and sandbox qualification.

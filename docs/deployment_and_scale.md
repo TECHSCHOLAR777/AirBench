@@ -57,3 +57,19 @@ A bundle that fails verification does not install, and the running system stays 
 Core: the packaging, the offline install and update, the memory pool and budget, the scaling model, the fleet distribution, the consistent backup and restore.
 
 Pack: which models and configurations a given site runs, delivered as signed bundles.
+
+## Team execution on fixed hardware
+
+The deployment exposes a measured HardwareProfile to the Orchestration Engine and Serving and Routing. It records GPU count and identity, VRAM, CPU and RAM, model residency, KV-cache capacity, permitted concurrency, scratch storage, measured latency, and sandbox limits.
+
+The same logical worker team can run in three physical modes:
+
+- **Parallel mode:** independent workers have separate reservations and run concurrently on available GPU or CPU capacity.
+- **Pipelined mode:** workers overlap only where the measured profile proves that their reservations fit.
+- **Serial virtual-team mode:** workers run one at a time with isolated contexts and typed handoffs when the machine has one constrained GPU.
+
+The first deployment supports both parallel and serial team execution. Parallel mode is selected only when the measured reservations fit at the same time. Serial virtual-team mode is selected when the task needs multiple roles but the GPU cannot hold their models or KV caches concurrently. The task still keeps the full team topology, independent contexts, typed handoffs, verifier stage, and audit trace.
+
+The first workstation demonstration must report which mode was used. Containers do not count as independent compute and do not justify oversubscribing VRAM. If resources are insufficient, the system queues work, serializes the team, chooses a smaller qualified target, or stops with a review reason. It never skips an independent verifier or silently lowers a safety check.
+
+Full distributed team scheduling, cross-node leases, GPU partitioning, preemption, and team failover are deployment hardening requirements rather than assumptions of the first node.

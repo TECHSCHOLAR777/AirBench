@@ -13,6 +13,7 @@ The first build is a single-node, local vertical slice rather than the full flee
 - a user request becoming a bounded, checkpointed task;
 - a scanned inspection report becoming sourced structured evidence and a draft approval note;
 - a coding request being routed to a qualified coding model and executed in a no-network sandbox;
+- a complex task executed through a bounded worker team, with hardware-aware scheduling and an independent verification worker;
 - local document retrieval and one meaningful, linked World Model query;
 - model selection across at least two task kinds, with the route and reason recorded;
 - a verified Word deliverable with computed values supplied by the system; and
@@ -21,6 +22,23 @@ The first build is a single-node, local vertical slice rather than the full flee
 The drawing pipeline is intentionally not implemented in this scope. Its future adapter is reserved, but the rest of the system must treat it as an optional typed graph-fragment producer rather than inventing drawing behavior in the core.
 
 The full-hardened requirements deliberately deferred from this first scope are recorded in `future_full_fledged_must_have.md`.
+
+## Problem statement traceability for the first build
+
+The first build is accepted only if it demonstrates the actual industrial problem, not a generic chatbot demo. The vertical slice must show:
+
+- a refinery or PSU inspection report, including a scanned document path, entering through the File Intake Layer;
+- local OCR and vision understanding producing sourced findings with confidence, source, clearance, and taint intact;
+- local knowledge retrieval against manuals, SOPs, or past correspondence;
+- a bounded multi-agent team completing the complex task, with parallel execution when the HardwareProfile permits it and a serial virtual team when it does not;
+- model routing across at least two task kinds, including document or vision work and coding or reasoning work;
+- a real approval-note Word deliverable with computed values, source links, visible review status, and structural and visual checks;
+- a coding task generated and verified in a no-network sandbox;
+- local file read and write, internal search, and the relevant artifact tools;
+- a visible local audit and network proof showing that no external call occurs;
+- a smaller qualified model path for a workstation that cannot host the largest reference target.
+
+This traceability list is the acceptance boundary for the first domain pack and demo. A feature that does not improve one of these outcomes is not a first-slice priority.
 
 ## The one idea the whole system is built on
 
@@ -43,6 +61,7 @@ Core engines and frameworks:
 - **Knowledge and Retrieval Engine** (`knowledge_and_retrieval_engine.md`) indexes documents on top of the intake layer and answers questions from them with sources.
 - **Reference Model Roster** (`models.md`) pins the actual models chosen and the jobs each is qualified for.
 - **Orchestration Engine** (`orchestration_engine.md`) is the deterministic controller that runs the agent loop, plans work, executes checked steps, and holds all state.
+- **AirBench Harness** (`airbench_harness.md`) is the controlled session and worker-team runtime that gives complex tasks isolated specialist workers, typed handoffs, hardware-aware scheduling, and default-fail completion.
 - **Serving and Routing** (`serving_and_routing.md`) hosts the models on the hardware and sends each task to the right one.
 - **Verification Framework** (`verification_framework.md`) checks that an answer is valid by the rules of the field, not just well written.
 - **Consistency Engine** (`consistency_engine.md`) keeps the organization's decisions consistent over time and flags unjustified deviations.
@@ -97,6 +116,16 @@ The first implementation makes these properties concrete with four shared contra
 7. The Deliverable Engine assembles the output from verified facts, where the model writes the words and the system owns the numbers.
 8. A person reviews the verified draft in the first scope. The complete electronic sign-off workflow is deferred; if a sign-off exists, it is still recorded as a ledger event.
 9. The Sovereignty layer has been proving zero egress throughout, and the whole run sits in the audit ledger for later review.
+
+## The harness and controlled worker teams
+
+The AirBench Harness wraps the work flow in a persistent, auditable session. Simple work uses one worker. Complex work may use a bounded worker team with a lead, specialist workers, an independent verifier, and a render or review stage. The orchestrator creates the TeamPlan, assigns typed work packets, owns synchronization, and decides when the team may advance.
+
+The word team does not mean that models become peers with authority. Workers are stateless and isolated. They cannot spawn workers, call each other directly, change the task policy, or declare completion. Their outputs are proposals and evidence packets; the orchestrator commits state and the verification framework decides whether criteria pass.
+
+Hardware determines whether the team runs in parallel, as a pipeline, or as a serial virtual team. A one-GPU workstation can therefore perform a genuine multi-worker complex task without pretending that several containers create extra compute. Hardware pressure can change scheduling and qualified model choice, but never removes a required verifier, lowers a safety threshold, or broadens authority.
+
+The full harness contract is in `airbench_harness.md`.
 
 ## What makes it different, in one line
 

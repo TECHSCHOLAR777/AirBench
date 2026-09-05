@@ -47,3 +47,9 @@ It never asserts a precedent as binding on its own, it surfaces and flags for re
 Core: the decision record store, the comparison and distinguish logic, the authority and currency handling, the deviation flag, the links to the world model.
 
 Pack: what a decision looks like in the field, which features matter, and how authority levels map.
+
+## Team-produced decisions
+
+In a worker team, candidate decisions and their supporting evidence may be assembled by several workers, but the Consistency Engine evaluates one typed forming decision after the join barrier. It compares the candidate against past decisions, surfaces material differences, and records any deviation flag.
+
+Worker agreement does not make a decision consistent, and a lead or reviewer cannot suppress a deviation flag. The final decision remains subject to the Autonomy Governor, required human authority, and the ledger.

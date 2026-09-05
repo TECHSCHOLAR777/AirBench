@@ -47,3 +47,11 @@ When the governor cannot score an action confidently, it escalates rather than a
 Core: the three question scoring, the graded authority output, the self certification block, the recorded reasoning, the fail safe defaults.
 
 Pack: the mapping from action kinds and objects to harm, reversibility, and required authority.
+
+## Teams do not pool authority
+
+The governor evaluates each consequential proposed action and each final decision, not the average confidence of a team. A lead, specialist, verifier, or reviewer may propose evidence, but no worker can certify its own authority and no team majority can override the governor.
+
+The team plan itself is checked for risk before execution. Any worker action touching a high-harm or irreversible object carries that action's authority requirement even when the action is split across several workers. Hardware pressure, worker count, or agreement between workers cannot lower the required authority.
+
+If a team disagrees about risk, lacks a required role, or cannot produce the confidence and evidence needed by the pack's risk mapping, the governor escalates or stops. It never resolves uncertainty by voting.

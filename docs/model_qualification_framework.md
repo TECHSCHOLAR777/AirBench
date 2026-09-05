@@ -57,3 +57,21 @@ A routing classifier that returns invalid or uncertain output is not allowed to 
 Core: the qualification steps, the certificate format, the routing enforcement, the recheck triggers, the shared harness.
 
 Pack: the job kinds, the evaluation set, and the passing bar for the field.
+
+## Qualification for worker roles and teams
+
+A target is qualified for an exact worker capability, not merely for a broad task label. For example, qualification for `reasoning_worker` does not automatically qualify the same target for `verification_worker`, `code_worker`, or `vision_worker`. The certificate must name the role, task kinds, modality, tool contract, evidence quality floor, risk classes, context limit, and hardware profile.
+
+Team execution adds an integration qualification layer. It tests that:
+
+- worker assignments preserve source, confidence, clearance, and taint;
+- handoff packets satisfy their schemas;
+- workers cannot read or mutate peer context;
+- the join barrier handles missing and conflicting packets;
+- the independent verifier receives a fresh context;
+- default-fail completion cannot be set by a model;
+- tool and artifact provenance survives retries and compaction;
+- parallel, pipelined, and serial modes preserve the same result contract;
+- resource exhaustion produces queue, degradation, review, or stop rather than a silent safety reduction.
+
+Team qualification does not make an unqualified target eligible. Every worker assignment still passes the normal target certificate and hardware admission gates.

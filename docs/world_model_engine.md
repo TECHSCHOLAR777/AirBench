@@ -53,3 +53,9 @@ Extraction is never trusted blindly. Low confidence fragments and conflicting re
 Core: the graph store, the reconciliation logic, the time model, the query serving, the confidence and clearance handling, the human review loop.
 
 Pack: what the objects and links are, which documents are authoritative, and what the extraction targets are.
+
+## Harness access
+
+Worker teams query the World Model Engine through typed, clearance-filtered interfaces. They receive facts and graph fragments with confidence, source, valid time, and clearance. Workers cannot mutate the world model directly.
+
+A proposed graph change becomes a candidate fact or fragment and follows the same provenance, consistency, verification, and ledger gates as any other write. Parallel workers may produce independent candidates, but only the orchestrator and the owning engine can commit a state transition.

@@ -24,6 +24,10 @@ The current deliverable scope uses computed values and named template fields. A 
 
 The current scope supports the common scanned-document, text-document, spreadsheet, image, and plain-text path. Full coverage must add hardened support for all intended formats, archive and parser limits, macro and embedded-object policy, handwriting, complex tables, engineering drawings, and the drawing pipeline supplied later. The drawing pipeline must have its own signed, versioned, confidence-bearing interface before it is connected.
 
+### P0-10 - Distributed worker-team scheduling and isolation
+
+The first scope supports bounded teams on one measured node, including a serial virtual team when one GPU cannot run workers concurrently. A full deployment must add cross-node worker leases, GPU partitioning and preemption, distributed barriers, team failover, independent node identity, encrypted inter-service channels, and replayable scheduling evidence without weakening the no-egress boundary.
+
 ## Deferred P1 items
 
 ### P1-5 - Full human approval and electronic sign-off workflow
@@ -46,4 +50,3 @@ The first scope does not attempt the complete offline appliance lifecycle. A ful
 - High-availability stores, disaster recovery, multi-node scaling, fleet health reporting, and site-to-site configuration comparison.
 - Full outcome-aware Consistency Engine behavior: outcome capture, overturned-decision weighting, survivorship controls, drift analytics, and regulator-ready reporting.
 - Independent attestation of host state and model identity, hardware-backed key custody, and continuous tamper-evident sovereignty proofs.
-

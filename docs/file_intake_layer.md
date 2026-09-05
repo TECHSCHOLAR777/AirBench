@@ -63,3 +63,9 @@ A file that cannot be parsed goes to a review queue for bulk ingestion, or retur
 Core: the whole layer, every parser, the manifest, the two caller switches, the isolated parsing and screening.
 
 Pack: the document profiles, which files are authoritative, and the clearance model.
+
+## Harness access
+
+Worker teams never introduce a second parser. Research and vision workers request file operations through the Orchestration Engine and File Intake Layer, or consume its typed evidence and rendered page outputs. They do not open uploaded files through ad hoc libraries or direct host paths.
+
+Parallel workers may inspect different typed projections of the same intake transaction, but the parser, source hash, page identity, extraction settings, and provenance remain shared and auditable. A worker cannot treat an uploaded document as executable instructions or change the intake policy.

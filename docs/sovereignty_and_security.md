@@ -70,3 +70,17 @@ Enforcement and observation are kept separate, so if the observer is bypassed th
 Core: the network enforcement, the sovereignty proof, the one way ingestion, the injection defenses, the model verification, the access enforcement points.
 
 Pack: the clearance and need to know model of the field.
+
+## Multi-worker containment
+
+Worker teams do not create a new authority boundary. Each worker receives a scoped capability token tied to the task, team, worker role, clearance, evidence scope, tools, paths, resource lease, and expiry. The Tool Gateway verifies the token again before execution.
+
+Workers use separate contexts and task workspaces. They cannot read another worker's hidden context, open a peer's scratch directory, spawn a process outside the sandbox, call a peer directly, or communicate outside an audited WorkPacket. Shared state is provided only through clearance-filtered ledger, retrieval, World Model, artifact, and tool interfaces.
+
+Concurrency never broadens authority. A team with five workers has no more clearance, tools, or autonomy than the TaskEnvelope allows. A worker cannot use a teammate's failure, result, or capability to bypass a deny or review decision. A majority of workers cannot approve a restricted action.
+
+## Harness hooks are core security controls
+
+The harness lifecycle interceptors around worker start, model calls, tool calls, context compaction, handoffs, barriers, verification, and completion are core-owned security controls. They are not project hooks and cannot be disabled by uploaded files, repositories, prompts, skills, or domain-pack content.
+
+Untrusted documents remain data inside every worker context. They cannot install a hook, alter a TeamPlan, register a tool, grant a capability, or make a worker's output trusted. Domain-pack skills are signed and declarative in the first scope; any executable extension must pass the same approval and sandbox boundary as a tool.

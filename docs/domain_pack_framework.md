@@ -10,7 +10,7 @@ The core engine must contain zero sector knowledge. No physics assumption, no me
 
 ## What a pack contains
 
-A pack is a signed bundle of declarations and assets. It has seven parts.
+A pack is a signed bundle of declarations and assets. It has eight parts.
 
 1. **World schema.** The definition of what the organization's world is made of: the object types, the link types between them, and which documents are the authoritative source for each. For a refinery this is equipment, tags, lines, and connections, sourced from diagrams. For a hospital it is patients, conditions, and medications. The World Model Engine reads this to know what graph to build. See `world_model_engine.md`.
 
@@ -26,19 +26,23 @@ A pack is a signed bundle of declarations and assets. It has seven parts.
 
 7. **Clearance and role model.** The classification tiers and roles of the field, mapped to the organization's own identity system, so retrieval and sign off respect need to know.
 
+8. **Task and worker requirements.** The task kinds, required worker capabilities, evidence minimums, independent-check requirements, and acceptable completion criteria for each field workflow. This describes what a workflow needs, not which model or hardware must be used.
+
 ## What the engine provides, so the pack stays small
 
-The pack author never writes plumbing. The engine already provides the sovereign runtime, the agent loop, the serving and routing, the memory and audit ledger, the retrieval mechanics, the check runner, the consistency bookkeeping, the autonomy scoring, and the qualification harness. The pack only supplies the field specific declarations above. A good pack is mostly configuration and a set of checks, not a codebase.
+The pack author never writes plumbing. The engine already provides the sovereign runtime, the agent loop, the serving and routing, the memory and audit ledger, the retrieval mechanics, the check runner, the consistency bookkeeping, the autonomy scoring, the qualification harness, and the AirBench Harness. The pack only supplies the field specific declarations above. A good pack is mostly configuration and a set of checks, not a codebase.
+
+The pack may declare that a workflow requires a vision worker followed by an independent verifier, but it cannot spawn workers, choose an unqualified model, disable an interceptor, or grant a tool.
 
 ## How a pack is loaded
 
-A pack is versioned and signed like a model. It is verified against a pinned key before it loads, so a tampered or unauthorized pack cannot run. Loading a pack registers its schema, profiles, rules, decision types, risk model, templates, and clearance model with the corresponding engine components. Two packs never share state. A single deployment normally runs one pack, since a deployment serves one organization.
+A pack is versioned and signed like a model. It is verified against a pinned key before it loads, so a tampered or unauthorized pack cannot run. Loading a pack registers its schema, profiles, rules, decision types, risk model, templates, clearance model, and task and worker requirements with the corresponding engine components. Two packs never share state. A single deployment normally runs one pack, since a deployment serves one organization.
 
 ## Interfaces
 
 Input to the framework: a signed pack bundle.
 
-Output: a set of registered declarations that each engine component reads at runtime. The framework exposes to the engine a stable set of lookups, for example "what object types exist," "what checks apply to this fact type," "what is the risk class of this action," and "what template does this deliverable use." The engine calls these lookups and never hard codes an answer.
+Output: a set of registered declarations that each engine component reads at runtime. The framework exposes to the engine a stable set of lookups, for example "what object types exist," "what checks apply to this fact type," "what is the risk class of this action," "what template does this deliverable use," and "what worker capabilities and independent checks does this workflow require." The engine calls these lookups and never hard codes an answer.
 
 ## Failure handling
 
@@ -46,4 +50,4 @@ If a pack fails signature verification, it does not load and the system runs on 
 
 ## Why this is the most important design decision
 
-Every novelty in AirBench, the world model, the field checks, the consistency engine, the risk graded autonomy, is only general because it reads from the pack instead of hard coding a sector. The pack contract is therefore the thing to design most carefully and change most slowly. Get it right and AirBench serves any regulated field. Get it wrong and every new customer becomes a rebuild.
+Every novelty in AirBench, the world model, the field checks, the consistency engine, the risk graded autonomy, and the worker-team requirements, is only general because it reads from the pack instead of hard coding a sector. The pack contract is therefore the thing to design most carefully and change most slowly. Get it right and AirBench serves any regulated field. Get it wrong and every new customer becomes a rebuild.

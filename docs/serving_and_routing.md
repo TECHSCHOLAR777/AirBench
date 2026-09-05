@@ -64,4 +64,29 @@ Core: the router, provider-neutral request types, hard eligibility gates, capabi
 
 Pack: nothing directly. The pack influences routing only through the set of qualified models and their qualified task kinds.
 
+## Team-aware routing and hardware admission
+
+The router does not create teams and does not control the task loop. The Orchestration Engine creates a TeamPlan and sends one `ModelCallRequest` for each worker assignment. Each request carries the team ID, worker ID, role, stage, task step, required capability, evidence summary, clearance, action risk, and resource lease.
+
+Routing is therefore per worker assignment, not one model choice for the entire task. The same model target may serve several roles only if it holds separate qualification records for those roles. The verifier is a distinct call with a fresh context even when it uses the same model family.
+
+The router and scheduler separate logical capability from physical capacity. A signed HardwareProfile records GPU count, VRAM, CPU and RAM, model residency, KV-cache budget, permitted concurrency, measured latency, and sandbox limits. The resulting TeamResourcePlan records:
+
+- the target capability required by each worker;
+- the resource reservation and deadline;
+- the concurrency ceiling;
+- parallel, pipelined, or serial execution mode;
+- queue and preemption priority;
+- model load and unload decisions;
+- the minimum verifier and review capacity;
+- the admission decision and reason.
+
+On a constrained workstation, the team may become a serial virtual team. The router may queue work, serialize workers, or select a smaller target only when that target is qualified for the same role, risk class, modality, and output contract. It may not skip a verifier or silently weaken a safety requirement because the GPU is full.
+
+Every route event records the team ID, worker role, target identity, hardware profile, resource lease, policy hash, and attempt number. Health is not admission: a live backend that cannot reserve the required context or memory is not eligible for the call.
+
+## Team routing failure rules
+
+If one worker target is unavailable, the router may choose another already-qualified target for that worker assignment or return `queued`. If a worker result fails verification, the Orchestration Engine decides whether to retry, create a new assignment, escalate, or stop. The router does not own domain verification or completion.
+
 Routing research references: NVIDIA NeMo Switchyard's [core concepts](https://github.com/NVIDIA-NeMo/Switchyard/blob/main/docs/core_concepts.md), [LLM-classifier routing](https://github.com/NVIDIA-NeMo/Switchyard/blob/main/docs/routing_algorithms/llm_classifier_routing.md), and [stage-router routing](https://github.com/NVIDIA-NeMo/Switchyard/blob/main/docs/routing_algorithms/stage_router_routing.md). NVIDIA's [NeMoClaw router documentation](https://github.com/NVIDIA/NemoClaw) is the reference for the optional local prefill-router experiment; its hosted-provider path is not suitable for AirBench's sovereignty boundary.

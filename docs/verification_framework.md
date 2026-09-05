@@ -43,3 +43,13 @@ A check that cannot run, for example because it needs a fact the world model doe
 Core: the check runner, the families of check types, the result handling, the number verification in deliverables.
 
 Pack: the actual checks, the bounds, and which checks apply to which kinds of facts.
+
+## Independent evaluation of worker teams
+
+For a complex task, the Verification Framework runs after the team join barrier and may invoke a qualified `verification_worker` or `review_worker`. The evaluator receives the proposed result, typed WorkPackets, source references, artifacts, and completion criteria through a fresh context. It does not rely on the generator's explanation of why the result should pass.
+
+Team agreement is not proof. A majority of workers cannot override a failed deterministic check, a missing source, a low-confidence fact, an autonomy gate, or a required human review. The evaluator produces a typed result, but the framework and orchestrator still own the pass, fail, or needs-review transition.
+
+Complex-task criteria start false and are changed only by the relevant deterministic engine or accepted verification result. Typical criteria include evidence extracted, sources attached, calculations verified, artifact rendered, artifact checked, and independent review complete. A worker cannot set a criterion directly.
+
+If an evaluator cannot run because of missing resources, an invalid handoff, a context failure, or a backend outage, the result is `needs_review` or the task stops. It is never treated as an implicit pass.

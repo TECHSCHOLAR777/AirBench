@@ -18,6 +18,8 @@ More precisely, the orchestrator owns workflow state. Other components may emit 
 
 Every transition has a precondition, bounded timeout, idempotency key, and audit event. A restart resumes from the last committed transition. A tool or model response can propose a result; only the orchestrator can commit the next transition.
 
+For a team run, `executing` contains the controlled substates `team_planned`, `team_admitted`, `team_running`, `join_barrier`, and `independent_verification`. These are still orchestrator transitions with the same preconditions, timeouts, idempotency keys, and ledger events. A worker cannot advance one of them.
+
 ## How a task runs
 
 1. **Create a bounded plan, then check it.** The engine has a model propose a short ordered list of typed steps, with constraints and an action budget attached, and then validates the plan against the request, available tools, clearance, and domain pack. Forming the initial plan before touching untrusted documents prevents a document from rewriting the initial authority envelope. Replanning is allowed only inside that envelope and is validated by the orchestrator.
@@ -55,3 +57,42 @@ A step that fails its check follows its declared retry and escalation policy. A 
 Core: the entire control loop, the planning, the step execution, the external check wiring, the memory handling, the queuing and resilience.
 
 Pack: nothing directly. The orchestrator reads the pack indirectly, through the checks, the risk model, and the decision types that the other engines apply.
+
+## The harness supervisor and worker teams
+
+The Orchestration Engine is also the supervisor of the AirBench Harness. It may run a step with one worker or form a bounded worker team for a complex task. The choice is made from task complexity, modality, risk, required independent checks, and the measured hardware profile.
+
+The team is a plan, not a society of autonomous agents. The orchestrator owns the TeamPlan, worker identities, dependencies, barriers, leases, handoffs, retries, cancellation, and completion. Workers are stateless model calls with isolated contexts. They cannot spawn peers, advance workflow state, grant authority, or write uncontrolled shared state.
+
+The initial worker capability interfaces are `lead_worker`, `research_worker`, `vision_worker`, `reasoning_worker`, `code_worker`, `verification_worker`, `render_worker`, and `review_worker`. A task uses only the roles its stages require. A model may fill more than one role only when it has been qualified separately for each role.
+
+## How a complex team runs
+
+1. The orchestrator creates the immutable `TaskEnvelope` and proposes a bounded TeamPlan.
+2. It validates the team roles, dependencies, evidence scope, tools, autonomy ceiling, completion criteria, and resource budget.
+3. Serving and Routing admits a qualified target and a hardware lease for each worker assignment.
+4. The lead or reasoning worker proposes typed work, while research, vision, code, or other specialists produce independent WorkPackets.
+5. The orchestrator joins the packets at explicit barriers and records unresolved disagreement instead of letting workers resolve authority by consensus.
+6. An independent verification worker checks the proposed result from a fresh context. It does not inherit the generator's private reasoning narrative.
+7. The render worker supplies prose and named field bindings. The Deliverable Engine owns layout, formulas, numbers, and rendering.
+8. A review stage checks the artifact and completion criteria. Only the orchestrator may commit the next state transition.
+
+Every WorkPacket carries source, confidence, clearance, and taint for its facts. A packet is evidence or a proposal, never a permission.
+
+## Hardware-aware execution
+
+The orchestrator asks Serving and Routing for a TeamResourcePlan before starting a team. The plan states whether workers run in parallel, in a pipeline, or as a serial virtual team. A one-GPU machine may therefore run several isolated worker contexts one after another while retaining the same logical team and audit trace.
+
+The scheduler may queue background work, serialize roles, use a smaller qualified target, or stop with a review reason when resources are insufficient. It may not silently remove an independent verifier, lower a verification threshold, expand a timeout without recording it, or route a high-risk role to an unqualified target. Hardware changes schedule and capacity, not authority.
+
+## Harness lifecycle interceptors
+
+The orchestrator runs core-owned interceptors around task, team, worker, model, tool, compaction, barrier, verification, and completion events. A failed interceptor blocks or escalates the operation. Uploaded documents, worker prompts, domain skills, and project-local files cannot disable these interceptors.
+
+Context compaction is a state rebuild, not a trusted model summary. The orchestrator reconstructs worker context from the last committed transition, verified WorkPackets, active constraints, evidence references, and the current budget. The compaction input and output manifests are written to the ledger.
+
+## Team-specific failure handling
+
+Worker transport failure, malformed output, tool failure, barrier timeout, disagreement, verifier failure, and resource exhaustion each produce typed events. The orchestrator can retry or reroute only within the declared policy. If the independent verifier cannot run, the task becomes `needs_review` or stops; it does not complete by majority vote or by trusting the generator.
+
+The complete harness contract, including TaskEnvelope, TeamPlan, WorkPacket, hardware modes, lifecycle interceptors, and default-fail completion, is specified in `airbench_harness.md`.
