@@ -8,6 +8,12 @@ AirBench does not copy Claude Code, embed the Claude Code runtime, or depend on 
 
 AirBench uses the product term "multi-agent team" for a complex task. The implementation term is "worker team" because each agent is a stateless, scoped worker without independent authority.
 
+## Python implementation baseline
+
+The first AirBench backend is implemented in Python. The control plane is a modular Python application containing the orchestrator, harness supervisor, router, policy gates, verification wiring, ledger client, domain-pack loader, and artifact manager. Model servers and the sandbox remain separate local boundaries and are called through typed Python adapters.
+
+Python is the implementation language, not a reason to weaken the contracts. Pydantic or an equivalent schema system, pinned dependencies, explicit async and timeout behavior, and contract tests are required at every boundary.
+
 The harness exists to give a model a rich but bounded working environment while making progress, evidence, verification, and authority structural parts of that environment.
 
 ## The governing rule

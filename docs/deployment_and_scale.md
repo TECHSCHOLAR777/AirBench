@@ -10,6 +10,8 @@ The ground the whole system runs on. It hosts every engine, and it is bound by t
 
 This document describes the target deployment shape. The first scope is intentionally narrower: one local node, one measured hardware profile, a small qualified model set, and no fleet-management claim.
 
+The first control plane is a pinned Python deployment. It may contain multiple Python modules and worker processes, but it is developed as one coherent backend before any distributed service split is attempted. Model servers, the sandbox, and storage boundaries remain isolated where security or GPU scheduling requires it.
+
 ## The shape of a deployment
 
 AirBench runs as a set of services in containers on the organization's own machine. The services are the ones named across the other specs: the orchestrator, the model serving tier, the embeddings service, the specialist vision and drawing service, the tool sandbox, and the stores for search, the world model, the state and records, and the audit trail. They are kept as separate services so a fault in one does not take down the rest.
