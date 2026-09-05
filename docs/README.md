@@ -15,6 +15,7 @@ Start with `architecture_design.md`. It explains the whole system and points to 
 - `orchestration_engine.md` - the deterministic controller and the agent loop.
 - `airbench_harness.md` - the session, worker-team, tool, context, verification, and hardware-aware execution harness.
 - `backend_development_plan.md` - the Python implementation baseline, M1-M10 dependency graph, and backend-complete definition.
+- `agent_development_workflow.md` - the issue-first workflow, document map, parallel work rules, and completion evidence required from coding agents.
 - `serving_and_routing.md` - hosting the models and sending each task to the right one.
 - `verification_framework.md` - checking that an answer is valid by the field's rules.
 - `consistency_engine.md` - keeping decisions consistent and flagging unjustified deviations.
