@@ -4,33 +4,33 @@ This file records requirements deliberately deferred while the first AirBench ve
 
 ## Deferred P0 items
 
-### P0-1 — Hardware and performance profiles
+### P0-1 - Hardware and performance profiles
 
 The current design will be validated on one target machine first. A later full deployment must define supported GPU/RAM profiles, model quantization, context limits, concurrency, cold-start behavior, admission control, and measured p95 latency for each profile. The 96 GB reference roster must not be treated as the minimum deployment.
 
-### P0-2 — Independent sovereignty proof
+### P0-2 - Independent sovereignty proof
 
 The first scope assumes a controlled local deployment and records local execution evidence. A full sovereign deployment must add independent host or network enforcement evidence, default-deny egress tests, IPv4/IPv6/DNS/proxy coverage, removable-media controls, signed machine-state attestations, and offline replay by an independently held verifier.
 
-### P0-4 — Full identity and clearance enforcement
+### P0-4 - Full identity and clearance enforcement
 
 The first scope uses a narrow caller clearance contract. A full deployment must integrate with the organization's identity system and implement attribute-based access control, need-to-know, field/span-level labels, clearance-aware vector and graph queries, cache partitioning, denied-read auditing, inference-leakage protection, and secure session isolation.
 
-### P0-6 — Exhaustive numeric-integrity enforcement
+### P0-6 - Exhaustive numeric-integrity enforcement
 
 The current deliverable scope uses computed values and named template fields. A full deployment must add complete numeric-token scanning across prose, tables, charts, formulas, dates, units, identifiers, and rendered Office packages, with a hard block for any unbound value.
 
-### P0-9 — Full file-format and drawing coverage
+### P0-9 - Full file-format and drawing coverage
 
 The current scope supports the common scanned-document, text-document, spreadsheet, image, and plain-text path. Full coverage must add hardened support for all intended formats, archive and parser limits, macro and embedded-object policy, handwriting, complex tables, engineering drawings, and the drawing pipeline supplied later. The drawing pipeline must have its own signed, versioned, confidence-bearing interface before it is connected.
 
 ## Deferred P1 items
 
-### P1-5 — Full human approval and electronic sign-off workflow
+### P1-5 - Full human approval and electronic sign-off workflow
 
 The first scope may expose a verified draft and review trace without building the complete approval inbox. A full deployment must add identity-bound signatures, one- or two-person approval policies, source-linked review, fact diffs, rejection and revision flows, delegation, revocation, escalation SLAs, and final-artifact hash binding.
 
-### P1-8 — Production packaging, key lifecycle, and fleet operations
+### P1-8 - Production packaging, key lifecycle, and fleet operations
 
 The first scope does not attempt the complete offline appliance lifecycle. A full deployment must add organization-held root keys, rotation and revocation, signed bundles, SBOMs, staged updates, rollback, vulnerability handling, encrypted consistent backups, restore drills, secure deletion, and multi-site one-way distribution.
 
