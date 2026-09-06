@@ -33,7 +33,7 @@ npm run check:tauri-config
 Observed results for this slice:
 
 - Python contract generation check passed.
-- Backend Python suite passed with 76 tests.
+- Backend Python suite passed with 81 tests.
 - Frontend suite passed with 32 tests.
 - TypeScript and Vite production build passed.
 - Static no-egress and Tauri policy checks passed.
