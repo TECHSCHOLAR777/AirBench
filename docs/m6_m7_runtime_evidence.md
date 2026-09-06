@@ -29,8 +29,10 @@ Implemented in `airbench/sandbox.py`.
 
 - `SandboxRunner` accepts only a validated `ToolAction` for `python.execute`.
 - Execution receives a fresh scratch directory, a sanitized environment, bounded wall time, bounded code size, bounded output, and read or write path checks.
+- Scratch directories are removed after success, timeout, worker failure, or malformed worker output. Worker launch and result decoding failures still produce a `tool.result` event with a failed status.
 - Python-level network, DNS, proxy, subprocess, package-install, and unsafe native-module paths are denied in the worker wrapper.
 - Tool request, authorization, and result events are written to the append-only ledger. Results retain output hash, clearance, source reference, confidence, and taint.
+- The result marks hard network isolation only when the policy both requires it and the deployment supplies the declared hard-isolation capability. A capability flag alone is not treated as proof.
 - A policy can require hard OS network isolation. If the deployment cannot provide that capability, the runner fails closed with `network_isolation_unavailable`.
 
 The Python guard is defense in depth. It is not a substitute for a verified container, namespace, job-object, or firewall boundary. The current Windows development account has not supplied that hard isolation evidence, so M6.1 remains open pending the host enforcement provider and no-egress test.
