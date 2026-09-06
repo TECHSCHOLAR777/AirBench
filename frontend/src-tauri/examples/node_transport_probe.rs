@@ -1,4 +1,6 @@
-use airbench_desktop_lib::node_transport::{connect_node_profile, fetch_task_events_profile, NodeProfile};
+use airbench_desktop_lib::node_transport::{
+    connect_node_profile, fetch_task_events_profile, NodeProfile,
+};
 use std::{env, fs};
 
 #[tokio::main]

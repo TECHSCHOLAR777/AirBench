@@ -166,6 +166,9 @@ try {
   $expectedSourceHash = "sha256:" + (Get-FileHash -Algorithm SHA256 -LiteralPath $inputFile).Hash.ToLowerInvariant()
   if ($results.intake_success.payload.manifest.source_hash -ne $expectedSourceHash) { throw "The intake source hash did not match the selected file." }
   if ($results.intake_success.payload.preview.preview_kind -ne "text") { throw "The fixture preview was not a safe text preview." }
+  if ($results.intake_success.payload.artifact_preview.preview_kind -ne "structured_document") { throw "The artifact preview was not a structured safe preview." }
+  if ($results.intake_success.payload.artifact_preview.taint -ne "untrusted") { throw "The artifact preview did not preserve untrusted taint." }
+  if ([string]::IsNullOrWhiteSpace($results.intake_success.payload.artifact_preview.ledger_event_ref)) { throw "The artifact preview did not include a ledger reference." }
   if (-not (Test-Path -LiteralPath $downloadedArtifact)) { throw "The allowed artifact was not downloaded." }
   $results.intake_blocked_download = Invoke-IntakeProbe $blockedProfile $inputFile (Join-Path $runRoot "blocked-approval-note.pdf")
   if ($results.intake_blocked_download.code -eq 0) { throw "The blocked artifact download unexpectedly succeeded." }

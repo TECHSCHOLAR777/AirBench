@@ -111,6 +111,14 @@ h1 { margin-bottom: 10px; color: #20241f; font-size: 31px; line-height: 1.16; le
 .safe-preview-label span { color: var(--faint); font-weight: 500; }
 .safe-preview p { margin: 8px 0 7px; color: #556763; font-size: 11px; line-height: 1.6; }
 .safe-preview small { color: var(--faint); font-size: 9px; }
+.artifact-preview { margin-top: 12px; padding: 17px 18px; border: 1px solid #d9e1e3; border-radius: 9px; background: #fff; }
+.artifact-preview-meta { display: flex; flex-wrap: wrap; gap: 8px 15px; margin-top: 13px; color: var(--faint); font-size: 10px; }
+.artifact-blocks { display: grid; gap: 8px; margin-top: 14px; }
+.artifact-block { padding: 10px 12px; border-left: 3px solid #b9d3cd; background: #f8fbfa; }
+.artifact-block-kind { color: #4c716a; font-size: 9px; font-weight: 760; letter-spacing: .06em; text-transform: uppercase; }
+.artifact-block p { margin: 5px 0 0; color: #556763; font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
+.artifact-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-top: 15px; }
+.artifact-actions small { color: var(--faint); font-size: 9px; line-height: 1.5; overflow-wrap: anywhere; }
 .continue-section { margin-top: 71px; }
 .section-heading { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 14px; }
 .section-heading h2 { margin-bottom: 5px; font-size: 16px; letter-spacing: -.02em; font-weight: 680; }

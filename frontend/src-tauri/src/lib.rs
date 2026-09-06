@@ -20,6 +20,7 @@ pub fn run() {
             intake::pick_query_file,
             intake::upload_selected_query_file,
             intake::fetch_safe_preview,
+            intake::fetch_artifact_preview,
             intake::download_artifact
         ])
         .run(tauri::generate_context!())
