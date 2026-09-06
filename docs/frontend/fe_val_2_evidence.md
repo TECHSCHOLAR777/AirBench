@@ -35,13 +35,16 @@ From `frontend/`:
 - `npm run check:egress`;
 - `npm run check:tauri-config`.
 - `npm run validate:node`, including wrong credential, wrong identity, wrong certificate pin, invalid AirBench endpoint, invalid task identifier, denied artifact download, and unsupported file cases.
-- `npm run test` passes 25 tests, including controller coverage for unapproved profiles, verified connection metadata, disconnect and reconnect gating, and secret-safe failure handling.
+- `npm run test` passes 32 tests, including controller coverage for unapproved profiles, verified connection metadata, disconnect and reconnect gating, secret-safe failure handling, and the native approved-profile bridge mapping.
+- The Node settings screen now loads administrator-provisioned profiles through `list_approved_node_profiles`, presents transport and clearance metadata without exposing an endpoint editor, and renders verified identity, protocol, clearance, and ledger reference after the handshake.
+- The connection and event-stream commands now cross IPC with only the stable `profile_id`; Rust resolves endpoint, certificate policy, and credential references from the native catalog. The webview does not receive those transport secrets or certificate materials.
 
 ## Required before closing #65
 
 - Rust-owned local transport against a deterministic AirBench Node fixture;
 - approved internal remote HTTPS fixture with certificate or public-key pin verification;
 - a Node-side authentication mechanism that does not expose credentials or private keys to the webview;
+- signed profile-catalog verification and host ACL evidence for the provisioned profile file;
 - successful local and HTTPS fixture runs from `npm run validate:node`;
 - credential setup is piped to the OS credential-store helper rather than passed as a command-line argument;
 - protocol version and authenticated identity result;

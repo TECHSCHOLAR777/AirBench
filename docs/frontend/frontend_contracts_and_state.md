@@ -61,6 +61,10 @@ TaskSnapshot
 
 The snapshot may omit content the user is not cleared to see, but it must include a structured reason for omission.
 
+## 3.1 Approved Node profile catalog
+
+The desktop receives connection profiles only from the native Tauri boundary. A profile carries a stable ID, display label, transport kind, expected Node identity, protocol version, clearance context, certificate policy reference, and operating-system credential reference. The React layer does not accept an arbitrary URL, secret, certificate, or profile JSON from a user. The native catalog rejects invalid or unapproved entries before returning them. The initial implementation uses an administrator-provisioned application configuration file; signed policy verification and host ACL evidence remain release gates.
+
 ## 4. Event envelope
 
 The minimum event envelope is:

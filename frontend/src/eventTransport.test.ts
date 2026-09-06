@@ -28,9 +28,9 @@ describe("Rust-owned event transport", () => {
   it("serializes the cursor request without exposing a secret", () => {
     expect(toNativeEventProfile(profile)).toMatchObject({
       profile_id: "node-profile-1",
-      credential_ref: "fixture-user",
-      approved_by_policy: true,
     });
+    expect(toNativeEventProfile(profile)).not.toHaveProperty("credential_ref");
+    expect(toNativeEventProfile(profile)).not.toHaveProperty("endpoint");
     expect(JSON.stringify(toNativeEventProfile(profile))).not.toContain("token");
   });
 

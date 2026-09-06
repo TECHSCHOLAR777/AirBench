@@ -1,4 +1,4 @@
-use airbench_desktop_lib::node_transport::{connect_node, fetch_task_events, NodeProfile};
+use airbench_desktop_lib::node_transport::{connect_node_profile, fetch_task_events_profile, NodeProfile};
 use std::{env, fs};
 
 #[tokio::main]
@@ -10,11 +10,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match if mode == "events" {
         let task_id = args.next().ok_or("expected a task id")?;
         let after_sequence = args.next().unwrap_or_else(|| "0".to_string()).parse()?;
-        fetch_task_events(profile, task_id, after_sequence)
+        fetch_task_events_profile(profile, task_id, after_sequence)
             .await
             .map(|batch| serde_json::to_value(batch).expect("serialize event batch"))
     } else {
-        connect_node(profile)
+        connect_node_profile(profile)
             .await
             .map(|result| serde_json::to_value(result).expect("serialize connection result"))
     } {

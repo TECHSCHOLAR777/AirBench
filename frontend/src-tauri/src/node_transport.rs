@@ -2,14 +2,19 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::fs;
+use std::path::PathBuf;
 use std::time::Duration;
+use tauri::Manager;
 
 const HANDSHAKE_PATH: &str = "/api/v1/node/handshake";
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct NodeProfile {
     pub profile_id: String,
+    #[serde(default)]
+    pub display_name: String,
     pub endpoint: String,
     pub transport: NodeTransport,
     pub node_identity: String,
@@ -21,7 +26,19 @@ pub struct NodeProfile {
     pub approved_by_policy: bool,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ApprovedNodeProfileView {
+    pub profile_id: String,
+    pub display_name: String,
+    pub transport: NodeTransport,
+    pub node_identity: String,
+    pub protocol_version: String,
+    pub clearance_context: String,
+    pub approved_by_policy: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeTransport {
     Loopback,
@@ -195,6 +212,59 @@ fn validate_profile(profile: &NodeProfile) -> Result<Url, NodeTransportError> {
     Ok(handshake)
 }
 
+fn approved_profiles_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map(|directory| directory.join("approved-node-profiles.json"))
+        .map_err(|_| "The AirBench profile directory is unavailable.".to_string())
+}
+
+fn load_approved_profiles(app: &tauri::AppHandle) -> Result<Vec<NodeProfile>, String> {
+    let path = approved_profiles_path(app)?;
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let content = fs::read_to_string(path)
+        .map_err(|_| "The approved Node profile catalog could not be read.".to_string())?;
+    let profiles: Vec<NodeProfile> = serde_json::from_str(&content)
+        .map_err(|_| "The approved Node profile catalog is not valid.".to_string())?;
+
+    for profile in &profiles {
+        validate_profile(profile).map_err(|error| error.to_string())?;
+    }
+
+    Ok(profiles)
+}
+
+fn approved_profile_by_id(app: &tauri::AppHandle, profile_id: &str) -> Result<NodeProfile, String> {
+    load_approved_profiles(app)?
+        .into_iter()
+        .find(|profile| profile.profile_id == profile_id)
+        .ok_or_else(|| "The requested Node profile is not approved on this workstation.".to_string())
+}
+
+/// Returns administrator-provisioned profiles only. The catalog is not a user
+/// editable endpoint form. Production provisioning must protect this file with
+/// the host policy ACL and, before release, a signed policy verification step.
+#[tauri::command]
+pub fn list_approved_node_profiles(
+    app: tauri::AppHandle,
+) -> Result<Vec<ApprovedNodeProfileView>, String> {
+    Ok(load_approved_profiles(&app)?
+        .into_iter()
+        .map(|profile| ApprovedNodeProfileView {
+            profile_id: profile.profile_id,
+            display_name: profile.display_name,
+            transport: profile.transport,
+            node_identity: profile.node_identity,
+            protocol_version: profile.protocol_version,
+            clearance_context: profile.clearance_context,
+            approved_by_policy: profile.approved_by_policy,
+        })
+        .collect())
+}
+
 fn certificate_pin(response: &reqwest::Response) -> Option<String> {
     response
         .extensions()
@@ -279,8 +349,7 @@ pub(crate) fn verify_certificate_pin(
     Ok(())
 }
 
-#[tauri::command]
-pub async fn connect_node(profile: NodeProfile) -> Result<NodeConnectionResult, String> {
+pub async fn connect_node_profile(profile: NodeProfile) -> Result<NodeConnectionResult, String> {
     let handshake_url = validate_profile(&profile).map_err(String::from)?;
     let token = credential_token(&profile).map_err(String::from)?;
 
@@ -347,6 +416,15 @@ pub async fn connect_node(profile: NodeProfile) -> Result<NodeConnectionResult, 
     })
 }
 
+#[tauri::command]
+pub async fn connect_node(
+    app: tauri::AppHandle,
+    profile_id: String,
+) -> Result<NodeConnectionResult, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    connect_node_profile(profile).await
+}
+
 fn task_events_url(
     profile: &NodeProfile,
     task_id: &str,
@@ -374,8 +452,7 @@ fn task_events_url(
     Ok(endpoint)
 }
 
-#[tauri::command]
-pub async fn fetch_task_events(
+pub async fn fetch_task_events_profile(
     profile: NodeProfile,
     task_id: String,
     after_sequence: u64,
@@ -443,6 +520,17 @@ pub async fn fetch_task_events(
     Ok(batch)
 }
 
+#[tauri::command]
+pub async fn fetch_task_events(
+    app: tauri::AppHandle,
+    profile_id: String,
+    task_id: String,
+    after_sequence: u64,
+) -> Result<TaskEventBatch, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    fetch_task_events_profile(profile, task_id, after_sequence).await
+}
+
 fn redact_request_error(error: &reqwest::Error) -> String {
     if error.is_timeout() {
         "The approved Node did not respond before the connection timeout.".to_string()
@@ -460,6 +548,7 @@ mod tests {
     fn profile(endpoint: &str, transport: NodeTransport, pin: Option<&str>) -> NodeProfile {
         NodeProfile {
             profile_id: "profile-1".to_string(),
+            display_name: "Test Node".to_string(),
             endpoint: endpoint.to_string(),
             transport,
             node_identity: "node-1".to_string(),

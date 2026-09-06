@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+
+const packageJson = JSON.parse(readFileSync(resolve(__dirname, "package.json"), "utf8")) as { version: string };
 
 export default defineConfig(({ mode }) => {
   const aliases: Record<string, string> = mode === "webdriver"
@@ -15,6 +18,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     clearScreen: false,
+    define: { __AIRBENCH_VERSION__: JSON.stringify(packageJson.version) },
     resolve: { alias: aliases },
     server: {
       host: "127.0.0.1",

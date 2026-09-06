@@ -31,7 +31,7 @@ Run: `AirBenchNodeValidation-20260906-093801-1789648d61b9499e8a9cedb30ecd49fb`
 - wrong credential, wrong Node identity, wrong certificate pin, invalid AirBench endpoint, and invalid task identifiers are rejected;
 - fixture logs do not contain bearer credential values.
 
-The TypeScript suite now covers duplicate events, sequence gaps, replay requests, snapshot replacement, blocked consequential commands, idempotency-key reservation, temporary disconnect retry, cursor replay after a gap, replay non-convergence, wrong-task protocol batches, and fail-closed pre-sync behavior. It passes 21 tests. The Rust suite covers endpoint and cursor-boundary validation.
+The TypeScript suite now covers duplicate events, sequence gaps, replay requests, snapshot replacement, blocked consequential commands, idempotency-key reservation, temporary disconnect retry, cursor replay after a gap, replay non-convergence, wrong-task protocol batches, unknown-event fail-closed behavior, and fail-closed pre-sync behavior. It passes 32 tests. The Rust suite covers endpoint and cursor-boundary validation.
 
 ## Remaining acceptance evidence
 

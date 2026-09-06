@@ -6,7 +6,7 @@ The frontend is not a second orchestrator, model client, parser, calculator, or 
 
 ## Implementation status
 
-The first frontend runtime now lives in the repository's `frontend/` directory. It is a Tauri 2 desktop shell with a React and TypeScript presentation layer. The initial slice is intentionally disconnected from the Node: it proves local startup, truthful disconnected state, local assets, and a fail-closed security boundary before transport is introduced.
+The first frontend runtime now lives in the repository's `frontend/` directory. It is a Tauri 2 desktop shell with a React and TypeScript presentation layer. The shell now exposes the native-approved Node profile catalog and wires the existing Rust-owned handshake and connection controller into the Node settings screen. Task creation remains disabled until the typed task command and authoritative Python Node contract are integrated.
 
 The implementation order is tracked by the development issues below. The validation issues remain evidence gates and are not replaced by a rendered mockup.
 
@@ -14,7 +14,7 @@ The implementation order is tracked by the development issues below. The validat
 | --- | --- | --- |
 | [FE-DEV-01, #73](https://github.com/TECHSCHOLAR777/AirBench/issues/73) | Secure Tauri shell | Parallel foundation |
 | [FE-DEV-02, #74](https://github.com/TECHSCHOLAR777/AirBench/issues/74) | Typed Node protocol and event projection | Serialized contract |
-| [FE-DEV-03, #75](https://github.com/TECHSCHOLAR777/AirBench/issues/75) | Trusted Node connection | Serial critical path |
+| [FE-DEV-03, #75](https://github.com/TECHSCHOLAR777/AirBench/issues/75) | Trusted Node connection and profile selection | Serial critical path |
 | [FE-DEV-04, #76](https://github.com/TECHSCHOLAR777/AirBench/issues/76) | Home, task creation, and File Intake handoff | Serial critical path |
 | [FE-DEV-05, #77](https://github.com/TECHSCHOLAR777/AirBench/issues/77) | Task Plan Review | Serial critical path |
 | [FE-DEV-06, #78](https://github.com/TECHSCHOLAR777/AirBench/issues/78) | Live Task Workspace | Serial critical path |
