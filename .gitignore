@@ -34,3 +34,11 @@ airbench-models/
 airbench_hashes_output.yaml
 airbench_signed_patches.yaml
 *.patch
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/src-tauri/target/
+frontend/artifacts/
+frontend/logs/
+*.tsbuildinfo

@@ -1,0 +1,6 @@
+{
+  "identifier": "main-window",
+  "description": "Minimal local capability set for the AirBench desktop shell",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
