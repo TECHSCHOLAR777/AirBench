@@ -1,6 +1,6 @@
 use crate::node_transport::{
-    approved_profile_by_id, build_client, credential_token, node_url, verify_certificate_pin, NodeProfile,
-    NodeTransportError,
+    approved_profile_by_id, build_client, credential_token, node_url, verify_certificate_pin,
+    NodeProfile, NodeTransportError,
 };
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 const MAX_QUERY_UPLOAD_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_NODE_REFERENCE_BYTES: usize = 256;
+const MAX_PREVIEW_TEXT_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Default)]
 pub struct IntakeState {
@@ -100,6 +101,99 @@ fn validate_node_reference(reference: &str, label: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_sha256(value: &str, label: &str) -> Result<(), String> {
+    let valid = value
+        .strip_prefix("sha256:")
+        .map(|digest| digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        == Some(true);
+    if !valid {
+        return Err(format!(
+            "The Node {label} is not a valid SHA-256 reference."
+        ));
+    }
+    Ok(())
+}
+
+fn validate_clearance(value: &str) -> Result<(), String> {
+    if !matches!(value, "public" | "internal" | "restricted" | "secret") {
+        return Err("The Node returned an invalid clearance value.".to_string());
+    }
+    Ok(())
+}
+
+fn validate_taint(value: &str) -> Result<(), String> {
+    if !matches!(value, "clean" | "untrusted" | "contaminated") {
+        return Err("The Node returned an invalid taint value.".to_string());
+    }
+    Ok(())
+}
+
+fn validate_status(value: &str, label: &str) -> Result<(), String> {
+    if !matches!(
+        value,
+        "pending" | "running" | "completed" | "failed" | "not_applicable" | "unavailable"
+    ) {
+        return Err(format!("The Node returned an invalid {label} status."));
+    }
+    Ok(())
+}
+
+fn validate_intake_manifest(manifest: &IntakeManifest) -> Result<(), String> {
+    validate_node_reference(&manifest.intake_id, "intake")?;
+    validate_node_reference(&manifest.revision_id, "revision")?;
+    validate_node_reference(&manifest.preview_ref, "preview")?;
+    validate_node_reference(&manifest.artifact_ref, "artifact")?;
+    validate_node_reference(&manifest.ledger_event_ref, "ledger event")?;
+    if manifest.file_name.is_empty()
+        || manifest.file_name.len() > 255
+        || manifest.file_name.contains('/')
+        || manifest.file_name.contains('\\')
+        || manifest.file_name.contains('\0')
+    {
+        return Err("The Node returned an invalid intake file name.".to_string());
+    }
+    if manifest.byte_size == 0 || manifest.byte_size > MAX_QUERY_UPLOAD_BYTES {
+        return Err("The Node returned an invalid intake byte size.".to_string());
+    }
+    if manifest.page_count == 0 {
+        return Err("The Node returned an invalid intake page count.".to_string());
+    }
+    if manifest.media_type.trim().is_empty() || manifest.media_type.contains('\0') {
+        return Err("The Node returned an invalid intake media type.".to_string());
+    }
+    validate_sha256(&manifest.source_hash, "source hash")?;
+    validate_status(&manifest.ocr_status, "OCR")?;
+    validate_status(&manifest.vision_status, "vision")?;
+    validate_clearance(&manifest.clearance)?;
+    validate_taint(&manifest.taint)
+}
+
+fn validate_safe_preview(preview: &SafePreview, requested_ref: &str) -> Result<(), String> {
+    validate_node_reference(requested_ref, "preview")?;
+    if preview.preview_ref != requested_ref {
+        return Err("The Node preview reference does not match the requested preview.".to_string());
+    }
+    if !matches!(
+        preview.preview_kind.as_str(),
+        "text" | "image" | "pdf_page" | "table"
+    ) {
+        return Err("The Node returned an unsupported safe preview kind.".to_string());
+    }
+    if preview.text.as_bytes().len() > MAX_PREVIEW_TEXT_BYTES || preview.text.contains('\0') {
+        return Err("The Node preview text exceeds the safe preview limit.".to_string());
+    }
+    validate_sha256(&preview.source_hash, "preview source hash")?;
+    if preview.source_region.trim().is_empty() || preview.source_region.contains('\0') {
+        return Err("The Node returned an invalid preview source region.".to_string());
+    }
+    if !preview.confidence.is_finite() || !(0.0..=1.0).contains(&preview.confidence) {
+        return Err("The Node returned an invalid preview confidence.".to_string());
+    }
+    validate_clearance(&preview.clearance)?;
+    validate_taint(&preview.taint)?;
+    validate_node_reference(&preview.ledger_event_ref, "ledger event")
+}
+
 #[tauri::command]
 pub fn pick_query_file(state: State<'_, IntakeState>) -> Result<Option<SelectedFile>, String> {
     let Some(path) = FileDialog::new()
@@ -146,8 +240,14 @@ pub async fn upload_query_file_from_path(
     let bytes = tokio::fs::read(&path)
         .await
         .map_err(|_| "The selected file could not be opened for intake.".to_string())?;
+    if metadata.len() != bytes.len() as u64 {
+        return Err(
+            "The selected file changed while it was being prepared for intake.".to_string(),
+        );
+    }
+    let expected_source_hash = format!("sha256:{}", hex::encode(Sha256::digest(&bytes)));
     let part = reqwest::multipart::Part::bytes(bytes)
-        .file_name(file_name)
+        .file_name(file_name.clone())
         .mime_str("application/octet-stream")
         .map_err(|_| "The intake media type could not be constructed.")?;
     let form = reqwest::multipart::Form::new()
@@ -170,10 +270,18 @@ pub async fn upload_query_file_from_path(
             response.status().as_u16()
         ));
     }
-    response
+    let manifest = response
         .json::<IntakeManifest>()
         .await
-        .map_err(|_| "The Node did not return the File Intake manifest schema.".to_string())
+        .map_err(|_| "The Node did not return the File Intake manifest schema.".to_string())?;
+    validate_intake_manifest(&manifest)?;
+    if manifest.file_name != file_name || manifest.byte_size != metadata.len() {
+        return Err("The Node intake manifest does not match the uploaded file.".to_string());
+    }
+    if manifest.source_hash != expected_source_hash {
+        return Err("The Node intake source hash does not match the uploaded file.".to_string());
+    }
+    Ok(manifest)
 }
 
 #[tauri::command]
@@ -220,10 +328,12 @@ pub async fn fetch_safe_preview_from_profile(
             response.status().as_u16()
         ));
     }
-    response
+    let preview = response
         .json::<SafePreview>()
         .await
-        .map_err(|_| "The Node did not return a safe preview schema.".to_string())
+        .map_err(|_| "The Node did not return a safe preview schema.".to_string())?;
+    validate_safe_preview(&preview, &preview_ref)?;
+    Ok(preview)
 }
 
 #[tauri::command]
@@ -276,6 +386,8 @@ pub async fn download_artifact_to_path(
         .and_then(|value| value.to_str().ok())
         .ok_or_else(|| "The artifact response did not contain a ledger reference.".to_string())?
         .to_string();
+    validate_sha256(&expected_hash, "artifact hash")?;
+    validate_node_reference(&ledger_event_ref, "ledger event")?;
     let bytes = response
         .bytes()
         .await
@@ -324,7 +436,29 @@ fn _keep_error_type_linked(_: NodeTransportError) {}
 
 #[cfg(test)]
 mod tests {
-    use super::validate_node_reference;
+    use super::{
+        validate_intake_manifest, validate_node_reference, validate_safe_preview, IntakeManifest,
+        SafePreview,
+    };
+
+    fn valid_manifest() -> IntakeManifest {
+        IntakeManifest {
+            intake_id: "intake-1".to_string(),
+            file_name: "report.pdf".to_string(),
+            byte_size: 1,
+            source_hash: format!("sha256:{}", "a".repeat(64)),
+            revision_id: "revision-1".to_string(),
+            media_type: "application/pdf".to_string(),
+            page_count: 1,
+            ocr_status: "completed".to_string(),
+            vision_status: "completed".to_string(),
+            clearance: "restricted".to_string(),
+            taint: "untrusted".to_string(),
+            preview_ref: "preview-1".to_string(),
+            artifact_ref: "artifact-1".to_string(),
+            ledger_event_ref: "ledger-1".to_string(),
+        }
+    }
 
     #[test]
     fn accepts_opaque_node_references_without_fixture_prefixes() {
@@ -338,5 +472,41 @@ mod tests {
             assert!(validate_node_reference(reference, "preview").is_err());
         }
         assert!(validate_node_reference(&"a".repeat(257), "artifact").is_err());
+    }
+
+    #[test]
+    fn intake_manifest_validation_rejects_inconsistent_or_untrusted_shapes() {
+        let mut manifest = valid_manifest();
+        assert!(validate_intake_manifest(&manifest).is_ok());
+
+        manifest.source_hash = "sha256:not-a-digest".to_string();
+        assert!(validate_intake_manifest(&manifest).is_err());
+        manifest = valid_manifest();
+        manifest.page_count = 0;
+        assert!(validate_intake_manifest(&manifest).is_err());
+        manifest = valid_manifest();
+        manifest.file_name = "..\\secret.pdf".to_string();
+        assert!(validate_intake_manifest(&manifest).is_err());
+    }
+
+    #[test]
+    fn safe_preview_validation_preserves_reference_and_provenance_requirements() {
+        let preview = SafePreview {
+            preview_ref: "preview-1".to_string(),
+            preview_kind: "text".to_string(),
+            text: "untrusted preview data".to_string(),
+            source_hash: format!("sha256:{}", "b".repeat(64)),
+            source_region: "page:1;region:full-page".to_string(),
+            confidence: 0.98,
+            clearance: "restricted".to_string(),
+            taint: "untrusted".to_string(),
+            ledger_event_ref: "ledger-preview-1".to_string(),
+        };
+        assert!(validate_safe_preview(&preview, "preview-1").is_ok());
+        assert!(validate_safe_preview(&preview, "preview-2").is_err());
+
+        let mut invalid = preview;
+        invalid.confidence = 1.1;
+        assert!(validate_safe_preview(&invalid, "preview-1").is_err());
     }
 }
