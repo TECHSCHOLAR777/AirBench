@@ -3,6 +3,7 @@ current_version: '1.0'
 contracts:
   - TaskEnvelope
   - TeamPlan
+  - TaskPlanReview
   - WorkerAssignment
   - WorkPacket
   - WorkerResult

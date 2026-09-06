@@ -30,8 +30,10 @@ class SandboxTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             policy = SandboxPolicy(Path(root))
             result = SandboxRunner(ledger).execute(action("print('computed evidence')"), policy)
+            self.assertEqual(list(Path(root).iterdir()), [])
         self.assertEqual(result.status, "succeeded")
         self.assertIn("computed evidence", result.stdout)
+        self.assertFalse(result.hard_network_isolation)
         self.assertEqual([event.event_type for event in ledger.events], ["task.created", "tool.requested", "tool.authorized", "tool.result"])
         self.assertEqual(len(result.ledger_event_refs), 3)
 
@@ -69,6 +71,19 @@ except Exception as exc:
             with self.assertRaises(SandboxError) as caught:
                 SandboxRunner(ledger).execute(action("print('not started')"), SandboxPolicy(Path(root), require_hard_network_isolation=True))
         self.assertEqual(caught.exception.code, "network_isolation_unavailable")
+        self.assertEqual(ledger.events[-1].event_type, "tool.result")
+
+    def test_invalid_worker_output_still_writes_a_result_and_cleans_scratch(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.sandbox")
+        with tempfile.TemporaryDirectory() as root:
+            result = SandboxRunner(ledger).execute(
+                action("import sys; sys.__stdout__.write('not-json')"),
+                SandboxPolicy(Path(root)),
+            )
+            self.assertEqual(list(Path(root).iterdir()), [])
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.stderr, "sandbox worker failed or returned invalid output")
         self.assertEqual(ledger.events[-1].event_type, "tool.result")
 
     def test_write_scope_is_limited_to_sandbox_root(self):

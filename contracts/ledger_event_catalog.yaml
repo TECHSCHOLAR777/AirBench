@@ -23,6 +23,7 @@ events:
   - task.created
   - task.authorized
   - task.plan.committed
+  - task.plan.approved
   - task.checkpoint.committed
   - task.cancelled
   - task.failed

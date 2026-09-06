@@ -124,8 +124,9 @@ Examples:
 
 - `task.create`
 - `task.submit`
+- `task.approve_plan`
 - `task.pause`
-- `task.stop`
+- `task.cancel`
 - `task.resume`
 - `task.answer_question`
 - `artifact.approve`
@@ -134,6 +135,18 @@ Examples:
 - `node.recheck`
 
 The Node returns an accepted, rejected, or needs-review result. The UI waits for the corresponding event before changing authoritative status.
+
+## 5.2 Live task workspace
+
+The Live Task Workspace is a presentation of the Node snapshot plus the ordered task-local event stream. It may show status, phase, worker and tool summaries, evidence and verification summaries, plan mode, hardware references, unresolved questions, and ledger references. It must not infer progress from elapsed time, client receipt order, worker count, or model output.
+
+The first desktop slice uses `task.cancel` for a bounded stop request. The command carries the last applied task sequence, authenticated actor, and idempotency key. The UI shows the command receipt but changes task status only after the Node emits the corresponding authoritative event. Pause, resume, and answer-question actions remain unavailable until their Node contracts and ledger transitions are defined.
+
+## 5.1 Plan review projection
+
+The Node exposes a typed `TaskPlanReview` projection for the plan review surface. It contains the committed team assignments, dependency graph, verification criteria, capability lanes, hardware profile reference, execution mode, hardware reason, authority requirement, plan and policy hashes, task-local sequence, and ledger reference. The projection can be `not_ready`, `ready`, `queued`, `needs_review`, `blocked`, or `rejected`.
+
+The UI never infers parallelism from the number of displayed workers. It shows parallel, pipelined, or serial virtual-team mode only when the Node supplies a valid hardware admission record. Missing or invalid hardware admission is shown as a blocked review state. `task.approve_plan` carries the last server sequence and an idempotency key; the UI displays the accepted command but waits for the authoritative plan-approval event before changing task state.
 
 ## 6. Event application
 
