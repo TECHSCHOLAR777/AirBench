@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateApprovedProfile, type ApprovedNodeProfile } from "./nodeConnection";
+import { assertApprovedNodeProfile, validateApprovedProfile, type ApprovedNodeProfile } from "./nodeConnection";
 
 const baseProfile: ApprovedNodeProfile = {
   profileId: "node-profile-1",
@@ -44,5 +44,10 @@ describe("approved Node connection profiles", () => {
   it("allows only loopback hosts for a local fixture profile", () => {
     expect(validateApprovedProfile({ ...baseProfile, transport: "loopback", endpoint: "http://127.0.0.1:9443", certificatePinSha256: null }).valid).toBe(true);
     expect(validateApprovedProfile({ ...baseProfile, transport: "loopback", endpoint: "http://192.168.1.10:9443", certificatePinSha256: null }).valid).toBe(false);
+  });
+
+  it("provides one fail-closed guard for native bridges", () => {
+    expect(assertApprovedNodeProfile(baseProfile)).toBe(baseProfile);
+    expect(() => assertApprovedNodeProfile({ ...baseProfile, approvedByPolicy: false })).toThrowError(/approved by policy/);
   });
 });

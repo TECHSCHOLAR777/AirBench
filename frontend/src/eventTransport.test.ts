@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { toNativeEventProfile } from "./eventTransport";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+vi.mock("@airbench/tauri-invoke", () => ({ invoke: invokeMock }));
+
+import { fetchTaskEventBatch, toNativeEventProfile } from "./eventTransport";
 import type { ApprovedNodeProfile } from "./nodeConnection";
 
 const profile: ApprovedNodeProfile = {
@@ -17,6 +21,10 @@ const profile: ApprovedNodeProfile = {
 };
 
 describe("Rust-owned event transport", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
   it("serializes the cursor request without exposing a secret", () => {
     expect(toNativeEventProfile(profile)).toMatchObject({
       profile_id: "node-profile-1",
@@ -24,5 +32,10 @@ describe("Rust-owned event transport", () => {
       approved_by_policy: true,
     });
     expect(JSON.stringify(toNativeEventProfile(profile))).not.toContain("token");
+  });
+
+  it("rejects an unapproved profile before the event command crosses IPC", () => {
+    expect(() => fetchTaskEventBatch({ ...profile, approvedByPolicy: false }, "task-1", 0)).toThrowError(/approved by policy/);
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 });

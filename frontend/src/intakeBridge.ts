@@ -1,6 +1,6 @@
 import { invoke } from "@airbench/tauri-invoke";
 import { toNativeNodeProfile } from "./nodeBridge";
-import { validateApprovedProfile, type ApprovedNodeProfile } from "./nodeConnection";
+import { assertApprovedNodeProfile, type ApprovedNodeProfile } from "./nodeConnection";
 
 export interface IntakeManifest {
   intake_id: string;
@@ -40,11 +40,7 @@ export interface DownloadReceipt {
 }
 
 function approvedProfilePayload(profile: ApprovedNodeProfile) {
-  const validation = validateApprovedProfile(profile);
-  if (!validation.valid) {
-    throw new Error(validation.message);
-  }
-  return toNativeNodeProfile(profile);
+  return toNativeNodeProfile(assertApprovedNodeProfile(profile));
 }
 
 /**
