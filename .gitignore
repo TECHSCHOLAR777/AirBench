@@ -1,8 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# AirBench Scratch & Local Weights
+D:/airbench-scratch/
+airbench-models/
+
+# AirBench signing key — NEVER commit this
+.airbench_signing_key
+
+# Intermediate scratch outputs
+airbench_hashes_output.yaml
+airbench_signed_patches.yaml
+*.patch
+
+# Frontend build artifacts
 frontend/node_modules/
 frontend/dist/
 frontend/src-tauri/target/
 frontend/artifacts/
 frontend/logs/
 *.tsbuildinfo
-__pycache__/
-*.pyc

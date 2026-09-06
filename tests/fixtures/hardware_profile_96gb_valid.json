@@ -16,5 +16,9 @@
   "kv_cache_bytes": 4294967296,
   "safe_parallel_slots": 2,
   "egress_policy": "no-egress",
-  "measurement_hash": "sha256:hardware-measurement"
+  "measurement_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "supported_execution_modes": ["serial_virtual_team", "parallel"],
+  "network_check_id": "evt-hardware-probe-001",
+  "sandbox_runtime": "none",
+  "benchmark_result_ref": "benchmarks/model_hardware_results.yaml#hardware.96gb-vram-001"
 }

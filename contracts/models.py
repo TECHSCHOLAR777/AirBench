@@ -15,6 +15,7 @@ SCHEMA_VERSION = "1.0"
 COMPATIBILITY_ID = "airbench-core-contracts"
 _ID = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 LEDGER_EVENT_TYPES = {
+    # ── Core task lifecycle ────────────────────────────────────────────────────
     "task.created", "task.authorized", "task.plan.committed", "task.checkpoint.committed", "task.cancelled", "task.failed",
     "team.created", "worker.assigned", "worker.started", "worker.completed", "worker.failed", "worker.handoff",
     "model.requested", "routing.decided", "model.responded", "model.failed", "tool.requested", "tool.authorized", "tool.denied", "tool.result",
@@ -25,6 +26,62 @@ LEDGER_EVENT_TYPES = {
     "projection.rebuilt", "projection.exported", "checkpoint.committed", "retry.completed",
     "retry.failed", "side_effect.reserved", "side_effect.committed", "side_effect.uncertain",
     "recovery.resumed", "crash.recovered",
+    # ── M5.1: Model registry, artifact integrity, qualification ───────────────
+    "model.registry.loaded",          # registry manifest loaded and signature verified
+    "model.registry.signature.verified",  # manifest HMAC confirmed
+    "model.target.rejected",          # target failed eligibility or signature check
+    "model.target.qualified",         # target passed all qualification gates
+    "model.artifact.integrity.verified",  # local file hash matches registry digest
+    "model.qualification.checked",    # certificate expiry and role scope verified
+    "model.variant.qualified",        # quantization variant passed role/risk qualification
+    "backend.compatibility.started",  # backend conformance test suite started
+    "backend.compatibility.completed",# backend conformance test suite finished
+    "backend.airgap_startup.checked", # no-egress startup confirmed
+    "backend.nim.checked",            # NIM optional path tested
+    "model.loaded",                   # model weights loaded into runtime
+    "model.resident",                 # model is warm-resident in VRAM
+    "model.evicted",                  # model evicted from VRAM (residency policy)
+    "model.unloaded",                 # model fully unloaded
+    "model.call.started",             # individual inference call started
+    "model.call.completed",           # individual inference call finished
+    "model.call.failed",              # individual inference call failed
+    "model.tool_call.tested",         # tool-call schema validity tested
+    "model.structured_output.tested", # structured output schema tested
+    "model.multimodal.tested",        # multimodal/image input tested
+    "model.lifecycle.tested",         # streaming and cancellation tested
+    "routing.decision",               # RoutingDecision emitted for a worker assignment
+    "routing.fallback.selected",      # qualified fallback target selected
+    "routing.queued",                 # routing queued; no qualified target available now
+    "verification.reservation.confirmed",  # verifier slot reserved before worker starts
+    "completion.blocked",             # completion gate blocked (verifier unavailable etc.)
+    "completion.ready",               # all completion gates passed
+    "artifact.integrity.verified",    # supply-chain artifact hash confirmed
+    # ── M5.2: Hardware measurement, scheduling, residency ─────────────────────
+    "hardware.profile.measured",      # legacy alias kept for backward compatibility
+    "hardware.measurement.started",   # probe script started collecting hardware data
+    "hardware.measurement.completed", # signed HardwareProfile produced
+    "hardware.profile.loaded",        # signed HardwareProfile validated and loaded
+    "model.benchmark.started",        # per-target benchmark run started
+    "model.benchmark.completed",      # per-target benchmark run finished
+    "team.resource_plan.created",     # TeamResourcePlan constructed before admission
+    "team.resource_plan.admitted",    # plan admitted (parallel or serial mode)
+    "team.resource_plan.queued",      # plan queued; capacity temporarily unavailable
+    "team.resource_plan.degraded_needs_review",  # admitted in lower-capability mode with review
+    "team.resource_plan.rejected",    # plan rejected; unsafe or invalid
+    "worker.resource_reserved",       # per-worker VRAM/RAM/KV reservation confirmed
+    "worker.preempted",               # worker preempted by higher-priority task
+    "worker.cancelled",               # worker cancelled; reservations released
+    "execution.mode.selected",        # parallel/pipelined/serial mode selected
+    "execution.mode.changed",         # mode changed during execution (e.g. capacity drop)
+    "join_barrier.waiting",           # join barrier waiting for upstream workers
+    "join_barrier.completed",         # all upstream workers satisfied the join barrier
+    "background.work.yielded",        # background ingestion yielded to interactive task
+    "resource.exhaustion.detected",   # VRAM/RAM/KV-cache exhaustion detected
+    "resource.recovered",             # resource state confirmed clean after failure/reset
+    "resource.lease.granted",         # resource lease issued to a worker
+    "resource.lease.released",        # resource lease returned after worker completes
+    "resource.admission.degraded",    # admission fell back to degraded mode
+    "resource.queue.updated",         # admission queue position updated
 }
 
 
@@ -319,9 +376,50 @@ class TeamResourcePlan(Contract):
         return issues
 
 
+# Valid execution modes for HardwareProfile.supported_execution_modes
+_EXECUTION_MODES = {"parallel", "pipelined", "serial_virtual_team"}
+
+# Valid priority classes for AdmissionRequest and TeamResourcePlan
+PRIORITY_CLASSES = {
+    "interactive_high_consequence",  # highest — safety-critical inspection work
+    "interactive_normal",            # normal interactive user tasks
+    "scheduled_domain_work",         # scheduled batch domain processing
+    "background_ingestion",          # document ingestion in the background
+    "maintenance",                   # lowest — maintenance and housekeeping
+}
+
+
 @dataclass(frozen=True)
 class HardwareProfile(Contract):
-    profile_id: str; gpu_model: str; gpu_count: int; vram_bytes: int; driver_version: str; accelerator_runtime: str; cpu_model: str; cpu_cores: int; ram_bytes: int; storage_bytes: int; scratch_bytes: int; model_context_tokens: int; kv_cache_bytes: int; safe_parallel_slots: int; egress_policy: str; measurement_hash: str
+    """Signed, measured hardware capability record for a local deployment node.
+
+    Required fields capture the minimal hardware identity needed for admission
+    and routing decisions.  Extended fields (supported_execution_modes,
+    network_check_id, sandbox_runtime, benchmark_result_ref) are optional but
+    strongly recommended for production deployments.
+    """
+    profile_id: str
+    gpu_model: str
+    gpu_count: int
+    vram_bytes: int
+    driver_version: str
+    accelerator_runtime: str
+    cpu_model: str
+    cpu_cores: int
+    ram_bytes: int
+    storage_bytes: int
+    scratch_bytes: int
+    model_context_tokens: int
+    kv_cache_bytes: int
+    safe_parallel_slots: int
+    egress_policy: str
+    measurement_hash: str
+    # Extended M5.2 fields — default to safe/empty values so existing callers are unaffected
+    supported_execution_modes: tuple[str, ...] = ("serial_virtual_team",)
+    network_check_id: str = ""          # ledger event ID of the egress-denial evidence
+    sandbox_runtime: str = ""           # e.g. "firejail-0.9.72" or "none"
+    benchmark_result_ref: str = ""      # path to benchmarks/model_hardware_results.yaml entry
+
     def _validate(self, hints):
         issues = super()._validate(hints)
         for name in ("gpu_model", "driver_version", "accelerator_runtime", "cpu_model", "egress_policy", "measurement_hash"):
@@ -332,6 +430,11 @@ class HardwareProfile(Contract):
         if type(self.gpu_count) is int and self.gpu_count < 1: issues.append(ValidationIssue("gpu_count", "resource", "at least one GPU is required"))
         if type(self.vram_bytes) is int and self.vram_bytes == 0: issues.append(ValidationIssue("vram_bytes", "resource", "VRAM capacity is required"))
         if type(self.safe_parallel_slots) is int and self.safe_parallel_slots < 1: issues.append(ValidationIssue("safe_parallel_slots", "resource", "at least one execution slot is required"))
+        for mode in self.supported_execution_modes:
+            if mode not in _EXECUTION_MODES:
+                issues.append(ValidationIssue("supported_execution_modes", "enum", f"unknown execution mode: {mode!r}"))
+        if not self.supported_execution_modes:
+            issues.append(ValidationIssue("supported_execution_modes", "required", "at least one execution mode is required"))
         return issues
 
 

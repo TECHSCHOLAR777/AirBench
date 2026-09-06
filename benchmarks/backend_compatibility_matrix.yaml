@@ -1,0 +1,190 @@
+# benchmarks/backend_compatibility_matrix.yaml
+# M5.1 — Per-target/backend/runtime compatibility test matrix.
+#
+# Each row covers one (target_id, backend, runtime) combination.
+# All 18 behavioral columns from the M5.1 issue spec are recorded.
+# Fill in results after running the backend conformance test suite:
+#   python -m airbench.qualify.backend --target <target_id> --backend vllm
+
+schema_version: "1.0"
+note: >
+  OpenAI-compatible HTTP is only a transport compatibility signal.
+  It is NOT evidence of semantic compatibility with AirBench tool schemas,
+  structured outputs, streaming, cancellation, provenance, or safety behavior.
+
+entries:
+
+  # ── Gemma 4 31B (Lead/Reasoning) — vLLM 0.8.5 ─────────────────────────────
+  - target_id: gemma4-31b-it-q4
+    backend: vllm
+    runtime_version: "vllm-0.8.5"
+    hardware_profile_id: target_96gb_vram
+    test_date: "REPLACE_WITH_MEASURED:rfc3339-date"
+    results:
+      startup_and_shutdown: "REPLACE_WITH_MEASURED:pass-or-fail"
+      readiness_and_health: "REPLACE_WITH_MEASURED:pass-or-fail"
+      local_model_loading: "REPLACE_WITH_MEASURED:pass-or-fail"
+      artifact_identity_at_runtime: "REPLACE_WITH_MEASURED:pass-or-fail"
+      structured_request_acceptance: "REPLACE_WITH_MEASURED:pass-or-fail"
+      structured_output_validity: "REPLACE_WITH_MEASURED:pass-or-fail"
+      tool_call_schema_validity: "REPLACE_WITH_MEASURED:pass-or-fail"
+      tool_call_refusal_for_unauthorized: "REPLACE_WITH_MEASURED:pass-or-fail"
+      streaming_chunks_and_final: "REPLACE_WITH_MEASURED:pass-or-fail"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:pass-or-fail"
+      malformed_request_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      context_overflow_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      image_multimodal_request: "n/a"    # text-only target
+      concurrency_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      resource_limit_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      error_mapping: "REPLACE_WITH_MEASURED:pass-or-fail"
+      retry_safety_and_idempotency: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_huggingface_ngc_telemetry: "REPLACE_WITH_MEASURED:pass-or-fail"
+      ledger_event_compatibility: "REPLACE_WITH_MEASURED:pass-or-fail"
+    overall: "REPLACE_WITH_MEASURED:pass-or-fail"
+    known_limitations: []
+
+  - target_id: gemma4-26b-a4b-4bit
+    backend: vllm
+    runtime_version: "0.8.5"
+    hardware_profile_id: target_96gb_vram
+    test_date: "REPLACE_WITH_MEASURED:rfc3339-date"
+    results:
+      startup_and_shutdown: "REPLACE_WITH_MEASURED:pass-or-fail"
+      readiness_and_health: "REPLACE_WITH_MEASURED:pass-or-fail"
+      local_model_loading: "REPLACE_WITH_MEASURED:pass-or-fail"
+      artifact_identity_at_runtime: "REPLACE_WITH_MEASURED:pass-or-fail"
+      structured_request_acceptance: "REPLACE_WITH_MEASURED:pass-or-fail"
+      structured_output_validity: "REPLACE_WITH_MEASURED:pass-or-fail"
+      tool_call_schema_validity: "REPLACE_WITH_MEASURED:pass-or-fail"
+      tool_call_refusal_for_unauthorized: "REPLACE_WITH_MEASURED:pass-or-fail"
+      streaming_chunks_and_final: "REPLACE_WITH_MEASURED:pass-or-fail"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:pass-or-fail"
+      malformed_request_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      context_overflow_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      image_multimodal_request: "n/a"
+      concurrency_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      resource_limit_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      error_mapping: "REPLACE_WITH_MEASURED:pass-or-fail"
+      retry_safety_and_idempotency: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_huggingface_ngc_telemetry: "REPLACE_WITH_MEASURED:pass-or-fail"
+      ledger_event_compatibility: "REPLACE_WITH_MEASURED:pass-or-fail"
+    overall: "REPLACE_WITH_MEASURED:pass-or-fail"
+    known_limitations: []
+
+  - target_id: qwen3-coder-30b-a3b-4bit
+    backend: vllm
+    runtime_version: "0.8.5"
+    hardware_profile_id: target_96gb_vram
+    test_date: "REPLACE_WITH_MEASURED:rfc3339-date"
+    results:
+      startup_and_shutdown: "REPLACE_WITH_MEASURED:pass-or-fail"
+      readiness_and_health: "REPLACE_WITH_MEASURED:pass-or-fail"
+      local_model_loading: "REPLACE_WITH_MEASURED:pass-or-fail"
+      artifact_identity_at_runtime: "REPLACE_WITH_MEASURED:pass-or-fail"
+      structured_request_acceptance: "REPLACE_WITH_MEASURED:pass-or-fail"
+      structured_output_validity: "REPLACE_WITH_MEASURED:pass-or-fail"
+      tool_call_schema_validity: "REPLACE_WITH_MEASURED:pass-or-fail"
+      tool_call_refusal_for_unauthorized: "REPLACE_WITH_MEASURED:pass-or-fail"
+      streaming_chunks_and_final: "REPLACE_WITH_MEASURED:pass-or-fail"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:pass-or-fail"
+      malformed_request_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      context_overflow_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      image_multimodal_request: "n/a"
+      concurrency_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      resource_limit_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      error_mapping: "REPLACE_WITH_MEASURED:pass-or-fail"
+      retry_safety_and_idempotency: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_huggingface_ngc_telemetry: "REPLACE_WITH_MEASURED:pass-or-fail"
+      ledger_event_compatibility: "REPLACE_WITH_MEASURED:pass-or-fail"
+    overall: "REPLACE_WITH_MEASURED:pass-or-fail"
+    known_limitations: []
+
+  - target_id: qwen2.5-vl-7b-4bit
+    backend: vllm
+    runtime_version: "0.8.5"
+    hardware_profile_id: target_96gb_vram
+    test_date: "REPLACE_WITH_MEASURED:rfc3339-date"
+    results:
+      startup_and_shutdown: "REPLACE_WITH_MEASURED:pass-or-fail"
+      readiness_and_health: "REPLACE_WITH_MEASURED:pass-or-fail"
+      local_model_loading: "REPLACE_WITH_MEASURED:pass-or-fail"
+      artifact_identity_at_runtime: "REPLACE_WITH_MEASURED:pass-or-fail"
+      structured_request_acceptance: "REPLACE_WITH_MEASURED:pass-or-fail"
+      structured_output_validity: "REPLACE_WITH_MEASURED:pass-or-fail"
+      tool_call_schema_validity: "n/a"   # vision model, no tool calls
+      tool_call_refusal_for_unauthorized: "n/a"
+      streaming_chunks_and_final: "REPLACE_WITH_MEASURED:pass-or-fail"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:pass-or-fail"
+      malformed_request_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      context_overflow_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      image_multimodal_request: "REPLACE_WITH_MEASURED:pass-or-fail"
+      concurrency_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      resource_limit_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      error_mapping: "REPLACE_WITH_MEASURED:pass-or-fail"
+      retry_safety_and_idempotency: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_huggingface_ngc_telemetry: "REPLACE_WITH_MEASURED:pass-or-fail"
+      ledger_event_compatibility: "REPLACE_WITH_MEASURED:pass-or-fail"
+    overall: "REPLACE_WITH_MEASURED:pass-or-fail"
+    known_limitations: []
+
+  - target_id: bge-m3
+    backend: custom
+    runtime_version: "FlagEmbedding-1.3.0"
+    hardware_profile_id: target_96gb_vram
+    test_date: "REPLACE_WITH_MEASURED:rfc3339-date"
+    results:
+      startup_and_shutdown: "REPLACE_WITH_MEASURED:pass-or-fail"
+      readiness_and_health: "REPLACE_WITH_MEASURED:pass-or-fail"
+      local_model_loading: "REPLACE_WITH_MEASURED:pass-or-fail"
+      artifact_identity_at_runtime: "REPLACE_WITH_MEASURED:pass-or-fail"
+      structured_request_acceptance: "REPLACE_WITH_MEASURED:pass-or-fail"
+      structured_output_validity: "REPLACE_WITH_MEASURED:pass-or-fail"
+      tool_call_schema_validity: "n/a"
+      tool_call_refusal_for_unauthorized: "n/a"
+      streaming_chunks_and_final: "n/a"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:pass-or-fail"
+      malformed_request_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      context_overflow_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      image_multimodal_request: "n/a"
+      concurrency_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      resource_limit_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      error_mapping: "REPLACE_WITH_MEASURED:pass-or-fail"
+      retry_safety_and_idempotency: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_huggingface_ngc_telemetry: "REPLACE_WITH_MEASURED:pass-or-fail"
+      ledger_event_compatibility: "REPLACE_WITH_MEASURED:pass-or-fail"
+    overall: "REPLACE_WITH_MEASURED:pass-or-fail"
+    known_limitations: []
+
+  - target_id: bge-reranker-v2-m3
+    backend: custom
+    runtime_version: "FlagEmbedding-1.3.0"
+    hardware_profile_id: target_96gb_vram
+    test_date: "REPLACE_WITH_MEASURED:rfc3339-date"
+    results:
+      startup_and_shutdown: "REPLACE_WITH_MEASURED:pass-or-fail"
+      readiness_and_health: "REPLACE_WITH_MEASURED:pass-or-fail"
+      local_model_loading: "REPLACE_WITH_MEASURED:pass-or-fail"
+      artifact_identity_at_runtime: "REPLACE_WITH_MEASURED:pass-or-fail"
+      structured_request_acceptance: "REPLACE_WITH_MEASURED:pass-or-fail"
+      structured_output_validity: "REPLACE_WITH_MEASURED:pass-or-fail"
+      tool_call_schema_validity: "n/a"
+      tool_call_refusal_for_unauthorized: "n/a"
+      streaming_chunks_and_final: "n/a"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:pass-or-fail"
+      malformed_request_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      context_overflow_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      image_multimodal_request: "n/a"
+      concurrency_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      resource_limit_behavior: "REPLACE_WITH_MEASURED:pass-or-fail"
+      error_mapping: "REPLACE_WITH_MEASURED:pass-or-fail"
+      retry_safety_and_idempotency: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_huggingface_ngc_telemetry: "REPLACE_WITH_MEASURED:pass-or-fail"
+      ledger_event_compatibility: "REPLACE_WITH_MEASURED:pass-or-fail"
+    overall: "REPLACE_WITH_MEASURED:pass-or-fail"
+    known_limitations: []
