@@ -23,6 +23,8 @@ import json
 import sys
 from pathlib import Path
 
+from contracts.model_registry import ModelTarget, RegistryError, _target_from_roster
+
 try:
     import yaml  # type: ignore
 except ImportError:
@@ -43,13 +45,15 @@ def _hmac_sign(key: bytes, payload: object) -> str:
     return hmac.new(key, _canonical(payload), hashlib.sha256).hexdigest()
 
 
-def build_target_qualification_payload(target: dict) -> dict:
-    """Build the canonical qualification payload for a single target.
+def build_target_qualification_payload(target: dict) -> tuple[ModelTarget, dict]:
+    """Normalize a nested roster target before signing it.
 
-    This mirrors what ModelRegistry.load() / verify_qualification_signature()
-    expects: the full target dict minus `qualification_signature`.
+    The loader verifies signatures over the provider-neutral ``ModelTarget``
+    representation, not over the human-oriented nested YAML shape. Keeping
+    this conversion here prevents signatures that can never be verified.
     """
-    return {k: v for k, v in sorted(target.items()) if k != "qualification_signature"}
+    normalized = _target_from_roster(target)
+    return normalized, normalized.qualification_payload()
 
 
 def main() -> None:
@@ -69,10 +73,16 @@ def main() -> None:
     patches: list[dict] = []
 
     # ── Per-target qualification signatures ──────────────────────────────────
-    targets = data.get("roster", {}).get("targets", [])
+    roster = data.get("roster", {})
+    targets = roster.get("targets", [])
     for target in targets:
         tid = target.get("target_id", "unknown")
-        payload = build_target_qualification_payload(target)
+        try:
+            _normalized, payload = build_target_qualification_payload(target)
+        except RegistryError as exc:
+            print(f"ERROR: target {tid} is not signable: {exc}", file=sys.stderr)
+            print("Fill measured artifact/runtime/qualification values before signing.", file=sys.stderr)
+            sys.exit(1)
         sig = _hmac_sign(key, payload)
         patches.append({
             "target_id": tid,
@@ -82,7 +92,9 @@ def main() -> None:
         print(f"  {tid}: {sig}")
 
     # ── Manifest-level signature ──────────────────────────────────────────────
-    # The manifest signature covers the entire document except `signature` itself.
+    # The manifest signature covers the complete human-oriented document except
+    # its root signature. This protects roster policy, defaults, and metadata;
+    # target qualification signatures cover the normalized target records.
     top_level_unsigned = {k: v for k, v in data.items() if k != "signature"}
     manifest_sig = _hmac_sign(key, top_level_unsigned)
     patches.append({

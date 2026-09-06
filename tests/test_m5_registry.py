@@ -16,7 +16,8 @@ import hmac
 import json
 import unittest
 
-from contracts import ModelCallRequest, ModelRegistry, RegistryError
+from contracts import ModelCallRequest, ModelRegistry, ModelTarget, RegistryError
+from contracts.model_registry import _target_from_roster, _sha256_descriptor
 
 
 KEY = b"m5-test-signing-key"
@@ -68,6 +69,8 @@ def _target(
         "display_name": "Test target",
         "revision": "a" * 40,
         "container_digest": "sha256:" + "c" * 64,
+        "adapter_id": "airbench-vllm-adapter",
+        "adapter_version": "0.1.0",
     }
 
 
@@ -75,7 +78,12 @@ def _target(
 def _manifest(targets: list, valid_until: str = "2030-01-01T00:00:00Z") -> dict:
     """Sign targets and assemble a valid manifest dict."""
     for target in targets:
-        payload = {k: v for k, v in target.items() if k != "qualification_signature"}
+        unsigned_target = {k: v for k, v in target.items() if k != "qualification_signature"}
+        unsigned_target["qualification_signature"] = "0" * 64
+        try:
+            payload = ModelTarget.from_dict(unsigned_target).qualification_payload()
+        except RegistryError:
+            payload = {k: v for k, v in target.items() if k != "qualification_signature"}
         target["qualification_signature"] = hmac.new(
             KEY,
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(),
@@ -227,6 +235,15 @@ class ModelRegistryTests(unittest.TestCase):
         with self.assertRaises(RegistryError, msg="Expected RegistryError for path outside artifact_root"):
             ModelRegistry.load(manifest, signing_key=KEY, artifact_root=self.tmp_path)
 
+    def test_windows_absolute_artifact_file_is_rejected(self) -> None:
+        artifact = self.tmp_path / "gemma.bin"
+        artifact.write_bytes(b"model")
+        digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        target = _target("gemma.bin", digest)
+        target["artifact_files"] = ["C:\\outside\\gemma.bin"]
+        with self.assertRaisesRegex(RegistryError, "artifact_files must contain relative paths"):
+            ModelRegistry.load(_manifest([target]), signing_key=KEY, artifact_root=self.tmp_path)
+
     def test_local_storage_hash_mismatch_is_rejected(self) -> None:
         """A local storage hash that does not match the on-disk artifact must be rejected.
 
@@ -326,3 +343,98 @@ class ModelRegistryTests(unittest.TestCase):
         )
         self.assertEqual(len(eligible), 1)
         self.assertEqual(eligible[0].target_id, "gemma-26b-q4")
+
+    def test_quantization_alias_is_normalized(self) -> None:
+        artifact = self.tmp_path / "gemma.bin"
+        artifact.write_bytes(b"model data")
+        digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        target = _target("gemma.bin", digest)
+        target["quantization"] = "Q4_0"
+        registry = ModelRegistry.load(
+            _manifest([target]), signing_key=KEY, artifact_root=self.tmp_path,
+        )
+        self.assertEqual(registry.targets[0].quantization, "int4")
+
+    def test_explicit_directory_file_set_is_hashed_deterministically(self) -> None:
+        artifact_dir = self.tmp_path / "bundle"
+        artifact_dir.mkdir()
+        first = artifact_dir / "weights-a.bin"
+        second = artifact_dir / "weights-b.bin"
+        first.write_bytes(b"a")
+        second.write_bytes(b"b")
+        digest = hashlib.sha256(b"a" + b"b").hexdigest()
+        target = _target("bundle", digest)
+        target["artifact_files"] = ["weights-a.bin", "weights-b.bin"]
+        target["role_qualifications"] = [["lead", "cert-1"], ["reasoning", "cert-2"]]
+        target["roles"] = ["lead", "reasoning"]
+        registry = ModelRegistry.load(
+            _manifest([target]), signing_key=KEY, artifact_root=self.tmp_path,
+        )
+        self.assertEqual(registry.targets[0].artifact_files, ("weights-a.bin", "weights-b.bin"))
+        self.assertEqual(registry.targets[0].role_qualifications[1], ("reasoning", "cert-2"))
+        self.assertEqual(registry.targets[0].qualification_certificate_for("reasoning"), "cert-2")
+        (artifact_dir / "unlisted.txt").write_bytes(b"ignored by the signed artifact set")
+        registry.verify_artifacts(self.tmp_path)
+
+    def test_roster_normalization_binds_embedded_components_and_roles(self) -> None:
+        artifact_hash = "a" * 64
+        target = _target_from_roster({
+            "target_id": "embedded",
+            "repository": "local/embedded",
+            "revision": "sha256:" + artifact_hash,
+            "artifact_hash": artifact_hash,
+            "artifact_path": "embedded.bin",
+            "artifact_files": ["embedded.bin"],
+            "local_storage_hash": artifact_hash,
+            "tokenizer": {"hash": "bundled"},
+            "chat_template": {"template_id": "embedded-template", "hash": "bundled"},
+            "quantization": {"format": "Q4_0"},
+            "serving": {"runtime": "vllm", "runtime_version": "0.8.5", "adapter_id": "adapter", "adapter_version": "1", "container_digest": "sha256:" + "c" * 64},
+            "limits": {"context_tokens": 1, "image_tokens": 0},
+            "qualified_roles": [{"role": "lead", "certificate_id": "cert-lead", "qualification_hash": "e" * 64}, {"role": "reasoning", "certificate_id": "cert-reasoning", "qualification_hash": "f" * 64}],
+            "capabilities": ["reasoning"], "modalities": ["text"], "risk_classes": ["inspection_review"],
+            "allowed_clearances": ["restricted"], "pack_refs": ["pack"], "hardware_profile_refs": ["hw"],
+            "tool_call_parser": "json", "structured_output_modes": ["json_schema"], "license": "license",
+            "qualification_expires_at": "2030-01-01T00:00:00Z", "qualification_signature": "d" * 64,
+        })
+        self.assertEqual(target.quantization, "int4")
+        self.assertEqual(target.tokenizer_digest, _sha256_descriptor("tokenizer", "bundled", artifact_hash))
+        self.assertEqual(target.chat_template_digest, _sha256_descriptor("chat_template", "embedded-template", artifact_hash))
+        self.assertEqual(dict(target.role_qualifications)["reasoning"], "cert-reasoning")
+
+    def test_nested_roster_root_and_target_signatures_verify(self) -> None:
+        import yaml
+
+        artifact = self.tmp_path / "model.bin"
+        artifact.write_bytes(b"nested roster artifact")
+        digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        nested_target = {
+            "target_id": "nested-target", "repository": "local/nested", "revision": "sha256:" + digest,
+            "artifact_hash": digest, "artifact_path": "model.bin", "artifact_files": ["model.bin"],
+            "local_storage_hash": digest, "tokenizer": {"hash": "bundled"},
+            "chat_template": {"template_id": "nested-template", "hash": "bundled"},
+            "quantization": {"format": "Q4_0"}, "serving": {"runtime": "custom", "runtime_version": "1", "adapter_id": "adapter", "adapter_version": "1"},
+            "limits": {"context_tokens": 128, "image_tokens": 0},
+            "qualified_roles": [{"role": "lead", "certificate_id": "cert-nested", "qualification_hash": "e" * 64}],
+            "tool_call_parser": "none", "structured_output_modes": ["json_schema"], "capabilities": ["reasoning"],
+            "modalities": ["text"], "risk_classes": ["inspection_review"], "allowed_clearances": ["restricted"],
+            "pack_refs": ["pack"], "hardware_profile_refs": ["hw"], "license": "license",
+            "qualification_expires_at": "2030-01-01T00:00:00Z", "qualification_signature": "0" * 64,
+        }
+        normalized = _target_from_roster(nested_target)
+        nested_target["qualification_signature"] = hmac.new(
+            KEY, json.dumps(normalized.qualification_payload(), sort_keys=True, separators=(",", ":")).encode(), hashlib.sha256,
+        ).hexdigest()
+        document = {
+            "roster": {"roster_id": "nested-roster", "schema_version": "1.0", "network_policy": "air_gapped_no_egress", "targets": [nested_target]},
+            "registry_id": "nested-roster", "manifest_version": "1.0", "valid_until": "2030-01-01T00:00:00Z",
+        }
+        document["signature"] = hmac.new(
+            KEY, json.dumps(document, sort_keys=True, separators=(",", ":")).encode(), hashlib.sha256,
+        ).hexdigest()
+        roster_path = self.tmp_path / "roster.yaml"
+        roster_path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+        registry = ModelRegistry.load_roster_file(
+            roster_path, signing_key=KEY, artifact_root=self.tmp_path, now=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        self.assertEqual(registry.targets[0].target_id, "nested-target")

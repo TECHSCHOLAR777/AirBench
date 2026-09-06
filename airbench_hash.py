@@ -66,8 +66,12 @@ MODEL_TARGETS = [
         "target_id": "qwen3-coder-30b-a3b-4bit",
         "dir": "qwen3-coder-30b-a3b-awq",
         "artifact_files": [
-            "model-00001-of-00002.safetensors",
-            "model-00002-of-00002.safetensors",
+            "model-00001-of-00006.safetensors",
+            "model-00002-of-00006.safetensors",
+            "model-00003-of-00006.safetensors",
+            "model-00004-of-00006.safetensors",
+            "model-00005-of-00006.safetensors",
+            "model-00006-of-00006.safetensors",
         ],
         "tokenizer_file": "tokenizer.json",
         "chat_template_file": "tokenizer_config.json",
@@ -142,6 +146,7 @@ def hash_target(spec: dict) -> dict:
         "model_dir": str(model_dir),
         "hashes": {},
         "sizes_bytes": {},
+        "artifact_files": list(spec["artifact_files"]),
         "errors": [],
     }
 

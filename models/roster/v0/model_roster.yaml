@@ -76,10 +76,11 @@ roster:
       model_family: gemma4
       display_name: "Gemma 4 31B Instruction-Tuned (Q4)"
       repository: "google/gemma-4-31b-it-q4"
-      revision: "gguf-q4_0"   # GGUF format; no HF revision SHA
+      revision: "sha256:179cfb99212709597eae5929112cfca677e1bbf566178b479ae1da0c4772874b"   # local immutable artifact revision
       # Measured: SHA-256 of gemma-4-31B_q4_0-it.gguf (17,651,001,568 bytes)
       artifact_hash: "179cfb99212709597eae5929112cfca677e1bbf566178b479ae1da0c4772874b"
       artifact_path: "gemma4-31b-it-q4"   # relative to airbench-models/
+      artifact_files: ["gemma-4-31B_q4_0-it.gguf"]
       local_storage_hash: "179cfb99212709597eae5929112cfca677e1bbf566178b479ae1da0c4772874b"
       mmproj:
         # Measured: SHA-256 of gemma-4-31B-it-mmproj.gguf (1,200,726,368 bytes)
@@ -140,10 +141,11 @@ roster:
       model_family: gemma4
       display_name: "Gemma 4 26B A4B (QAT Q4_0, Practical Workstation Lead)"
       repository: "google/gemma-4-26b-it-qat-q4_0-gguf"
-      revision: "gguf-q4_0"   # GGUF format
+      revision: "sha256:3eca3b8f6d7baf218a7dd6bba5fb59a56ee25fe2d567b6f5f589b4f697eca51d"   # local immutable artifact revision
       # Measured: SHA-256 of gemma-4-26B_q4_0-it.gguf (14,439,363,584 bytes)
       artifact_hash: "3eca3b8f6d7baf218a7dd6bba5fb59a56ee25fe2d567b6f5f589b4f697eca51d"
       artifact_path: "gemma4-26b-a4b-4bit"
+      artifact_files: ["gemma-4-26B_q4_0-it.gguf"]
       local_storage_hash: "3eca3b8f6d7baf218a7dd6bba5fb59a56ee25fe2d567b6f5f589b4f697eca51d"
       mmproj:
         # Measured: SHA-256 of gemma-4-26B-it-mmproj.gguf (1,194,828,160 bytes)
@@ -205,21 +207,30 @@ roster:
       model_family: qwen3-coder
       display_name: "Qwen3-Coder-30B-A3B-Instruct (AWQ 4-bit)"
       repository: "Qwen/Qwen3-Coder-30B-A3B-Instruct-AWQ"
-      revision: "awq-int4"   # AWQ quantized; no separate HF revision
+      revision: "sha256:c0b64626f59e9c7bafa334570427b0438faca29875f87d322bc9c705d3391ff8"   # local immutable artifact revision
       # Measured: SHA-256 of 6 shards combined (16,809,457,184 bytes total)
       artifact_hash: "c0b64626f59e9c7bafa334570427b0438faca29875f87d322bc9c705d3391ff8"
       artifact_path: "qwen3-coder-30b-a3b-awq"
+      artifact_files:
+        - "model-00001-of-00006.safetensors"
+        - "model-00002-of-00006.safetensors"
+        - "model-00003-of-00006.safetensors"
+        - "model-00004-of-00006.safetensors"
+        - "model-00005-of-00006.safetensors"
+        - "model-00006-of-00006.safetensors"
       local_storage_hash: "c0b64626f59e9c7bafa334570427b0438faca29875f87d322bc9c705d3391ff8"
       tokenizer:
         repository: "Qwen/Qwen3-Coder-30B-A3B-Instruct-AWQ"
         revision: "awq-int4"
         # Measured: SHA-256 of tokenizer.json (7,032,399 bytes)
         hash: "19564a48c4f71a2a1b937cce34c737a1e662b171c5f5d7edf641a15cd896f07d"
+        path: "tokenizer.json"
         version: "qwen3-tokenizer-v1"
       chat_template:
         template_id: "qwen3-coder-chat-template"
         # Measured: SHA-256 of tokenizer_config.json (13,601 bytes)
         hash: "fa6fbb930b353106ede5f238aaeb5109cfbb29e457f6b02fc1facb6adfc9004a"
+        path: "tokenizer_config.json"
       quantization:
         format: "INT4_AWQ"
         method: "AWQ"
@@ -265,24 +276,30 @@ roster:
       model_family: qwen2.5-vl
       display_name: "Qwen2.5-VL-7B-Instruct (AWQ 4-bit)"
       repository: "Qwen/Qwen2.5-VL-7B-Instruct-AWQ"
-      revision: "awq-int4"
+      revision: "sha256:81d797f3f3a625d6c2479dbf9276156c7e31cc3c7a8fdf3e8194d8f4810c4c1a"
       # Measured: SHA-256 of 2 shards combined (6,923,972,384 bytes total)
       artifact_hash: "81d797f3f3a625d6c2479dbf9276156c7e31cc3c7a8fdf3e8194d8f4810c4c1a"
       artifact_path: "qwen2.5-vl-7b-awq"
+      artifact_files:
+        - "model-00001-of-00002.safetensors"
+        - "model-00002-of-00002.safetensors"
       local_storage_hash: "81d797f3f3a625d6c2479dbf9276156c7e31cc3c7a8fdf3e8194d8f4810c4c1a"
       tokenizer:
         repository: "Qwen/Qwen2.5-VL-7B-Instruct-AWQ"
         revision: "awq-int4"
         # Measured: SHA-256 of tokenizer.json (11,422,063 bytes)
         hash: "5eee858c5123a4279c3e1f7b81247343f356ac767940b2692a928ad929543214"
+        path: "tokenizer.json"
         version: "qwen2.5-vl-tokenizer-v1"
       image_processor:
         version: "qwen2.5-vl-image-processor-v1"
-        hash: "PENDING:measure-preprocessor-config-json"
+        hash: "549c158011407dfb750d9ec578047cf76f5bfe365cd0aa069a50137d3f98d9dd"
+        path: "preprocessor_config.json"
       chat_template:
         template_id: "qwen2.5-vl-chat-template"
         # Measured: SHA-256 of tokenizer_config.json (5,776 bytes)
         hash: "0a6be425d5d62ec1904deb45e569c809d0973bd39a411452388f268a855e3183"
+        path: "tokenizer_config.json"
       quantization:
         format: "INT4_AWQ"
         method: "AWQ"
@@ -329,16 +346,18 @@ roster:
       model_family: bge-m3
       display_name: "BAAI/bge-m3 (Dense + Sparse Embeddings)"
       repository: "BAAI/bge-m3"
-      revision: "bf16-native"
+      revision: "sha256:b5e0ce3470abf5ef3831aa1bd5553b486803e83251590ab7ff35a117cf6aad38"
       # Measured: SHA-256 of pytorch_model.bin (2,271,145,830 bytes)
       artifact_hash: "b5e0ce3470abf5ef3831aa1bd5553b486803e83251590ab7ff35a117cf6aad38"
       artifact_path: "bge-m3"
+      artifact_files: ["pytorch_model.bin"]
       local_storage_hash: "b5e0ce3470abf5ef3831aa1bd5553b486803e83251590ab7ff35a117cf6aad38"
       tokenizer:
         repository: "BAAI/bge-m3"
         revision: "bf16-native"
         # Measured: SHA-256 of tokenizer.json (17,098,108 bytes)
         hash: "21106b6d7dab2952c1d496fb21d5dc9db75c28ed361a05f5020bbba27810dd08"
+        path: "tokenizer.json"
         version: "bge-m3-tokenizer-v1"
       chat_template:
         template_id: "none"    # embedding model; no chat template
@@ -386,16 +405,18 @@ roster:
       model_family: bge-reranker
       display_name: "BAAI/bge-reranker-v2-m3 (Retrieval Reranking)"
       repository: "BAAI/bge-reranker-v2-m3"
-      revision: "bf16-native"
+      revision: "sha256:d9e3e081faff1eefb84019509b2f5558fd74c1a05a2c7db22f74174fcedb5286"
       # Measured: SHA-256 of model.safetensors (2,271,071,852 bytes)
       artifact_hash: "d9e3e081faff1eefb84019509b2f5558fd74c1a05a2c7db22f74174fcedb5286"
       artifact_path: "bge-reranker-v2-m3"
+      artifact_files: ["model.safetensors"]
       local_storage_hash: "d9e3e081faff1eefb84019509b2f5558fd74c1a05a2c7db22f74174fcedb5286"
       tokenizer:
         repository: "BAAI/bge-reranker-v2-m3"
         revision: "bf16-native"
         # Measured: SHA-256 of tokenizer.json (17,098,273 bytes)
         hash: "69564b696052886ed0ac63fa393e928384e0f8caada38c1f4864a9bfbf379c15"
+        path: "tokenizer.json"
         version: "bge-reranker-tokenizer-v1"
       chat_template:
         template_id: "none"
