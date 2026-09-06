@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "compatibility_id": "airbench-core-contracts",
+  "team_id": "team.inspection-001",
+  "hardware_profile_ref": "hardware.96gb-vram-001",
+  "worker_capabilities": {"worker.vision-001": "local_vision", "worker.verify-001": "verification"},
+  "reservations": {"worker.vision-001": {"vram_bytes": 4294967296, "ram_bytes": 1073741824}, "worker.verify-001": {"vram_bytes": 4294967296, "ram_bytes": 1073741824}},
+  "concurrency_ceiling": 2,
+  "execution_mode": "parallel",
+  "priority": "interactive_high_consequence",
+  "verifier_capacity": 1,
+  "admission": "admitted",
+  "reason": "all reservations fit measured profile",
+  "task_id": "task.inspection-001"
+}
