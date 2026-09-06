@@ -20,4 +20,6 @@ M1.3 adds `HardwareProfile`, role-aware `ModelCallRequest` and `RoutingDecision`
 
 M1.4 adds `EventLedger` and `build_event()`. Events are canonicalized, hash chained, immutable, sequence checked, and idempotent. Reusing an idempotency key for the same event is safe; reusing it for different content raises `IdempotencyConflict`. Invalid ordering, hashes, event names, or state preconditions raise a typed failure before append. `replay()` rebuilds task state from committed events, and `verify_chain()` checks the complete local chain. The example JSONL trace documents the wire shape; generated events should be used for executable replay fixtures.
 
+M2.1 adds `SQLiteLedgerStore`, the first durable local adapter. It stores immutable event JSON, transaction seals, and checkpoints in SQLite; validates the hash chain after reload; commits related events atomically; rejects governed events without source/confidence/clearance/taint provenance; returns committed transaction IDs; supports clearance-filtered projections and signed exports; and keeps the signing key outside the database. A failed batch leaves no partial events or transaction seal.
+
 The compatibility rules are in `compatibility_policy.md`; the machine-readable registry and event/state catalogs are YAML and require no network or runtime service.
