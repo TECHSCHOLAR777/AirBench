@@ -16,9 +16,8 @@ from math import isfinite
 from typing import Any, Callable, Protocol
 import time
 
-from contracts import (Clearance, Contract, ContractValidationError, EventLedger,
-                       FactEnvelope, LedgerEventEnvelope, SQLiteLedgerStore,
-                       Taint, build_event, idempotency_key)
+from contracts import (Clearance, Contract, ContractValidationError, FactEnvelope,
+                       LedgerEventEnvelope, Taint, build_event, idempotency_key)
 
 
 class VerificationError(RuntimeError):

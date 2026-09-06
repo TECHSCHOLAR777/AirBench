@@ -23,6 +23,8 @@ from typing import Any, Literal, Protocol
 
 from contracts import Clearance, Taint, ToolAction, build_event, idempotency_key, stable_id
 
+from .tool_gateway import ToolAuthorization
+
 
 class SandboxError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
@@ -220,7 +222,8 @@ class SandboxRunner:
     def __init__(self, ledger: LedgerSink) -> None:
         self._ledger = ledger
 
-    def execute(self, action: ToolAction, policy: SandboxPolicy) -> SandboxResult:
+    def execute(self, action: ToolAction, policy: SandboxPolicy,
+                authorization: ToolAuthorization | None = None) -> SandboxResult:
         policy.validate()
         try:
             action = ToolAction.from_dict(action.to_dict())
@@ -228,6 +231,13 @@ class SandboxRunner:
             raise SandboxError("invalid_tool_action", "tool action failed contract validation") from exc
         if action.tool_name != "python.execute":
             raise SandboxError("unsupported_tool", "the sandbox accepts only python.execute")
+        if authorization is not None:
+            if not authorization.allowed:
+                raise SandboxError("tool_not_authorized", "the Tool Gateway did not authorize this action")
+            if authorization.action != action:
+                raise SandboxError("authorization_mismatch", "the authorization does not match the action")
+            if not authorization.requested_event_ref or not authorization.authorized_event_ref:
+                raise SandboxError("authorization_incomplete", "the authorization has no ledger references")
         code = action.arguments.get("code")
         if not isinstance(code, str) or not code.strip():
             raise SandboxError("invalid_code", "python.execute requires non-empty code")
@@ -236,8 +246,13 @@ class SandboxRunner:
         execution_id = stable_id("sandbox", action.task_id, action.action_id, action.idempotency_key)
         policy_hash = policy.digest()
         started_at = _now()
-        requested_ref = _append_tool_event(self._ledger, event_type="tool.requested", action=action, execution_id=execution_id, payload={"input_hash": hashlib.sha256(code.encode()).hexdigest(), "policy_hash": policy_hash}, occurred_at=started_at)
-        authorized_ref = _append_tool_event(self._ledger, event_type="tool.authorized", action=action, execution_id=execution_id, payload={"policy_hash": policy_hash, "hard_network_isolation": policy.hard_network_isolation_available}, occurred_at=started_at)
+        if authorization is None:
+            requested_ref = _append_tool_event(self._ledger, event_type="tool.requested", action=action, execution_id=execution_id, payload={"input_hash": hashlib.sha256(code.encode()).hexdigest(), "policy_hash": policy_hash}, occurred_at=started_at)
+            authorized_ref = _append_tool_event(self._ledger, event_type="tool.authorized", action=action, execution_id=execution_id, payload={"policy_hash": policy_hash, "hard_network_isolation": policy.hard_network_isolation_available}, occurred_at=started_at)
+        else:
+            requested_ref = authorization.requested_event_ref
+            authorized_ref = authorization.authorized_event_ref
+        assert requested_ref is not None and authorized_ref is not None
         run_dir = Path(tempfile.mkdtemp(prefix=f"airbench-{execution_id[:8]}-", dir=policy.root_dir))
         try:
             payload = {
