@@ -24,6 +24,8 @@ npm run test:desktop:multiremote
 
 The test binary is deliberately built with the `wdio` feature and is never the production release binary.
 
+Latest retained external run: `frontend/logs/wdio-2026-09-06T18-49-21-126Z.log`. The rebuilt packaged binary passed 5/5 shell checks, including approved-profile connection and safe intake preview. The same non-fatal WDIO mock-cleanup warning remains after session teardown.
+
 After rebuilding the webdriver binary with `npm run build:webdriver` and `npm run tauri:build:webdriver`, the external `tauri-driver` run with Microsoft Edge WebDriver 152.0.4191.66 passed all five shell checks, including approved profile connection and safe intake preview. The retained WDIO log contains the frontend marker emitted through the Tauri log path. The multiremote run passed its two-instance addressability assertion. The WDIO service still emits a non-fatal cleanup warning when it tries to restore mocks after the WebDriver session has already been deleted, so that warning remains part of the harness evidence and should be removed or accepted explicitly before a release gate.
 
 The standalone desktop command is not yet a self-building release gate. Running it against a stale production binary or without a reachable driver can fail before the application is exercised. The reproducible current-host sequence is:

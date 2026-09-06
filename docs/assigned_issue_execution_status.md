@@ -65,5 +65,6 @@ There is no delegated subagent runtime available in this environment. Parallel r
 - The same parser now validates image structure and dimensions with Pillow without decoding pixels or claiming OCR; malformed image inputs fail before ledger evidence.
 - FE-VAL-4 fixture run `AirBenchNodeValidation-20260907-000611-1771bd0d55b5493baa5f3dcfbfc4a940` also covers interrupted upload, truncated artifact response, and oversized-file rejection before network transfer.
 - FE-DEV-02 now rejects inconsistent event batches before projection, including identity, protocol, clearance, cursor, sequence, metadata, and ledger-reference mismatches; frontend tests pass 35/35.
+- Rebuilt the external WebDriver binary after FE-DEV-02 changes; the packaged smoke suite passed 5/5 with retained log `frontend/logs/wdio-2026-09-06T18-49-21-126Z.log`. The known WDIO teardown warning remains non-fatal.
 
 The latest local evidence is a passing full Python suite and compile check, 33 passing frontend tests, 13 passing Rust tests, a passing frontend build, generated-contract check, static no-egress check, live Node fixture validation, and 5/5 external WebDriver tests. The default embedded WebDriver provider remains blocked by a direct-eval HTTP 404; the external `tauri-driver` path passes. The local branch must still be pushed after the next main-branch refresh.
