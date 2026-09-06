@@ -88,8 +88,11 @@ _ALLOWED = {
     "task.plan.committed": {"authorized"},
     "resource.plan.admitted": {"planned"},
     "model.requested": {"planned", "executing"},
+    "retrieval.requested": {"planned", "executing"},
+    "world_model.requested": {"planned", "executing"},
     "tool.requested": {"planned", "executing"},
     "barrier.waiting": {"executing"},
+    "verification.requested": {"executing", "awaiting_check"},
     "verification.completed": {"awaiting_check"},
     "human.review.required": {"deliverable_verified", "needs_review", "awaiting_review"},
     "artifact.staged": {"deliverable_verified", "awaiting_review"},
@@ -225,7 +228,8 @@ class Orchestrator:
                 elapsed_ms = int((time.monotonic() - started) * 1000)
                 if elapsed_ms > timeout_ms:
                     raise TimeoutError("step exceeded timeout")
-                event_type = "tool.result" if kind == "tool" else "model.responded"
+                event_type = {"tool": "tool.result", "retrieval": "evidence.created",
+                              "world_model": "fact.candidate", "verification": "verification.completed"}.get(kind, "model.responded")
                 payload = result_payload(result, attempt) if result_payload else {"step_id": step_id, "attempt": attempt, "proposal": result}
                 transition = self._append(event_type, task_id, payload, "ToolResult" if kind == "tool" else "ModelResult", idempotency_key("orchestrator.step.result", task_id, step_id, attempt))
                 self._checkpoint(task_id, transition)
