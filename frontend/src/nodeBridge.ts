@@ -1,12 +1,13 @@
 import { invoke } from "@airbench/tauri-invoke";
 import type { ApprovedNodeProfile } from "./nodeConnection";
+import type { Clearance } from "./protocol";
 
 export interface NativeNodeConnectionResult {
   state: "connected";
   profile_id: string;
   node_identity: string;
   protocol_version: string;
-  clearance_context: string;
+  clearance_context: Clearance;
   authenticated_subject: string;
   sovereignty: "verified";
   ledger_event_ref: string;
