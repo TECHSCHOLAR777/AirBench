@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@airbench/tauri-invoke", () => ({ invoke: invokeMock }));
 
-import { downloadArtifact, fetchSafePreview, uploadSelectedQueryFile } from "./intakeBridge";
+import { downloadArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile } from "./intakeBridge";
 import type { ApprovedNodeProfile } from "./nodeConnection";
 
 const profile: ApprovedNodeProfile = {
@@ -43,13 +43,16 @@ describe("File Intake frontend bridge", () => {
 
   it("keeps preview and download as typed Node commands", async () => {
     invokeMock.mockResolvedValueOnce({ preview_ref: "preview-1" });
+    invokeMock.mockResolvedValueOnce({ artifact_id: "artifact-1", blocks: [] });
     invokeMock.mockResolvedValueOnce({ artifact_id: "artifact-1" });
 
     await fetchSafePreview(profile, "preview-1");
+    await fetchArtifactPreview(profile, "artifact-1");
     await downloadArtifact(profile, "artifact-1", "approval-note.pdf");
 
-    expect(invokeMock.mock.calls.slice(-2)).toEqual([
+    expect(invokeMock.mock.calls.slice(-3)).toEqual([
       ["fetch_safe_preview", expect.objectContaining({ profileId: "profile-1", preview_ref: "preview-1" })],
+      ["fetch_artifact_preview", expect.objectContaining({ profileId: "profile-1", artifact_id: "artifact-1" })],
       ["download_artifact", expect.objectContaining({ profileId: "profile-1", artifact_id: "artifact-1", suggested_name: "approval-note.pdf" })],
     ]);
   });

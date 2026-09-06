@@ -39,6 +39,21 @@ export interface DownloadReceipt {
   byte_size: number;
 }
 
+export interface ArtifactPreviewBlock {
+  kind: string;
+  text: string;
+}
+
+export interface ArtifactPreview {
+  artifact_id: string;
+  preview_kind: string;
+  title: string;
+  blocks: ArtifactPreviewBlock[];
+  clearance: string;
+  taint: string;
+  ledger_event_ref: string;
+}
+
 function approvedProfilePayload(profile: ApprovedNodeProfileReference | ApprovedNodeProfile) {
   if (!profile.approvedByPolicy || !profile.profileId.trim()) throw new Error("The approved Node profile is incomplete or not approved by policy.");
   return toNativeNodeProfileReference(profile);
@@ -69,6 +84,20 @@ export function fetchSafePreview(
   return invoke<SafePreview>("fetch_safe_preview", {
     profileId: approvedProfilePayload(profile).profile_id,
     preview_ref: previewRef,
+  });
+}
+
+/**
+ * Requests a Node-generated structured artifact preview. The webview receives
+ * typed text blocks only, never an Office package, PDF script, or HTML payload.
+ */
+export function fetchArtifactPreview(
+  profile: ApprovedNodeProfileReference | ApprovedNodeProfile,
+  artifactId: string,
+): Promise<ArtifactPreview> {
+  return invoke<ArtifactPreview>("fetch_artifact_preview", {
+    profileId: approvedProfilePayload(profile).profile_id,
+    artifact_id: artifactId,
   });
 }
 

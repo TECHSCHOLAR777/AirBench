@@ -64,6 +64,25 @@ pub struct SafePreview {
     pub ledger_event_ref: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ArtifactPreviewBlock {
+    pub kind: String,
+    pub text: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ArtifactPreview {
+    pub artifact_id: String,
+    pub preview_kind: String,
+    pub title: String,
+    pub blocks: Vec<ArtifactPreviewBlock>,
+    pub clearance: String,
+    pub taint: String,
+    pub ledger_event_ref: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct DownloadReceipt {
@@ -188,6 +207,43 @@ fn validate_safe_preview(preview: &SafePreview, requested_ref: &str) -> Result<(
     }
     if !preview.confidence.is_finite() || !(0.0..=1.0).contains(&preview.confidence) {
         return Err("The Node returned an invalid preview confidence.".to_string());
+    }
+    validate_clearance(&preview.clearance)?;
+    validate_taint(&preview.taint)?;
+    validate_node_reference(&preview.ledger_event_ref, "ledger event")
+}
+
+fn validate_artifact_preview(
+    preview: &ArtifactPreview,
+    requested_artifact_id: &str,
+) -> Result<(), String> {
+    validate_node_reference(requested_artifact_id, "artifact")?;
+    if preview.artifact_id != requested_artifact_id {
+        return Err("The Node artifact preview does not match the requested artifact.".to_string());
+    }
+    if !matches!(
+        preview.preview_kind.as_str(),
+        "structured_document" | "pdf" | "text"
+    ) {
+        return Err("The Node returned an unsupported artifact preview kind.".to_string());
+    }
+    if preview.title.trim().is_empty()
+        || preview.title.len() > 255
+        || preview.title.contains('\0')
+        || preview.blocks.is_empty()
+        || preview.blocks.len() > 1_024
+    {
+        return Err("The Node returned an invalid artifact preview.".to_string());
+    }
+    for block in &preview.blocks {
+        if block.kind.trim().is_empty()
+            || block.kind.len() > 64
+            || block.kind.contains('\0')
+            || block.text.len() > MAX_PREVIEW_TEXT_BYTES
+            || block.text.contains('\0')
+        {
+            return Err("The Node returned an unsafe artifact preview block.".to_string());
+        }
     }
     validate_clearance(&preview.clearance)?;
     validate_taint(&preview.taint)?;
@@ -346,6 +402,51 @@ pub async fn fetch_safe_preview(
     fetch_safe_preview_from_profile(profile, preview_ref).await
 }
 
+pub async fn fetch_artifact_preview_from_profile(
+    profile: NodeProfile,
+    artifact_id: String,
+) -> Result<ArtifactPreview, String> {
+    validate_node_reference(&artifact_id, "artifact")?;
+    let token = credential_token(&profile).map_err(String::from)?;
+    let response = build_client(&profile)
+        .map_err(String::from)?
+        .get(
+            node_url(
+                &profile,
+                &format!("/api/v1/artifacts/{artifact_id}/preview"),
+            )
+            .map_err(String::from)?,
+        )
+        .header("Accept", "application/json")
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|_| "The approved Node artifact preview request failed.".to_string())?;
+    verify_certificate_pin(&profile, &response).map_err(String::from)?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "The Node artifact preview request returned HTTP {}.",
+            response.status().as_u16()
+        ));
+    }
+    let preview = response
+        .json::<ArtifactPreview>()
+        .await
+        .map_err(|_| "The Node did not return an artifact preview schema.".to_string())?;
+    validate_artifact_preview(&preview, &artifact_id)?;
+    Ok(preview)
+}
+
+#[tauri::command]
+pub async fn fetch_artifact_preview(
+    app: tauri::AppHandle,
+    profile_id: String,
+    artifact_id: String,
+) -> Result<ArtifactPreview, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    fetch_artifact_preview_from_profile(profile, artifact_id).await
+}
+
 pub async fn download_artifact_to_path(
     profile: NodeProfile,
     artifact_id: String,
@@ -437,8 +538,8 @@ fn _keep_error_type_linked(_: NodeTransportError) {}
 #[cfg(test)]
 mod tests {
     use super::{
-        validate_intake_manifest, validate_node_reference, validate_safe_preview, IntakeManifest,
-        SafePreview,
+        validate_artifact_preview, validate_intake_manifest, validate_node_reference,
+        validate_safe_preview, ArtifactPreview, ArtifactPreviewBlock, IntakeManifest, SafePreview,
     };
 
     fn valid_manifest() -> IntakeManifest {
@@ -508,5 +609,27 @@ mod tests {
         let mut invalid = preview;
         invalid.confidence = 1.1;
         assert!(validate_safe_preview(&invalid, "preview-1").is_err());
+    }
+
+    #[test]
+    fn artifact_preview_validation_rejects_mismatched_or_unsafe_blocks() {
+        let preview = ArtifactPreview {
+            artifact_id: "artifact-1".to_string(),
+            preview_kind: "structured_document".to_string(),
+            title: "Approval note".to_string(),
+            blocks: vec![ArtifactPreviewBlock {
+                kind: "paragraph".to_string(),
+                text: "Node-generated untrusted preview data".to_string(),
+            }],
+            clearance: "restricted".to_string(),
+            taint: "untrusted".to_string(),
+            ledger_event_ref: "ledger-artifact-1".to_string(),
+        };
+        assert!(validate_artifact_preview(&preview, "artifact-1").is_ok());
+        assert!(validate_artifact_preview(&preview, "artifact-2").is_err());
+
+        let mut invalid = preview;
+        invalid.blocks[0].text = "bad\0preview".to_string();
+        assert!(validate_artifact_preview(&invalid, "artifact-1").is_err());
     }
 }

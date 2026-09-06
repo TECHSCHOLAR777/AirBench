@@ -105,7 +105,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     {"kind": "paragraph", "text": "Synthetic fixture artifact preview. Values are supplied by the Node artifact contract."},
                 ],
                 "clearance": "restricted",
-                "taint": "trusted",
+                "taint": "untrusted",
                 "ledger_event_ref": "fixture-ledger-artifact-preview-001",
             })
             return

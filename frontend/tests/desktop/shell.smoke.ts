@@ -62,6 +62,10 @@ describe("AirBench desktop shell", () => {
     await upload.mockReturnValue({ intake_id: "intake-1", file_name: "inspection-report.pdf", byte_size: 110, source_hash: "sha256:source", revision_id: "revision-1", media_type: "application/pdf", page_count: 1, ocr_status: "completed", vision_status: "completed", clearance: "restricted", taint: "untrusted", preview_ref: "preview-1", artifact_ref: "artifact-1", ledger_event_ref: "ledger-intake-1" });
     const preview = await browser.tauri.mock("fetch_safe_preview");
     await preview.mockReturnValue({ preview_ref: "preview-1", preview_kind: "text", text: "Node-generated safe preview. The source remains untrusted data.", source_hash: "sha256:source", source_region: "page:1", confidence: 0.98, clearance: "restricted", taint: "untrusted", ledger_event_ref: "ledger-preview-1" });
+    const artifactPreview = await browser.tauri.mock("fetch_artifact_preview");
+    await artifactPreview.mockReturnValue({ artifact_id: "artifact-1", preview_kind: "structured_document", title: "Inspection approval note", blocks: [{ kind: "heading", text: "Approval note" }, { kind: "paragraph", text: "Node-generated artifact data." }], clearance: "restricted", taint: "untrusted", ledger_event_ref: "ledger-artifact-preview-1" });
+    const artifactDownload = await browser.tauri.mock("download_artifact");
+    await artifactDownload.mockReturnValue({ artifact_id: "artifact-1", destination: "approval-note.pdf", content_hash: "sha256:artifact", ledger_event_ref: "ledger-download-1", byte_size: 128 });
 
     await browser.$('[data-testid="node-chip"]').click();
     await browser.$("button*=Reload").click();
@@ -73,5 +77,8 @@ describe("AirBench desktop shell", () => {
     await browser.$(".compact-button").click();
     await expect(browser.$('[data-testid="intake-result"]')).toHaveText(expect.stringContaining("Node-generated safe preview"));
     await expect(browser.$('[data-testid="intake-result"]')).toHaveText(expect.stringContaining("untrusted"));
+    await expect(browser.$('[data-testid="artifact-preview"]')).toHaveText(expect.stringContaining("Inspection approval note"));
+    await browser.$('[data-testid="download-artifact"]').click();
+    await expect(browser.$('[data-testid="download-receipt"]')).toHaveText(expect.stringContaining("ledger-download-1"));
   });
 });
