@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "compatibility_id": "airbench-core-contracts",
+  "completion_id": "completion.inspection-001",
+  "task_id": "task.inspection-001",
+  "final_state": "needs_review",
+  "required_evidence_refs": ["evidence.report-001"],
+  "verification_refs": ["verification.inspection-001"],
+  "artifact_hashes": ["d444444444444444444444444444444444444444444444444444444444444444"],
+  "human_review_ref": "review.inspection-001",
+  "policy_version_hash": "b222222222222222222222222222222222222222222222222222222222222222",
+  "pack_version_hash": "e555555555555555555555555555555555555555555555555555555555555555",
+  "model_identities": ["model.vision.v1", "model.reasoning.v1"],
+  "hardware_identity": "hardware.96gb-vram.v1"
+}

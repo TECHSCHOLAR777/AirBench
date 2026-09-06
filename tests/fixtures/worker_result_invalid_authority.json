@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "compatibility_id": "airbench-core-contracts",
+  "result_id": "result.vision-001",
+  "assignment_id": "assignment.vision-001",
+  "task_id": "task.inspection-001",
+  "status": "accepted",
+  "output": {"complete": true},
+  "packet_ref": "packet.vision-001",
+  "retryable": false,
+  "completed_at": "2026-09-06T11:00:00Z"
+}

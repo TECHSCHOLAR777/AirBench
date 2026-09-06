@@ -3,13 +3,61 @@ import json
 import unittest
 from pathlib import Path
 
-from contracts import ContractValidationError, Clearance, FactEnvelope, LedgerEventEnvelope, TaskEnvelope, Taint, UntrustedEvidence, idempotency_key, stable_id
+from contracts import (CompletionRecord, ContractValidationError, FactEnvelope,
+                       LedgerEventEnvelope, TaskEnvelope, TeamPlan,
+                       WorkerAssignment, WorkerResult, WorkPacket, Clearance,
+                       Taint, UntrustedEvidence, idempotency_key, stable_id)
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class ContractTests(unittest.TestCase):
+  def test_m12_valid_task_team_and_worker_fixtures_are_typed(self):
+    task = TaskEnvelope.from_dict(json.loads((FIXTURES / "task_valid.json").read_text()))
+    team = TeamPlan.from_dict(json.loads((FIXTURES / "team_valid.json").read_text()))
+    assignment = WorkerAssignment.from_dict(json.loads((FIXTURES / "worker_assignment_valid.json").read_text()))
+    packet = WorkPacket.from_dict(json.loads((FIXTURES / "work_packet_valid.json").read_text()))
+    result = WorkerResult.from_dict(json.loads((FIXTURES / "worker_result_valid.json").read_text()))
+    completion = CompletionRecord.from_dict(json.loads((FIXTURES / "completion_valid.json").read_text()))
+    assert task.task_id == "task.inspection-001"
+    assert team.task_id == task.task_id
+    assert assignment.team_id == team.team_id
+    assert packet.team_id == team.team_id
+    assert result.assignment_id == assignment.assignment_id
+    assert completion.task_id == task.task_id
+
+
+  def test_m12_invalid_fixtures_fail_closed(self):
+    invalid = [
+        (TeamPlan, "team_invalid_unknown.json"),
+        (WorkerAssignment, "worker_assignment_invalid_timeout.json"),
+        (WorkPacket, "work_packet_invalid_provenance.json"),
+        (WorkerResult, "worker_result_invalid_authority.json"),
+        (CompletionRecord, "completion_invalid_criteria.json"),
+    ]
+    for contract, filename in invalid:
+      with self.subTest(contract=contract.__name__):
+        with self.assertRaises(ContractValidationError):
+          contract.from_dict(json.loads((FIXTURES / filename).read_text()))
+
+
+  def test_worker_result_cannot_claim_verification_or_completion(self):
+    payload = json.loads((FIXTURES / "worker_result_valid.json").read_text())
+    payload["status"] = "verified"
+    with self.assertRaises(ContractValidationError):
+      WorkerResult.from_dict(payload)
+
+
+  def test_team_requires_verification_and_positive_concurrency(self):
+    payload = json.loads((FIXTURES / "team_valid.json").read_text())
+    payload["required_verification"] = False
+    with self.assertRaises(ContractValidationError):
+      TeamPlan.from_dict(payload)
+    payload = json.loads((FIXTURES / "team_valid.json").read_text())
+    payload["concurrency_ceiling"] = 0
+    with self.assertRaises(ContractValidationError):
+      TeamPlan.from_dict(payload)
   def test_valid_task_is_typed_versioned_and_canonical(self):
     payload = json.loads((FIXTURES / "task_valid.json").read_text())
     task = TaskEnvelope.from_dict(payload)
@@ -65,6 +113,14 @@ class ContractTests(unittest.TestCase):
     self.assertTrue(event.immutable)
     with self.assertRaises((AttributeError, TypeError)):
         event.event_type = "tampered"
+
+
+  def test_invalid_enum_is_a_structured_contract_error(self):
+    payload = json.loads((FIXTURES / "task_valid.json").read_text())
+    payload["clearance"] = "top-secret-unknown"
+    with self.assertRaises(ContractValidationError) as caught:
+        TaskEnvelope.from_dict(payload)
+    self.assertTrue(any(i.code == "enum" for i in caught.exception.issues))
 
 
 if __name__ == "__main__":
