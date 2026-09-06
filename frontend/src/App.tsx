@@ -5,6 +5,7 @@ import { initialPresentationState } from "./contracts";
 import { NodeConnectionController, type NodeConnectionView } from "./nodeConnectionController";
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 import { listApprovedNodeProfiles } from "./profileBridge";
+import { fetchSafePreview, uploadSelectedQueryFile, type IntakeManifest, type SafePreview } from "./intakeBridge";
 
 type SelectedFile = { selection_id: string; file_name: string; byte_size: number };
 
@@ -33,6 +34,9 @@ function App() {
   const [showConnectionHelp, setShowConnectionHelp] = useState(false);
   const [taskText, setTaskText] = useState("");
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
+  const [intakeState, setIntakeState] = useState<"idle" | "uploading" | "ready" | "failed">("idle");
+  const [intakeManifest, setIntakeManifest] = useState<IntakeManifest | null>(null);
+  const [safePreview, setSafePreview] = useState<SafePreview | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const controller = useMemo(() => new NodeConnectionController(), []);
 
@@ -105,6 +109,30 @@ function App() {
     }
   };
 
+  const uploadSelectedFile = async () => {
+    if (!selectedFile) return;
+    const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
+    if (!profile || !nodeConnected) {
+      setNotice("Connect a verified Node before sending a file to the File Intake Layer.");
+      return;
+    }
+    setIntakeState("uploading");
+    setIntakeManifest(null);
+    setSafePreview(null);
+    setNotice(null);
+    try {
+      const manifest = await uploadSelectedQueryFile(profile, selectedFile.selection_id);
+      const preview = await fetchSafePreview(profile, manifest.preview_ref);
+      setIntakeManifest(manifest);
+      setSafePreview(preview);
+      setIntakeState("ready");
+      setNotice("AirBench accepted the file through the File Intake Layer. The preview is Node-generated and remains untrusted data.");
+    } catch {
+      setIntakeState("failed");
+      setNotice("The Node could not complete intake. The original file was not parsed by the desktop app.");
+    }
+  };
+
   const nodeConnected = connection.state === "connected" && controller.canSendConsequential();
   const nodeLabel = nodeConnected ? (profiles.find((profile) => profile.profileId === connection.profileId)?.displayName ?? "Node connected") : connection.state === "connecting" ? "Connecting to Node" : "Node not connected";
   const nodeDetail = nodeConnected ? "Verified and ready" : connection.state === "failed" ? "Connection blocked" : "Choose an approved Node";
@@ -124,7 +152,7 @@ function App() {
       <main className="main-area">
         <header className="topbar"><div className="breadcrumb"><span>AirBench</span><span className="breadcrumb-slash">/</span><strong>{screenTitle}</strong></div><div className="topbar-actions"><div className="quiet-status"><span className={`status-dot ${nodeConnected ? "status-dot-connected" : ""}`} aria-hidden="true" /> {nodeLabel}</div><button className="quiet-action" aria-label="Open command menu">Command</button><button className="quiet-action" aria-label="Open notifications">Alerts</button></div></header>
         <div className="content-wrap">
-          {state.screen === "home" && <HomeView taskText={taskText} setTaskText={setTaskText} selectedFile={selectedFile} notice={notice} canStart={false} onAttach={attachFile} onRemoveFile={() => setSelectedFile(null)} onHelp={() => setShowConnectionHelp(true)} onOpenNode={() => selectScreen("node")} />}
+          {state.screen === "home" && <HomeView taskText={taskText} setTaskText={setTaskText} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} notice={notice} canStart={false} onAttach={attachFile} onUpload={uploadSelectedFile} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); }} onHelp={() => setShowConnectionHelp(true)} onOpenNode={() => selectScreen("node")} />}
           {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesState("idle"); }} onHome={() => selectScreen("home")} />}
           {state.screen !== "home" && state.screen !== "node" && <RecordView screen={screenTitle} onHome={() => selectScreen("home")} />}
         </div>
@@ -138,14 +166,15 @@ function NavGroup({ title, items, active, onSelect }: { title: string; items: Ar
   return <div className="nav-group"><div className="nav-group-title">{title}</div>{items.map((item) => <button key={item.id} className={`nav-item ${active === item.id ? "active" : ""}`} onClick={() => onSelect(item.id)}><span className="nav-icon" aria-hidden="true">{item.icon}</span><span>{item.label}</span>{item.id === "review" && <span className="nav-count">0</span>}</button>)}</div>;
 }
 
-function HomeView({ taskText, setTaskText, selectedFile, notice, canStart, onAttach, onRemoveFile, onHelp, onOpenNode }: { taskText: string; setTaskText: (value: string) => void; selectedFile: SelectedFile | null; notice: string | null; canStart: boolean; onAttach: () => void; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void }) {
+function HomeView({ taskText, setTaskText, selectedFile, intakeState, intakeManifest, safePreview, notice, canStart, onAttach, onUpload, onRemoveFile, onHelp, onOpenNode }: { taskText: string; setTaskText: (value: string) => void; selectedFile: SelectedFile | null; intakeState: "idle" | "uploading" | "ready" | "failed"; intakeManifest: IntakeManifest | null; safePreview: SafePreview | null; notice: string | null; canStart: boolean; onAttach: () => void; onUpload: () => void; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void }) {
   return <div className="home-view">
     <section className="welcome-block"><p className="eyebrow">PRIVATE BY DESIGN</p><h1>What should AirBench complete?</h1><p className="lead">Describe the outcome. Add files if they are part of the work.</p></section>
     <section className="composer-card" data-testid="task-composer" aria-label="New task composer">
       <textarea value={taskText} onChange={(event) => setTaskText(event.target.value)} placeholder="For example: Review the scanned inspection report and draft an approval note with the key findings and required actions." rows={4} />
-      {selectedFile && <div className="selected-file"><span className="file-badge">FILE</span><span><strong>{selectedFile.file_name}</strong><small>{formatBytes(selectedFile.byte_size)} / ready for File Intake</small></span><button className="remove-file" onClick={onRemoveFile} aria-label="Remove selected file">Remove</button></div>}
+      {selectedFile && <div className="selected-file"><span className="file-badge">FILE</span><span><strong>{selectedFile.file_name}</strong><small>{formatBytes(selectedFile.byte_size)} / {intakeState === "ready" ? "accepted by File Intake" : "ready for File Intake"}</small></span><div className="selected-file-actions">{intakeState !== "ready" && <button className="secondary-button compact-button" onClick={onUpload} disabled={intakeState === "uploading"}>{intakeState === "uploading" ? "Sending..." : "Send to Node"}</button>}<button className="remove-file" onClick={onRemoveFile} aria-label="Remove selected file">Remove</button></div></div>}
       <div className="composer-footer"><div className="composer-tools"><button className="secondary-button" data-testid="attach-files" onClick={onAttach}><span aria-hidden="true">+</span> Attach files</button><button className="secondary-button" disabled>Choose project</button></div><button className="primary-button" data-testid="start-task" disabled={!canStart} title={canStart ? "Start task" : "Connect an approved Node and wait for task intake to be available"}>Start task <kbd>Enter</kbd></button></div>
     </section>
+    {intakeManifest && safePreview && <section className="intake-result" data-testid="intake-result" aria-label="File Intake result"><div className="intake-result-head"><div><p className="eyebrow">FILE INTAKE COMPLETE</p><h2>{intakeManifest.file_name}</h2></div><span className="intake-badge">{intakeManifest.ocr_status} OCR</span></div><div className="intake-meta-grid"><div><span>Source hash</span><strong>{intakeManifest.source_hash}</strong></div><div><span>Pages</span><strong>{intakeManifest.page_count}</strong></div><div><span>Clearance</span><strong>{intakeManifest.clearance}</strong></div><div><span>Taint</span><strong>{intakeManifest.taint}</strong></div></div><div className="safe-preview"><div className="safe-preview-label">Node-generated safe preview <span>Page region: {safePreview.source_region}</span></div><p>{safePreview.text}</p><small>Confidence {Math.round(safePreview.confidence * 100)}% / ledger {safePreview.ledger_event_ref}</small></div></section>}
     {notice && <div className="inline-notice" role="status">{notice}</div>}
     <div className="trust-line" role="status"><span className="trust-item"><span className="trust-check" aria-hidden="true">OK</span> Files stay on your node</span><span className="trust-item"><span className="trust-check" aria-hidden="true">OK</span> External network denied</span><button className="text-button" onClick={onHelp}>How this works</button></div>
     <section className="continue-section"><div className="section-heading"><div><h2>Continue work</h2><p>Your recent tasks will appear here.</p></div><button className="text-button" disabled>View history <span aria-hidden="true">-&gt;</span></button></div><div className="empty-state"><div className="empty-icon" aria-hidden="true">T</div><p>No tasks yet</p><small>When you start work, you can return to it here.</small></div></section>

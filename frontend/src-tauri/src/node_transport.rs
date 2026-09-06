@@ -237,7 +237,7 @@ fn load_approved_profiles(app: &tauri::AppHandle) -> Result<Vec<NodeProfile>, St
     Ok(profiles)
 }
 
-fn approved_profile_by_id(app: &tauri::AppHandle, profile_id: &str) -> Result<NodeProfile, String> {
+pub(crate) fn approved_profile_by_id(app: &tauri::AppHandle, profile_id: &str) -> Result<NodeProfile, String> {
     load_approved_profiles(app)?
         .into_iter()
         .find(|profile| profile.profile_id == profile_id)

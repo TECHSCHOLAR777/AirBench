@@ -23,7 +23,7 @@ npm run validate:node
 
 The runner starts a local authenticated Node fixture and a pinned internal-HTTPS fixture. It proves:
 
-Run: `AirBenchNodeValidation-20260906-093801-1789648d61b9499e8a9cedb30ecd49fb`
+Run: `AirBenchNodeValidation-20260906-173337-4902af3ae5ef4d5aa4239c8e5211d9d3`
 
 - cursor `0` returns ordered event sequences `1,2,3,4,5`;
 - cursor `3` returns replay sequences `4,5`;
@@ -31,7 +31,7 @@ Run: `AirBenchNodeValidation-20260906-093801-1789648d61b9499e8a9cedb30ecd49fb`
 - wrong credential, wrong Node identity, wrong certificate pin, invalid AirBench endpoint, and invalid task identifiers are rejected;
 - fixture logs do not contain bearer credential values.
 
-The TypeScript suite now covers duplicate events, sequence gaps, replay requests, snapshot replacement, blocked consequential commands, idempotency-key reservation, temporary disconnect retry, cursor replay after a gap, replay non-convergence, wrong-task protocol batches, unknown-event fail-closed behavior, and fail-closed pre-sync behavior. It passes 32 tests. The Rust suite covers endpoint and cursor-boundary validation.
+The TypeScript suite now covers duplicate events, sequence gaps, replay requests, snapshot replacement, blocked consequential commands, idempotency-key reservation, temporary disconnect retry, cursor replay after a gap, replay non-convergence, wrong-task protocol batches, unknown-event fail-closed behavior, and fail-closed pre-sync behavior. It passes 32 tests. The Rust suite covers endpoint and cursor-boundary validation with 5 tests passing.
 
 ## Remaining acceptance evidence
 

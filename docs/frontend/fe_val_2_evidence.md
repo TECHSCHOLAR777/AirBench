@@ -19,13 +19,13 @@ Status: Rust-owned handshake implementation in progress. No secure Node connecti
 
 The UI will not accept model-server URLs, arbitrary endpoint input, or a direct browser transport. The connection command is implemented in the Tauri Rust boundary and returns a typed result to the frontend.
 
-The current command now has an authenticated transport contract. The deterministic fixture run `AirBenchNodeValidation-20260906-093801-1789648d61b9499e8a9cedb30ecd49fb` passed its local and internal-HTTPS handshake cases. Production identity policy, real Python Node integration, and full failure captures remain required before FE-VAL-2 can close.
+The current command now has an authenticated transport contract. The deterministic fixture run `AirBenchNodeValidation-20260906-173337-4902af3ae5ef4d5aa4239c8e5211d9d3` passed its local and internal-HTTPS handshake cases. Production identity policy, real Python Node integration, signed catalog verification, and full failure captures remain required before FE-VAL-2 can close.
 
 ## Passing evidence so far
 
 From `frontend/`:
 
-- `npm run test`, 16 tests passed;
+- `npm run test`, 32 tests passed;
 - approved internal HTTPS profile accepted;
 - arbitrary external endpoint rejected;
 - credentials embedded in endpoint rejected;
@@ -34,7 +34,7 @@ From `frontend/`:
 - `npm run build`;
 - `npm run check:egress`;
 - `npm run check:tauri-config`.
-- `npm run validate:node`, including wrong credential, wrong identity, wrong certificate pin, invalid AirBench endpoint, invalid task identifier, denied artifact download, and unsupported file cases.
+- `npm run validate:node`, including wrong credential, wrong identity, wrong certificate pin, invalid AirBench endpoint, invalid task identifier, denied artifact download, and unsupported file cases. Latest run: `AirBenchNodeValidation-20260906-173337-4902af3ae5ef4d5aa4239c8e5211d9d3`.
 - `npm run test` passes 32 tests, including controller coverage for unapproved profiles, verified connection metadata, disconnect and reconnect gating, secret-safe failure handling, and the native approved-profile bridge mapping.
 - The Node settings screen now loads administrator-provisioned profiles through `list_approved_node_profiles`, presents transport and clearance metadata without exposing an endpoint editor, and renders verified identity, protocol, clearance, and ledger reference after the handshake.
 - The connection and event-stream commands now cross IPC with only the stable `profile_id`; Rust resolves endpoint, certificate policy, and credential references from the native catalog. The webview does not receive those transport secrets or certificate materials.

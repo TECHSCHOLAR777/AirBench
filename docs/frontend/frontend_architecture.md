@@ -117,7 +117,9 @@ The UI must not connect directly to the model-serving tier in either shape. The 
 
 ## 5. Security posture
 
-On Windows, the packaged WebView2 window is started with background networking, component update, domain reliability, sync, crash reporting, and breakpad features disabled, and its proxy is a non-listening loopback endpoint. Tauri's default disabled WebView2 feature set is retained. These settings reduce incidental browser-runtime traffic but are not the sovereignty boundary. The release profile must still apply an OS firewall or equivalent allowlist that permits only the approved AirBench Node transport, and FE-VAL-5 must capture the resulting deny and allow evidence.
+On Windows, the packaged WebView2 window is started with background networking, component update, domain reliability, sync, crash reporting, and breakpad features disabled, and its proxy is a non-listening loopback endpoint. Tauri's default disabled WebView2 feature set is retained. These settings reduce incidental browser-runtime traffic but are not the sovereignty boundary. The current Windows shell also disables QUIC and applies a host-resolver rule that excludes only loopback names. The release profile must still apply an OS firewall or equivalent allowlist that permits only the approved AirBench Node transport, and FE-VAL-5 must capture the resulting deny and allow evidence.
+
+The runtime harness records WebView2 descendants and fails when it observes a non-loopback established connection. An elevated host validation run must apply temporary outbound block rules scoped to the installed WebView2 executable paths, capture Windows Firewall dropped-packet logs, and restore the host policy after the run. The browser flags are reduction measures, not proof that WebView2 has no egress.
 
 - Ship a static bundle with all fonts, icons, styles, preview workers, and runtime assets local to the installer.
 - Bundle WebView2 for the supported Windows deployment profile and prove startup with the network disabled.

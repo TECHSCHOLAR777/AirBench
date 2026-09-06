@@ -31,18 +31,7 @@ describe("File Intake frontend bridge", () => {
     await uploadSelectedQueryFile(profile, "selection-1");
 
     expect(invokeMock).toHaveBeenCalledWith("upload_selected_query_file", {
-      profile: {
-        profile_id: "profile-1",
-        endpoint: "http://127.0.0.1:9443",
-        transport: "loopback",
-        node_identity: "node-1",
-        protocol_version: "0.1",
-        clearance_context: "restricted",
-        certificate_pin_sha256: null,
-        trusted_ca_pem: null,
-        credential_ref: "fixture-user",
-        approved_by_policy: true,
-      },
+      profileId: "profile-1",
       selection_id: "selection-1",
     });
   });
@@ -60,8 +49,8 @@ describe("File Intake frontend bridge", () => {
     await downloadArtifact(profile, "artifact-1", "approval-note.pdf");
 
     expect(invokeMock.mock.calls.slice(-2)).toEqual([
-      ["fetch_safe_preview", expect.objectContaining({ preview_ref: "preview-1" })],
-      ["download_artifact", expect.objectContaining({ artifact_id: "artifact-1", suggested_name: "approval-note.pdf" })],
+      ["fetch_safe_preview", expect.objectContaining({ profileId: "profile-1", preview_ref: "preview-1" })],
+      ["download_artifact", expect.objectContaining({ profileId: "profile-1", artifact_id: "artifact-1", suggested_name: "approval-note.pdf" })],
     ]);
   });
 });

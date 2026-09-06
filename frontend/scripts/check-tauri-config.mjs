@@ -20,7 +20,7 @@ if (config.bundle?.createUpdaterArtifacts) failures.push("Updater artifacts must
 if (!String(csp).includes("connect-src 'none'")) failures.push("FE-VAL-1 CSP must deny all connections before the Node transport is implemented.");
 if (!String(csp).includes("default-src 'self'")) failures.push("CSP must have a self-only default source.");
 if (config.build?.devUrl !== "http://127.0.0.1:1420") failures.push("Development URL must remain loopback-only.");
-for (const flag of ["--disable-background-networking", "--disable-component-update", "--disable-domain-reliability", "--disable-sync", "--disable-crash-reporter", "--disable-breakpad"]) {
+for (const flag of ["--disable-background-networking", "--disable-component-update", "--disable-domain-reliability", "--disable-sync", "--disable-crash-reporter", "--disable-breakpad", "--disable-quic", "--host-resolver-rules=MAP * 0.0.0.0"]) {
   if (!String(browserArgs).includes(flag)) failures.push(`WebView2 must include the offline startup flag ${flag}.`);
 }
 for (const flag of ["--proxy-server=127.0.0.1:9", "--proxy-bypass-list=127.0.0.1;localhost;[::1]"]) {
