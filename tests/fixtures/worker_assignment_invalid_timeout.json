@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "compatibility_id": "airbench-core-contracts",
+  "assignment_id": "assignment.vision-001",
+  "team_id": "team.inspection-001",
+  "task_id": "task.inspection-001",
+  "worker_id": "worker.vision-001",
+  "role": "vision_worker",
+  "stage": "evidence_extraction",
+  "input_schema": "UntrustedEvidence.v1",
+  "output_schema": "WorkPacket.v1",
+  "evidence_refs": [],
+  "allowed_tools": [],
+  "clearance": "restricted",
+  "taint": "untrusted",
+  "capability_requirement": "local_vision",
+  "deadline": "not-a-timestamp",
+  "idempotency_key": "assignment-vision-001",
+  "status": "queued"
+}

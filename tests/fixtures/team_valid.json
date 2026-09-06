@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "compatibility_id": "airbench-core-contracts",
+  "team_id": "team.inspection-001",
+  "task_id": "task.inspection-001",
+  "assignments": ["assignment.vision-001", "assignment.reasoning-001", "assignment.verify-001"],
+  "dependency_graph": {
+    "assignment.vision-001": [],
+    "assignment.reasoning-001": ["assignment.vision-001"],
+    "assignment.verify-001": ["assignment.reasoning-001"]
+  },
+  "concurrency_ceiling": 2,
+  "required_verification": true,
+  "completion_criteria": ["sources_attached", "independent_verification"],
+  "plan_version_hash": "a111111111111111111111111111111111111111111111111111111111111111",
+  "policy_version_hash": "b222222222222222222222222222222222222222222222222222222222222222"
+}
