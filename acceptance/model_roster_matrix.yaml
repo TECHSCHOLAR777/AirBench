@@ -13,7 +13,7 @@ requirements:
     description: Signed roster contains immutable model/artifact identities; no mutable tags.
     test_id: "test_m5_registry.py::ModelRegistryTests::test_signed_registry_verifies_local_artifact_and_exact_scope"
     observable_result: "ModelRegistry.load() returns a registry with artifact_digest matching local file hash"
-    ledger_event: "model.roster.loaded"
+    ledger_event: "model.registry.loaded"
     evidence_artifact: "models/roster/v0/model_roster.yaml"
     pass_rule: "test_signed_registry_verifies_local_artifact_and_exact_scope passes; roster loads without RegistryError"
     status: "REPLACE_WITH_MEASURED:pass-or-fail"

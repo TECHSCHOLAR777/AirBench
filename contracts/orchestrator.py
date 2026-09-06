@@ -7,12 +7,15 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .errors import ContractValidationError
+from .backend import (BackendAdapter, BackendChunk, BackendMessage, BackendOutputSpec,
+                      BackendRequest, BackendResponse, BackendTool, CancellationToken)
 from .ids import idempotency_key, stable_id
 from .authorization import AuthorizationService
 from .ledger import (CommittedTransaction, EventLedger, LedgerError, SQLiteLedgerStore,
                      StorageFailure, TransitionRejected, build_event)
-from .models import Clearance, ContractStatus, TaskEnvelope, TeamPlan
+from .models import Clearance, ContractStatus, ModelCallRequest, TaskEnvelope, TeamPlan
 from .planning import PlanProposal, PlanValidator
+from .router import ModelRouter, RouteResult
 
 
 class OrchestrationError(RuntimeError):
@@ -61,6 +64,16 @@ class StepResult:
     attempt: int
     result: Any
     transition: TransitionResult
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCallExecution:
+    """Orchestrator-owned result of routing and optionally executing one call."""
+
+    request_id: str
+    route: RouteResult
+    response: BackendResponse | tuple[BackendChunk, ...] | None
+    step: StepResult | None
 
 
 _TARGETS = {
@@ -282,6 +295,86 @@ class Orchestrator:
                     raise RetryExhausted(f"step {step_id} exhausted its retry budget") from exc
         raise RetryExhausted(f"step {step_id} exhausted its retry budget")
 
+    def execute_model_call(self, request: ModelCallRequest, *, router: ModelRouter, pack_ref: str,
+                           hardware_profile_ref: str, messages: tuple[BackendMessage, ...],
+                           output: BackendOutputSpec | None = None,
+                           tools: tuple[BackendTool, ...] = (), stream: bool = False,
+                           cancellation: CancellationToken | None = None,
+                           max_attempts: int = 1) -> ModelCallExecution:
+        """Route and execute one typed model call through the orchestrator.
+
+        Routing is recorded before the backend is invoked.  Queued or rejected
+        decisions return without calling a backend.  Accepted calls use the
+        existing ``execute_step`` retry, timeout, and task-state machinery.
+        """
+        task = self._task(request.task_id)
+        if pack_ref != task.domain_pack_ref:
+            raise PlanRejected("model request pack must match its task domain pack")
+        if request.clearance != task.clearance:
+            raise PlanRejected("model request clearance must match its task clearance")
+        if request.action_risk != task.risk_class:
+            raise PlanRejected("model request risk must match its task risk class")
+        if request.required_capability not in task.permitted_worker_capabilities:
+            raise PlanRejected("model request capability is outside the task authority")
+        route = router.route(request, pack_ref=pack_ref, hardware_profile_ref=hardware_profile_ref)
+        route_key = idempotency_key("orchestrator.routing.decision", request.request_id, route.decision.digest())
+        self._append_once(
+            "routing.decision", request.task_id,
+            {"decision": route.decision.to_dict(), "request_hash": request.digest()},
+            "RoutingDecision", route_key,
+        )
+        if route.decision.status == ContractStatus.queued:
+            self._append_once(
+                "routing.queued", request.task_id,
+                {"request_id": request.request_id, "decision_id": route.decision.decision_id,
+                 "reason": route.decision.reason},
+                "RoutingDecision", idempotency_key("orchestrator.routing.queued", request.request_id, route.decision.digest()),
+            )
+            return ModelCallExecution(request.request_id, route, None, None)
+        if route.decision.status != ContractStatus.accepted or route.target is None or route.adapter is None:
+            return ModelCallExecution(request.request_id, route, None, None)
+
+        backend_request = BackendRequest(
+            model_call=request,
+            target_id=route.target.target_id,
+            artifact_digest=route.target.artifact_digest,
+            backend_id=route.target.adapter_id,
+            backend_version=route.target.adapter_version,
+            messages=messages,
+            output=output or BackendOutputSpec(),
+            tools=tools,
+            stream=stream,
+        )
+
+        def action() -> BackendResponse | tuple[BackendChunk, ...]:
+            if stream:
+                return tuple(route.adapter.stream(backend_request, cancellation))
+            return route.adapter.complete(backend_request, cancellation)
+
+        def result_payload(result: BackendResponse | tuple[BackendChunk, ...], attempt: int) -> dict[str, Any]:
+            if isinstance(result, tuple):
+                if not result or not result[-1].final:
+                    raise OrchestrationError("stream ended without a final chunk")
+                return {
+                    "step_id": request.request_id, "attempt": attempt,
+                    "request_id": request.request_id, "target_id": route.target.target_id,
+                    "stream": True, "chunk_count": len(result),
+                    "chunk_hash": result[-1].digest(),
+                }
+            return {
+                "step_id": request.request_id, "attempt": attempt,
+                "request_id": request.request_id, "target_id": result.target_id,
+                "response_hash": result.digest(), "usage": result.usage.to_dict(),
+                "provenance": result.provenance.to_dict(),
+            }
+
+        step = self.execute_step(
+            request.task_id, step_id=request.request_id, action=action,
+            timeout_ms=request.timeout_ms, max_attempts=max_attempts,
+            kind="model", result_payload=result_payload,
+        )
+        return ModelCallExecution(request.request_id, route, step.result, step)
+
     def cancel(self, task_id: str, *, reason: str,
                command_metadata: dict[str, str] | None = None) -> TransitionResult:
         if not reason.strip():
@@ -330,6 +423,15 @@ class Orchestrator:
             raise StorageFailure("orchestrator transition was not committed") from exc
         transaction_id = committed.transaction_id if isinstance(committed, CommittedTransaction) else None
         return TransitionResult(task_id, event.event_id, event_type, self.state(task_id), event.sequence, key, transaction_id)
+
+    def _append_once(self, event_type: str, task_id: str, payload: dict[str, Any], contract: str, key: str) -> TransitionResult:
+        existing = next((event for event in self.store.events if event.idempotency_key == key), None)
+        if existing is not None:
+            return TransitionResult(
+                task_id, existing.event_id, event_type, self.state(task_id), existing.sequence,
+                key, self._transaction_id(existing.event_id),
+            )
+        return self._append(event_type, task_id, payload, contract, key)
 
     def _checkpoint(self, task_id: str, result: TransitionResult) -> None:
         if isinstance(self.store, SQLiteLedgerStore) and result.transaction_id:
