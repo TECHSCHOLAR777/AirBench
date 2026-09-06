@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import sqlite3
+from datetime import datetime, timezone
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, Protocol
 
 from .errors import ContractValidationError, ValidationIssue
 from .ids import idempotency_key, stable_id
@@ -34,6 +38,14 @@ class ReplayRejected(LedgerError):
     """The event chain cannot be safely replayed."""
 
 
+class ProvenanceRejected(LedgerError):
+    """An event carrying governed data has incomplete provenance."""
+
+
+class StorageFailure(LedgerError):
+    """A durable ledger transaction could not be committed."""
+
+
 @dataclass(frozen=True, slots=True)
 class ReplayState:
     task_id: str
@@ -41,6 +53,34 @@ class ReplayState:
     sequence: int
     event_ids: tuple[str, ...]
     failure_state: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CommittedTransaction:
+    transaction_id: str
+    event_ids: tuple[str, ...]
+    first_sequence: int
+    last_sequence: int
+    head_hash: str
+    batch_hash: str
+    signature: str
+    sealed_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class Checkpoint:
+    checkpoint_id: str
+    task_id: str
+    sequence: int
+    head_hash: str
+    state: str
+    transaction_id: str
+
+
+class LedgerStore(Protocol):
+    def append(self, event: LedgerEventEnvelope) -> CommittedTransaction: ...
+    def append_batch(self, events: list[LedgerEventEnvelope], transaction_id: str) -> CommittedTransaction: ...
+    def replay(self, task_id: str) -> ReplayState: ...
 
 
 def _canonical(value: Any) -> str:
@@ -152,6 +192,188 @@ class EventLedger:
             if event.event_hash != _event_hash(event):
                 raise ReplayRejected("ledger event hash is invalid")
             previous = event.event_hash
+
+
+class SQLiteLedgerStore:
+    """Durable append-only ledger adapter.
+
+    SQLite is used as the first local storage implementation; all writes are
+    transactional and the public behavior is defined by ``LedgerStore`` rather
+    than by SQLite. The signing key is supplied by the deployment key store and
+    is never persisted in this database.
+    """
+
+    def __init__(self, path: str | Path, signing_key: bytes) -> None:
+        if not signing_key:
+            raise ValueError("signing_key is required for sealed ledger commits")
+        self.path = str(path)
+        self._signing_key = bytes(signing_key)
+        self._db = sqlite3.connect(self.path)
+        self._db.row_factory = sqlite3.Row
+        self._db.execute("PRAGMA foreign_keys = ON")
+        self._db.execute("PRAGMA journal_mode = WAL")
+        self._db.execute("""
+            CREATE TABLE IF NOT EXISTS ledger_events (
+                sequence INTEGER PRIMARY KEY,
+                event_id TEXT NOT NULL UNIQUE,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                task_id TEXT NOT NULL,
+                event_hash TEXT NOT NULL UNIQUE,
+                transaction_id TEXT NOT NULL,
+                event_json TEXT NOT NULL,
+                clearance TEXT NOT NULL
+            )
+        """)
+        self._db.execute("""
+            CREATE TABLE IF NOT EXISTS ledger_transactions (
+                transaction_id TEXT PRIMARY KEY,
+                first_sequence INTEGER NOT NULL,
+                last_sequence INTEGER NOT NULL,
+                head_hash TEXT NOT NULL,
+                batch_hash TEXT NOT NULL,
+                signature TEXT NOT NULL,
+                sealed_at TEXT NOT NULL
+            )
+        """)
+        self._db.execute("""
+            CREATE TABLE IF NOT EXISTS ledger_checkpoints (
+                checkpoint_id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
+                head_hash TEXT NOT NULL,
+                state TEXT NOT NULL,
+                transaction_id TEXT NOT NULL
+            )
+        """)
+        self._db.commit()
+
+    def close(self) -> None:
+        self._db.close()
+
+    def _load_ledger(self) -> EventLedger:
+        ledger = EventLedger()
+        rows = self._db.execute("SELECT event_json FROM ledger_events ORDER BY sequence").fetchall()
+        try:
+            for row in rows:
+                event = LedgerEventEnvelope.from_dict(json.loads(row["event_json"]))
+                ledger.append(event)
+        except (ContractValidationError, LedgerError) as exc:
+            raise ReplayRejected("durable ledger failed validation") from exc
+        ledger.verify_chain()
+        return ledger
+
+    @property
+    def events(self) -> tuple[LedgerEventEnvelope, ...]:
+        return self._load_ledger().events
+
+    @property
+    def head_hash(self) -> str | None:
+        row = self._db.execute("SELECT head_hash FROM ledger_transactions ORDER BY last_sequence DESC LIMIT 1").fetchone()
+        return row["head_hash"] if row else None
+
+    def append(self, event: LedgerEventEnvelope) -> CommittedTransaction:
+        return self.append_batch([event], stable_id("transaction", event.event_id))
+
+    def append_batch(self, events: list[LedgerEventEnvelope], transaction_id: str) -> CommittedTransaction:
+        if not events:
+            raise ValueError("events must not be empty")
+        if not transaction_id:
+            raise ValueError("transaction_id is required")
+        duplicate_transactions: set[str] = set()
+        for event in events:
+            row = self._db.execute("SELECT transaction_id, event_hash FROM ledger_events WHERE idempotency_key = ?", (event.idempotency_key,)).fetchone()
+            if row is None:
+                continue
+            if row["event_hash"] != event.event_hash:
+                raise IdempotencyConflict(event.idempotency_key)
+            duplicate_transactions.add(row["transaction_id"])
+        if duplicate_transactions:
+            if len(duplicate_transactions) == 1 and len(duplicate_transactions) == len(events):
+                row = self._db.execute("SELECT * FROM ledger_transactions WHERE transaction_id = ?", (next(iter(duplicate_transactions)),)).fetchone()
+                if row is not None:
+                    return CommittedTransaction(row["transaction_id"], tuple(json.loads(self._db.execute("SELECT json_group_array(event_id) FROM ledger_events WHERE transaction_id = ?", (row["transaction_id"],)).fetchone()[0])), row["first_sequence"], row["last_sequence"], row["head_hash"], row["batch_hash"], row["signature"], row["sealed_at"])
+            raise IdempotencyConflict("batch mixes already committed and new events")
+        current = self._load_ledger()
+        candidate = EventLedger()
+        for existing in current.events:
+            candidate.append(existing)
+        validated: list[LedgerEventEnvelope] = []
+        try:
+            for event in events:
+                self._validate_provenance(event)
+                committed = candidate.append(event)
+                validated.append(committed)
+        except (ContractValidationError, LedgerError) as exc:
+            raise StorageFailure("batch rejected before durable commit") from exc
+        if any(event.event_id in {old.event_id for old in current.events} for event in validated):
+            raise StorageFailure("event already exists with a different transaction")
+        payload = _canonical([event.event_hash for event in validated])
+        batch_hash = _sha256(payload)
+        signature = hmac.new(self._signing_key, batch_hash.encode(), hashlib.sha256).hexdigest()
+        sealed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        first_sequence = validated[0].sequence
+        last_sequence = validated[-1].sequence
+        transaction = CommittedTransaction(transaction_id, tuple(e.event_id for e in validated), first_sequence, last_sequence, validated[-1].event_hash, batch_hash, signature, sealed_at)
+        try:
+            self._db.execute("BEGIN IMMEDIATE")
+            self._db.execute("INSERT INTO ledger_transactions VALUES (?, ?, ?, ?, ?, ?, ?)", (transaction.transaction_id, transaction.first_sequence, transaction.last_sequence, transaction.head_hash, transaction.batch_hash, transaction.signature, transaction.sealed_at))
+            for event in validated:
+                self._db.execute("INSERT INTO ledger_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (event.sequence, event.event_id, event.idempotency_key, event.task_id, event.event_hash, transaction_id, event.canonical_json(), event.clearance.value))
+            self._db.commit()
+        except sqlite3.Error as exc:
+            self._db.rollback()
+            raise StorageFailure("ledger transaction rolled back") from exc
+        return transaction
+
+    def _validate_provenance(self, event: LedgerEventEnvelope) -> None:
+        governed = {"evidence.created", "fact.candidate", "fact.committed", "tool.result", "verification.completed"}
+        if event.event_type not in governed:
+            return
+        provenance = event.payload.get("provenance")
+        if not isinstance(provenance, dict):
+            raise ProvenanceRejected(f"{event.event_type} requires provenance")
+        required = {"source_ref", "confidence", "clearance", "taint"}
+        if not required.issubset(provenance):
+            raise ProvenanceRejected(f"{event.event_type} has incomplete provenance")
+        if type(provenance["confidence"]) not in (int, float) or not 0 <= provenance["confidence"] <= 1:
+            raise ProvenanceRejected("provenance confidence must be between 0 and 1")
+        if not provenance["source_ref"] or not provenance["taint"]:
+            raise ProvenanceRejected("provenance source and taint are required")
+
+    def checkpoint(self, *, checkpoint_id: str, task_id: str, state: str, transaction_id: str) -> Checkpoint:
+        row = self._db.execute("SELECT last_sequence, head_hash FROM ledger_transactions WHERE transaction_id = ?", (transaction_id,)).fetchone()
+        if row is None:
+            raise StorageFailure("checkpoint requires a committed transaction")
+        checkpoint = Checkpoint(checkpoint_id, task_id, row["last_sequence"], row["head_hash"], state, transaction_id)
+        try:
+            self._db.execute("INSERT INTO ledger_checkpoints VALUES (?, ?, ?, ?, ?, ?)", tuple(checkpoint.__dict__.values()) if hasattr(checkpoint, "__dict__") else (checkpoint.checkpoint_id, checkpoint.task_id, checkpoint.sequence, checkpoint.head_hash, checkpoint.state, checkpoint.transaction_id))
+            self._db.commit()
+        except sqlite3.Error as exc:
+            self._db.rollback()
+            raise StorageFailure("checkpoint commit failed") from exc
+        return checkpoint
+
+    def latest_checkpoint(self, task_id: str) -> Checkpoint | None:
+        row = self._db.execute("SELECT * FROM ledger_checkpoints WHERE task_id = ? ORDER BY sequence DESC LIMIT 1", (task_id,)).fetchone()
+        if row is None:
+            return None
+        return Checkpoint(row["checkpoint_id"], row["task_id"], row["sequence"], row["head_hash"], row["state"], row["transaction_id"])
+
+    def replay(self, task_id: str) -> ReplayState:
+        return self._load_ledger().replay(task_id)
+
+    def projection(self, clearance: Clearance | str) -> tuple[LedgerEventEnvelope, ...]:
+        requested = clearance if isinstance(clearance, Clearance) else Clearance(clearance)
+        rank = {Clearance.public: 0, Clearance.internal: 1, Clearance.restricted: 2, Clearance.secret: 3}
+        return tuple(event for event in self.events if rank[event.clearance] <= rank[requested])
+
+    def signed_export(self, clearance: Clearance | str) -> dict[str, Any]:
+        events = self.projection(clearance)
+        export = {"clearance": (clearance.value if isinstance(clearance, Clearance) else clearance), "events": [event.to_dict() for event in events]}
+        body_hash = _sha256(_canonical(export))
+        export["content_hash"] = body_hash
+        export["signature"] = hmac.new(self._signing_key, body_hash.encode(), hashlib.sha256).hexdigest()
+        return export
 
 
 def _apply_event(state: str, failure: str | None, event: LedgerEventEnvelope) -> tuple[str, str | None]:
