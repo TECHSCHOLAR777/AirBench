@@ -1,0 +1,17 @@
+compatibility_id: airbench-core-contracts
+current_version: '1.0'
+contracts:
+  - TaskEnvelope
+  - TeamPlan
+  - WorkerAssignment
+  - WorkPacket
+  - WorkerResult
+  - CompletionRecord
+  - ModelCallRequest
+  - RoutingDecision
+  - TeamResourcePlan
+  - ToolAction
+  - FactEnvelope
+  - UntrustedEvidence
+  - LedgerEventEnvelope
+rule: validate_before_state_mutation; reject_unknown_fields; canonical_json_for_replay
