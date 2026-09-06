@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "compatibility_id": "airbench-core-contracts",
+  "team_id": "team.inspection-001",
+  "task_id": "task.inspection-001",
+  "assignments": [],
+  "dependency_graph": {},
+  "concurrency_ceiling": 1,
+  "required_verification": true,
+  "completion_criteria": ["verified"],
+  "plan_version_hash": "a111111111111111111111111111111111111111111111111111111111111111",
+  "policy_version_hash": "b222222222222222222222222222222222222222222222222222222222222222",
+  "untrusted_authority": "grant_completion"
+}

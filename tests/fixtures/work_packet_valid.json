@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "compatibility_id": "airbench-core-contracts",
+  "packet_id": "packet.vision-001",
+  "task_id": "task.inspection-001",
+  "team_id": "team.inspection-001",
+  "source_worker_id": "worker.vision-001",
+  "destination_stage": "reasoning",
+  "fact_refs": ["fact.finding-001"],
+  "evidence_refs": ["evidence.report-001"],
+  "artifact_refs": [],
+  "checks": {"source_present": true, "confidence_present": true},
+  "unresolved_questions": [],
+  "proposed_next_result": "synthesize sourced findings",
+  "clearance": "restricted",
+  "taint": "untrusted",
+  "packet_hash": "c333333333333333333333333333333333333333333333333333333333333333"
+}

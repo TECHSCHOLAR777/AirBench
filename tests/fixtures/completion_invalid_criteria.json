@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "compatibility_id": "airbench-core-contracts",
+  "completion_id": "completion.inspection-001",
+  "task_id": "task.inspection-001",
+  "final_state": "complete",
+  "required_evidence_refs": [],
+  "verification_refs": [],
+  "artifact_hashes": [],
+  "human_review_ref": null,
+  "policy_version_hash": "b222222222222222222222222222222222222222222222222222222222222222",
+  "pack_version_hash": "e555555555555555555555555555555555555555555555555555555555555555",
+  "model_identities": [],
+  "hardware_identity": "hardware.96gb-vram.v1"
+}
