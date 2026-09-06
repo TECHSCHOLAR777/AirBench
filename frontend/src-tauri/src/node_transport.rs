@@ -2,7 +2,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::fs;
+use std::{collections::HashSet, fs};
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::Manager;
@@ -231,11 +231,20 @@ fn load_approved_profiles(app: &tauri::AppHandle) -> Result<Vec<NodeProfile>, St
     let profiles: Vec<NodeProfile> = serde_json::from_str(&content)
         .map_err(|_| "The approved Node profile catalog is not valid.".to_string())?;
 
-    for profile in &profiles {
-        validate_profile(profile).map_err(|error| error.to_string())?;
-    }
+    validate_profile_catalog(&profiles)?;
 
     Ok(profiles)
+}
+
+fn validate_profile_catalog(profiles: &[NodeProfile]) -> Result<(), String> {
+    let mut profile_ids = HashSet::new();
+    for profile in profiles {
+        validate_profile(profile).map_err(|error| error.to_string())?;
+        if !profile_ids.insert(profile.profile_id.as_str()) {
+            return Err("The approved Node profile catalog contains a duplicate profile identity.".to_string());
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn approved_profile_by_id(app: &tauri::AppHandle, profile_id: &str) -> Result<NodeProfile, String> {
@@ -749,5 +758,12 @@ mod tests {
             validate_event_batch(&batch, "task-1", 0),
             Err(NodeTransportError::EventSchemaInvalid(_))
         ));
+    }
+
+    #[test]
+    fn approved_profile_catalog_rejects_duplicate_profile_ids() {
+        let node = profile("http://127.0.0.1:9443", NodeTransport::Loopback, None);
+        let result = validate_profile_catalog(&[node.clone(), node]);
+        assert!(result.unwrap_err().contains("duplicate profile identity"));
     }
 }
