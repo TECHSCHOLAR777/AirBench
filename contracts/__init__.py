@@ -2,6 +2,8 @@
 
 from .errors import ContractValidationError, ValidationIssue
 from .ids import idempotency_key, stable_id
+from .ledger import (EVENT_TYPES, EventLedger, IdempotencyConflict, ReplayRejected,
+                     ReplayState, TransitionRejected, build_event)
 from .models import *
 from .models import (TaskEnvelope, TeamPlan, WorkerAssignment, WorkPacket, WorkerResult,
                      CompletionRecord, ModelCallRequest, RoutingDecision, TeamResourcePlan, HardwareProfile,
@@ -10,4 +12,6 @@ from .models import (TaskEnvelope, TeamPlan, WorkerAssignment, WorkPacket, Worke
 __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "stable_id",
            "TaskEnvelope", "TeamPlan", "WorkerAssignment", "WorkPacket", "WorkerResult",
            "CompletionRecord", "ModelCallRequest", "RoutingDecision", "TeamResourcePlan", "HardwareProfile",
-           "ToolAction", "FactEnvelope", "UntrustedEvidence", "LedgerEventEnvelope"]
+           "ToolAction", "FactEnvelope", "UntrustedEvidence", "LedgerEventEnvelope",
+           "EVENT_TYPES", "EventLedger", "IdempotencyConflict", "ReplayRejected",
+           "ReplayState", "TransitionRejected", "build_event"]

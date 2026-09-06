@@ -13,7 +13,15 @@ from .errors import ContractValidationError, ValidationIssue
 
 SCHEMA_VERSION = "1.0"
 COMPATIBILITY_ID = "airbench-core-contracts"
-_ID = re.compile(r"^[a-z][a-z0-9._:-]{0,127}$")
+_ID = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
+LEDGER_EVENT_TYPES = {
+    "task.created", "task.authorized", "task.plan.committed", "task.checkpoint.committed", "task.cancelled", "task.failed",
+    "team.created", "worker.assigned", "worker.started", "worker.completed", "worker.failed", "worker.handoff",
+    "model.requested", "routing.decided", "model.responded", "model.failed", "tool.requested", "tool.authorized", "tool.denied", "tool.result",
+    "evidence.created", "fact.candidate", "fact.committed", "verification.completed", "retry.started", "fallback.selected",
+    "resource.plan.admitted", "resource.plan.queued", "barrier.waiting", "barrier.completed", "artifact.staged", "artifact.checked",
+    "human.review.required", "human.signoff", "completion.recorded", "escalation.required",
+}
 
 
 class ContractStatus(str, Enum):
@@ -336,10 +344,12 @@ class ToolAction(Contract):
 
 @dataclass(frozen=True)
 class LedgerEventEnvelope(Contract):
-    event_id: str; event_type: str; task_id: str; parent_event_id: str | None; sequence: int; occurred_at: str; actor_id: str; actor_type: str; clearance: Clearance; payload_contract: str; payload_version: str; payload_hash: str; idempotency_key: str; previous_event_hash: str | None; event_hash: str; immutable: bool = True
+    event_id: str; event_type: str; task_id: str; parent_event_id: str | None; sequence: int; occurred_at: str; actor_id: str; actor_type: str; clearance: Clearance; payload_contract: str; payload_version: str; payload_hash: str; idempotency_key: str; previous_event_hash: str | None; event_hash: str; immutable: bool = True; payload: dict[str, Any] = field(default_factory=dict)
     def _validate(self, hints):
         issues = super()._validate(hints)
-        if self.sequence < 0: issues.append(ValidationIssue("sequence", "range", "must be non-negative"))
+        if type(self.sequence) is not int or self.sequence < 0: issues.append(ValidationIssue("sequence", "range", "must be a non-negative integer"))
         if not self.immutable: issues.append(ValidationIssue("immutable", "ledger", "ledger events are immutable"))
         if not re.fullmatch(r"[0-9a-f]{64}", self.event_hash): issues.append(ValidationIssue("event_hash", "hash", "must be a SHA-256 hex digest"))
+        if not re.fullmatch(r"[0-9a-f]{64}", self.payload_hash): issues.append(ValidationIssue("payload_hash", "hash", "must be a SHA-256 hex digest"))
+        if self.event_type not in LEDGER_EVENT_TYPES: issues.append(ValidationIssue("event_type", "event", "unknown ledger event type"))
         return issues
