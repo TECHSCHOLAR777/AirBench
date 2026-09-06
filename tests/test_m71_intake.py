@@ -1,7 +1,16 @@
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from airbench.intake import FileIntakeLayer, IntakeError, IntakeMode, IntakeRequest
+from airbench.intake import (
+    FileIntakeLayer,
+    IntakeError,
+    IntakeMode,
+    IntakeRequest,
+    LocalIntakeStore,
+    RenderedPage,
+)
 from contracts import Clearance, EventLedger, build_event
 
 
@@ -14,6 +23,20 @@ def task_created(ledger: EventLedger, task_id: str) -> None:
 
 
 class FileIntakeTests(unittest.TestCase):
+    class StaticRenderer:
+        name = "test-renderer"
+        version = "1"
+
+        def render(self, request, page):
+            return RenderedPage(page.page_number, b"rendered-page", "image/png")
+
+    class FailingLedger:
+        events = ()
+        head_hash = None
+
+        def append(self, event):
+            raise RuntimeError("ledger unavailable")
+
     def test_bulk_and_query_upload_share_parser_and_stable_revision(self):
         first_ledger = EventLedger()
         task_created(first_ledger, "task.intake")
@@ -81,6 +104,139 @@ class FileIntakeTests(unittest.TestCase):
         serialized = manifest.to_dict(include_page_text=False)
         self.assertNotIn("instruction", str(serialized))
         self.assertEqual(manifest.to_dict(include_page_text=False), manifest.to_dict(include_page_text=False))
+
+    def test_local_store_commits_source_manifest_and_rendered_pages_transactionally(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = EventLedger()
+            task_created(ledger, "task.persist")
+            layer = FileIntakeLayer(
+                ledger,
+                renderer=self.StaticRenderer(),
+                store=LocalIntakeStore(directory),
+            )
+
+            manifest = layer.query_upload(
+                task_id="task.persist",
+                source_ref="upload:persisted",
+                file_name="report.txt",
+                content=b"A finding.",
+                clearance=Clearance.restricted,
+            )
+
+            self.assertEqual(manifest.pages[0].render_status, "ready")
+            self.assertTrue(manifest.source_artifact_ref)
+            self.assertTrue(manifest.manifest_artifact_ref)
+            self.assertEqual(len(ledger.events), 2)
+            self.assertEqual(ledger.events[-1].event_type, "evidence.created")
+            payload = ledger.events[-1].payload
+            self.assertEqual(payload["source_artifact_ref"], manifest.source_artifact_ref)
+            self.assertEqual(payload["manifest_artifact_ref"], manifest.manifest_artifact_ref)
+
+            root = Path(directory) / "intakes" / manifest.intake_id
+            self.assertEqual((root / "source.bin").read_bytes(), b"A finding.")
+            self.assertEqual((root / "pages" / f"{manifest.pages[0].page_id}.bin").read_bytes(), b"rendered-page")
+            stored_manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(stored_manifest["ledger_event_ref"], manifest.ledger_event_ref)
+            self.assertEqual(stored_manifest["source_hash"], manifest.source_hash)
+
+    def test_store_aborts_when_ledger_append_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = LocalIntakeStore(directory)
+            layer = FileIntakeLayer(
+                self.FailingLedger(),
+                renderer=self.StaticRenderer(),
+                store=store,
+            )
+
+            with self.assertRaises(IntakeError) as caught:
+                layer.query_upload(
+                    task_id="task.failed-store",
+                    source_ref="upload:failed-store",
+                    file_name="report.txt",
+                    content=b"A finding.",
+                    clearance=Clearance.internal,
+                )
+
+            self.assertEqual(caught.exception.code, "ledger_write_failed")
+            self.assertEqual(list((Path(directory) / "intakes").iterdir()), [])
+            self.assertEqual(list((Path(directory) / "staging").iterdir()), [])
+
+    def test_renderer_requires_a_store_so_rendered_bytes_cannot_be_dropped(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.renderer")
+        layer = FileIntakeLayer(ledger, renderer=self.StaticRenderer())
+
+        with self.assertRaises(IntakeError) as caught:
+            layer.query_upload(
+                task_id="task.renderer",
+                source_ref="upload:renderer",
+                file_name="report.txt",
+                content=b"A finding.",
+                clearance=Clearance.internal,
+            )
+
+        self.assertEqual(caught.exception.code, "renderer_requires_store")
+
+    def test_persisted_intake_replays_without_parsing_or_duplicate_ledger_event(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = EventLedger()
+            task_created(ledger, "task.replay")
+            layer = FileIntakeLayer(
+                ledger,
+                renderer=self.StaticRenderer(),
+                store=LocalIntakeStore(directory),
+            )
+            request = IntakeRequest(
+                "task.replay", "upload:replay", "report.txt", b"A finding.",
+                IntakeMode.query_upload, Clearance.internal,
+            )
+            first = layer.intake(request)
+            second = layer.intake(request)
+
+            self.assertEqual(first, second)
+            self.assertEqual(len(ledger.events), 2)
+            self.assertEqual(ledger.events[-1].event_type, "evidence.created")
+
+    def test_same_input_is_ledger_idempotent_without_a_persistent_store(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.idempotent")
+        layer = FileIntakeLayer(ledger)
+        request = IntakeRequest(
+            "task.idempotent", "upload:idempotent", "report.txt", b"A finding.",
+            IntakeMode.query_upload, Clearance.internal,
+        )
+
+        first = layer.intake(request)
+        second = layer.intake(request)
+
+        self.assertEqual(first.ledger_event_ref, second.ledger_event_ref)
+        self.assertEqual(len(ledger.events), 2)
+
+    def test_tampered_persisted_source_fails_closed_on_replay(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = EventLedger()
+            task_created(ledger, "task.tamper")
+            store = LocalIntakeStore(directory)
+            layer = FileIntakeLayer(ledger, renderer=self.StaticRenderer(), store=store)
+            manifest = layer.query_upload(
+                task_id="task.tamper",
+                source_ref="upload:tamper",
+                file_name="report.txt",
+                content=b"A finding.",
+                clearance=Clearance.internal,
+            )
+            (Path(directory) / "intakes" / manifest.intake_id / "source.bin").write_bytes(b"tampered")
+
+            with self.assertRaises(IntakeError) as caught:
+                layer.query_upload(
+                    task_id="task.tamper",
+                    source_ref="upload:tamper",
+                    file_name="report.txt",
+                    content=b"A finding.",
+                    clearance=Clearance.internal,
+                )
+
+            self.assertEqual(caught.exception.code, "storage_corrupt")
 
 
 if __name__ == "__main__":
