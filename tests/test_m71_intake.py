@@ -6,6 +6,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
+from PIL import Image
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
@@ -115,6 +116,12 @@ class FileIntakeTests(unittest.TestCase):
         writer.write(output)
         return output.getvalue()
 
+    @staticmethod
+    def image_fixture():
+        output = io.BytesIO()
+        Image.new("RGB", (64, 32), color=(20, 40, 60)).save(output, format="PNG")
+        return output.getvalue()
+
     def test_bulk_and_query_upload_share_parser_and_stable_revision(self):
         first_ledger = EventLedger()
         task_created(first_ledger, "task.intake")
@@ -198,6 +205,28 @@ class FileIntakeTests(unittest.TestCase):
                 content=b"%PDF-1.7\nnot-a-real-pdf", clearance=Clearance.internal,
             )
         self.assertEqual(caught.exception.code, "malformed_pdf")
+        self.assertEqual(len(ledger.events), 1)
+
+    def test_image_structure_is_validated_without_claiming_ocr(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.image")
+        manifest = FileIntakeLayer(ledger).query_upload(
+            task_id="task.image", source_ref="upload:image", file_name="inspection.png",
+            content=self.image_fixture(), clearance=Clearance.restricted,
+        )
+        self.assertEqual(manifest.pages[0].extraction_method, "image_metadata_only")
+        self.assertEqual(manifest.pages[0].text, "")
+        self.assertEqual(manifest.pages[0].confidence, 0.0)
+
+    def test_malformed_image_fails_before_ledger_evidence(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.image-invalid")
+        with self.assertRaises(IntakeError) as caught:
+            FileIntakeLayer(ledger).query_upload(
+                task_id="task.image-invalid", source_ref="upload:image-invalid", file_name="scan.png",
+                content=b"\x89PNG\r\n\x1a\nnot-an-image", clearance=Clearance.internal,
+            )
+        self.assertEqual(caught.exception.code, "malformed_image")
         self.assertEqual(len(ledger.events), 1)
 
     def test_docx_xml_text_is_bounded_and_keeps_untrusted_provenance(self):

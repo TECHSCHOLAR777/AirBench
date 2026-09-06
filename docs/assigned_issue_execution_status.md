@@ -11,7 +11,7 @@ The user-owned backend parent milestones were M4, M6, M7, M8, M9, and M10. The o
 | Issues | Area | Execution status | Why |
 | --- | --- | --- | --- |
 | #38 | M6.1 sandbox and no-egress execution | Autonomous hardening, production gate blocked | Python defense in depth is testable locally. Hard OS isolation still needs a verified container, namespace, job object, or firewall provider. |
-| #42 | M7.1 File Intake Layer | Autonomous slices, production gate blocked | Shared intake, transactional storage, CSV, DOCX, XLSX, and bounded digital-PDF extraction are local. OCR, rendering adapter coverage, and Node integration remain. |
+| #42 | M7.1 File Intake Layer | Autonomous slices, production gate blocked | Shared intake, transactional storage, CSV, DOCX, XLSX, bounded digital-PDF extraction, and structural image validation are local. OCR, rendering adapter coverage, and Node integration remain. |
 | #43 | M7.2 OCR and vision adapter | Blocked | Requires a qualified local OCR or vision runtime and the M5.3 qualification path. |
 | #44 | M7.3 embedding and reranking | Blocked | Requires qualified local embedding and reranking serving, not only downloaded artifacts. |
 | #45 | M7.4 world model and retrieval writes | Serial blocked | Depends on retrieval, provenance gates, and the M2.2 projection contract. |
@@ -62,6 +62,7 @@ There is no delegated subagent runtime available in this environment. Parallel r
 - Current FE-VAL-4 fixture evidence also rejects a `secret` response for a `restricted` approved profile.
 - Current FE-VAL-4 fixture evidence also rejects malformed previews, source-hash mismatches, and unsafe preview references.
 - `airbench/intake.py` now uses the declared `pypdf` adapter for bounded digital-PDF text extraction, with page and total text limits and fail-closed malformed/encrypted handling. The parser remains the one shared boundary for bulk and query upload.
+- The same parser now validates image structure and dimensions with Pillow without decoding pixels or claiming OCR; malformed image inputs fail before ledger evidence.
 - FE-VAL-4 fixture run `AirBenchNodeValidation-20260907-000611-1771bd0d55b5493baa5f3dcfbfc4a940` also covers interrupted upload, truncated artifact response, and oversized-file rejection before network transfer.
 
 The latest local evidence is a passing full Python suite and compile check, 33 passing frontend tests, 13 passing Rust tests, a passing frontend build, generated-contract check, static no-egress check, live Node fixture validation, and 5/5 external WebDriver tests. The default embedded WebDriver provider remains blocked by a direct-eval HTTP 404; the external `tauri-driver` path passes. The local branch must still be pushed after the next main-branch refresh.
