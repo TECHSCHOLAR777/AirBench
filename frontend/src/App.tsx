@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@airbench/tauri-invoke";
 import type { AirBenchPresentationState, Screen } from "./contracts";
 import { initialPresentationState } from "./contracts";
@@ -6,9 +6,12 @@ import { NodeConnectionController, type NodeConnectionView } from "./nodeConnect
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 import { listApprovedNodeProfiles } from "./profileBridge";
 import { downloadArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, type ArtifactPreview, type DownloadReceipt, type IntakeManifest, type SafePreview } from "./intakeBridge";
-import { createTask, fetchTaskPlan, sendTaskCommand, type CreateTaskResponse } from "./nodeCommands";
+import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand, type CreateTaskResponse } from "./nodeCommands";
 import type { NodeCommandResult, TaskPlanReview } from "./generated/core_contracts";
-import { buildApprovePlanCommand, buildCreateTaskCommand } from "./taskComposer";
+import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand } from "./taskComposer";
+import { fetchTaskEventBatch } from "./eventTransport";
+import { maySendConsequentialCommand, TaskEventSynchronizer, type EventSyncState } from "./eventStore";
+import type { TaskEvent, TaskProjection } from "./protocol";
 
 type SelectedFile = { selection_id: string; file_name: string; byte_size: number };
 
@@ -53,6 +56,11 @@ function App() {
   const [planLoading, setPlanLoading] = useState(false);
   const [planApprovalResult, setPlanApprovalResult] = useState<NodeCommandResult | null>(null);
   const [approvingPlan, setApprovingPlan] = useState(false);
+  const [taskProjection, setTaskProjection] = useState<TaskProjection | null>(null);
+  const [eventSyncState, setEventSyncState] = useState<EventSyncState | null>(null);
+  const [taskControlResult, setTaskControlResult] = useState<NodeCommandResult | null>(null);
+  const [controllingTask, setControllingTask] = useState(false);
+  const synchronizerRef = useRef<TaskEventSynchronizer | null>(null);
   const [creatingTask, setCreatingTask] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const controller = useMemo(() => new NodeConnectionController(), []);
@@ -176,6 +184,28 @@ function App() {
     }
   };
 
+  const syncTask = async (profile: ApprovedNodeProfileReference, snapshot: CreateTaskResponse["snapshot"]) => {
+    const synchronizer = new TaskEventSynchronizer(
+      (taskId, afterSequence) => fetchTaskEventBatch(profile, taskId, afterSequence),
+      (taskId) => fetchTaskSnapshot(profile, taskId),
+    );
+    synchronizerRef.current = synchronizer;
+    setTaskProjection(synchronizer.loadSnapshot(snapshot));
+    setEventSyncState(synchronizer.state());
+    const result = await synchronizer.synchronizeWithRetry({ maxAttempts: 3 });
+    setTaskProjection(result.projection);
+    setEventSyncState(result.state);
+    return result;
+  };
+
+  const refreshTask = async () => {
+    const synchronizer = synchronizerRef.current;
+    if (!synchronizer) return;
+    const result = await synchronizer.synchronizeWithRetry({ maxAttempts: 3 });
+    setTaskProjection(result.projection);
+    setEventSyncState(result.state);
+  };
+
   const startTask = async () => {
     const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
     if (!profile || !nodeConnected || !connection.authenticatedSubject || !connection.clearanceContext || !connection.domainPackRef) {
@@ -213,6 +243,8 @@ function App() {
       } finally {
         setPlanLoading(false);
       }
+      await syncTask(profile, result.snapshot);
+      selectScreen("tasks");
     } catch {
       setNotice("The Node did not accept this task. No local task state was created.");
     } finally {
@@ -253,6 +285,35 @@ function App() {
     }
   };
 
+  const stopTask = async () => {
+    const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
+    if (!profile || !connection.authenticatedSubject || !taskProjection || !eventSyncState || !maySendConsequentialCommand(taskProjection, eventSyncState.status)) {
+      setNotice("The task is not current on the approved Node. Reconnect and resynchronize before stopping it.");
+      return;
+    }
+    setControllingTask(true);
+    setTaskControlResult(null);
+    try {
+      const commandId = `command.stop.${crypto.randomUUID()}`;
+      const command = buildCancelTaskCommand(
+        connection.authenticatedSubject,
+        taskProjection.taskId,
+        taskProjection.lastAppliedSequence,
+        "Operator requested stop from the live task workspace.",
+        commandId,
+        `idempotency.${commandId}`,
+      );
+      const result = await sendTaskCommand(profile, command);
+      setTaskControlResult(result);
+      setNotice("The stop command was accepted by the Node. The task view will change only after the stopped event is received.");
+      await refreshTask();
+    } catch {
+      setNotice("The Node did not accept the stop command. No local task state was changed.");
+    } finally {
+      setControllingTask(false);
+    }
+  };
+
   const nodeConnected = connection.state === "connected" && controller.canSendConsequential();
   const canStart = nodeConnected && taskText.trim().length > 0 && (!selectedFile || intakeState === "ready") && !creatingTask;
   const nodeLabel = nodeConnected ? (profiles.find((profile) => profile.profileId === connection.profileId)?.displayName ?? "Node connected") : connection.state === "connecting" ? "Connecting to Node" : "Node not connected";
@@ -275,7 +336,8 @@ function App() {
         <div className="content-wrap">
           {state.screen === "home" && <HomeView taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} notice={notice} canStart={canStart} creatingTask={creatingTask} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={() => setShowConnectionHelp(true)} onOpenNode={() => selectScreen("node")} />}
           {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesState("idle"); }} onHome={() => selectScreen("home")} />}
-          {state.screen !== "home" && state.screen !== "node" && <RecordView screen={screenTitle} onHome={() => selectScreen("home")} />}
+          {state.screen === "tasks" && taskProjection && <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onHome={() => selectScreen("home")} />}
+          {state.screen !== "home" && state.screen !== "node" && state.screen !== "tasks" && <RecordView screen={screenTitle} onHome={() => selectScreen("home")} />}
         </div>
       </main>
       {showConnectionHelp && <ConnectionHelp onClose={() => setShowConnectionHelp(false)} onOpenNode={() => { setShowConnectionHelp(false); selectScreen("node"); }} />}
@@ -349,6 +411,38 @@ function NodeSettingsView({ profiles, profilesState, profileError, connection, c
 
 function ProfileCard({ profile, busy, onConnect }: { profile: ApprovedNodeProfileReference; busy: boolean; onConnect: () => void }) {
   return <article className="profile-card"><div><div className="profile-name">{profile.displayName}</div><div className="profile-meta">{profile.transport === "loopback" ? "Local workstation" : "Internal network"} <span aria-hidden="true">•</span> {profile.clearanceContext} clearance</div><div className="profile-trust">Pinned identity: {profile.nodeIdentity}</div></div><button className="primary-button" onClick={onConnect} disabled={busy}>{busy ? "Checking..." : "Connect"}</button></article>;
+}
+
+function TaskWorkspaceView({ projection, syncState, plan, approval, approving, controlResult, controlling, onStop, onRefresh, onApprovePlan, onHome }: { projection: TaskProjection; syncState: EventSyncState | null; plan: TaskPlanReview | null; approval: NodeCommandResult | null; approving: boolean; controlResult: NodeCommandResult | null; controlling: boolean; onStop: () => Promise<void>; onRefresh: () => Promise<void>; onApprovePlan: () => Promise<void>; onHome: () => void }) {
+  const syncLabel: Record<string, string> = { idle: "Not synchronized", syncing: "Checking Node", connected: "Connected and current", reconnecting: "Reconnecting", replaying: "Replaying events", blocked: "Blocked by protocol or policy" };
+  const statusLabel: Record<string, string> = { accepted: "Accepted", planning: "Planning", running: "Running", needs_review: "Needs review", completed: "Completed", blocked: "Blocked", failed: "Failed", stopped: "Stopped" };
+  const syncStatus = syncState?.status ?? "idle";
+  const canStop = maySendConsequentialCommand(projection, syncStatus) && !["completed", "failed", "stopped"].includes(projection.status) && !controlling;
+  return <section className="workspace-view" data-testid="task-workspace" aria-label="Live task workspace">
+    <div className="workspace-head"><div><p className="eyebrow">LIVE TASK</p><h1>{projection.title}</h1><p className="lead">{projection.requestSummary}</p></div><span className={`workspace-status workspace-status-${projection.status}`}>{statusLabel[projection.status] ?? projection.status}</span></div>
+    <div className={`workspace-sync workspace-sync-${syncStatus}`} role="status" aria-live="polite"><span className="status-dot" aria-hidden="true" /><strong>{syncLabel[syncStatus] ?? syncStatus}</strong><span>{syncState?.error?.message ?? (syncStatus === "reconnecting" ? "The Node may continue work while this desktop reconnects." : "Task state comes from the approved Node event stream.")}</span><button className="text-button" onClick={onRefresh} disabled={syncStatus === "syncing" || syncStatus === "replaying"}>Refresh</button></div>
+    <div className="workspace-actions"><button className="secondary-button bordered-button" onClick={onHome}>Back to Home</button><button className="secondary-button" onClick={onStop} disabled={!canStop} title={canStop ? "Send a Node-authorized stop command" : "Stopping is disabled until the Node is current"}>{controlling ? "Stopping..." : "Stop task"}</button><button className="secondary-button" disabled title="Pause is not available in the current Node command contract">Pause</button><button className="secondary-button" disabled title="Resume is not available in the current Node command contract">Resume</button></div>
+    <div className="workspace-metrics"><div><span>Phase</span><strong>{projection.phase}</strong></div><div><span>Applied sequence</span><strong>{projection.lastAppliedSequence}</strong></div><div><span>Node</span><strong>{projection.nodeConnectionRef}</strong></div><div><span>Ledger head</span><strong>{projection.ledgerHeadRef}</strong></div></div>
+    {plan && <PlanReviewCard plan={plan} loading={false} approval={approval} approving={approving} onApprove={onApprovePlan} />}
+    {controlResult && <div className="workspace-receipt" role="status">Stop command accepted by Node. Ledger {controlResult.ledger_event_ref ?? "pending"}; waiting for the authoritative event.</div>}
+    <section className="workspace-activity"><div className="section-heading"><div><h2>Activity</h2><p>Only server-authoritative events are shown. Model reasoning traces are not exposed.</p></div><span className="workspace-count">{projection.activity.length} events</span></div>{projection.activity.length === 0 ? <div className="workspace-empty">The Node has not returned a new activity event yet.</div> : <ol className="activity-list">{projection.activity.map((event) => <li key={`${event.eventId}-${event.sequence}`} className="activity-row"><span className="activity-sequence">{event.sequence}</span><div><strong>{eventLabel(event)}</strong><p>{eventSummary(event)}</p><small>{event.eventType} / ledger {event.ledgerEventRef}</small></div></li>)}</ol>}</section>
+    {projection.diagnostics.length > 0 && <section className="workspace-warning" role="alert"><strong>Task view needs attention</strong>{projection.diagnostics.map((diagnostic) => <span key={`${diagnostic.code}-${diagnostic.sequence}`}>{diagnostic.code}: {diagnostic.detail}</span>)}</section>}
+    <details className="workspace-technical"><summary>Technical event details</summary><pre>{JSON.stringify(projection.activity, null, 2)}</pre></details>
+  </section>;
+}
+
+function eventLabel(event: TaskEvent): string {
+  const labels: Record<string, string> = { "task.accepted": "Task accepted", "plan.created": "Plan created", "plan.approved": "Plan approved", "worker.started": "Worker started", "worker.completed": "Worker completed", "tool.started": "Tool started", "tool.completed": "Tool completed", "evidence.added": "Evidence added", "verification.completed": "Verification completed", "verification.failed": "Verification failed", "approval.required": "Approval required", "approval.recorded": "Approval recorded", "artifact.ready": "Artifact ready", "task.completed": "Task completed", "task.failed": "Task failed", "task.stopped": "Task stopped", "ledger.written": "Ledger entry recorded" };
+  return labels[event.eventType] ?? event.eventType;
+}
+
+function eventSummary(event: TaskEvent): string {
+  const payload = event.payload as Record<string, unknown>;
+  for (const key of ["summary", "label", "reason", "status"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return "The Node recorded this event without a user-facing summary.";
 }
 
 function RecordView({ screen, onHome }: { screen: string; onHome: () => void }) {
