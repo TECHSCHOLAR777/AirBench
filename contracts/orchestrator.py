@@ -8,9 +8,11 @@ from typing import Any, Callable
 
 from .errors import ContractValidationError
 from .ids import idempotency_key, stable_id
+from .authorization import AuthorizationService
 from .ledger import (CommittedTransaction, EventLedger, LedgerError, SQLiteLedgerStore,
                      StorageFailure, TransitionRejected, build_event)
 from .models import Clearance, ContractStatus, TaskEnvelope, TeamPlan
+from .planning import PlanProposal, PlanValidator
 
 
 class OrchestrationError(RuntimeError):
@@ -30,6 +32,14 @@ class StepTimeout(OrchestrationError):
 
 
 class RetryExhausted(OrchestrationError):
+    pass
+
+
+class CircuitOpen(OrchestrationError):
+    pass
+
+
+class CancellationRequested(OrchestrationError):
     pass
 
 
@@ -59,6 +69,9 @@ _TARGETS = {
     "task.plan.committed": "planned",
     "resource.plan.admitted": "executing",
     "model.requested": "executing",
+    "retrieval.requested": "executing",
+    "world_model.requested": "executing",
+    "verification.requested": "executing",
     "tool.requested": "executing",
     "barrier.waiting": "awaiting_check",
     "verification.completed": {"passed": "deliverable_verified", "needs_review": "needs_review", "failed": "blocked"},
@@ -90,9 +103,15 @@ _ALLOWED = {
 class Orchestrator:
     """The sole state-mutating API exposed to workers and integrations."""
 
-    def __init__(self, store: SQLiteLedgerStore | EventLedger, *, actor_id: str = "orchestrator.local") -> None:
+    def __init__(self, store: SQLiteLedgerStore | EventLedger, *, actor_id: str = "orchestrator.local",
+                 authorization: AuthorizationService | None = None,
+                 plan_validator: PlanValidator | None = None) -> None:
         self.store = store
         self.actor_id = actor_id
+        self.authorization = authorization
+        self.plan_validator = plan_validator or PlanValidator()
+        self._circuit_failures: dict[str, int] = {}
+        self._circuit_open: set[str] = set()
 
     def create_task(self, *, principal_id: str, clearance: Clearance | str, request: str,
                     domain_pack_ref: str, risk_class: str, autonomy_ceiling: str,
@@ -112,8 +131,18 @@ class Orchestrator:
             resource_budget=resource_budget or {},
         )
         try:
+            if self.authorization is not None:
+                decision = self.authorization.authorize(
+                    principal_id=principal_id, requested_clearance=task.clearance,
+                    evidence_scope=allowed_evidence_scope, tools=permitted_tools,
+                    risk_class=risk_class, resource_budget=task.resource_budget)
+            else:
+                decision = None
             task = TaskEnvelope.from_dict(task.to_dict())
-            self._append("task.created", task.task_id, {"task": task.to_dict(), "state": "created"}, "TaskEnvelope", idempotency_key("orchestrator.task.create", task.task_id))
+            payload = {"task": task.to_dict(), "state": "created"}
+            if decision is not None:
+                payload["authorization"] = {"principal_id": decision.principal_id, "pack_ref": decision.pack.reference, "pack_digest": decision.pack.digest, "policy_ref": decision.policy.reference, "policy_digest": decision.policy.digest}
+            self._append("task.created", task.task_id, payload, "TaskEnvelope", idempotency_key("orchestrator.task.create", task.task_id))
         except (ContractValidationError, LedgerError) as exc:
             raise StorageFailure("task creation was not committed") from exc
         return task
@@ -129,6 +158,11 @@ class Orchestrator:
         if plan.status != ContractStatus.proposed:
             raise PlanRejected("only proposed plans may be committed")
         return self.transition(plan.task_id, "task.plan.committed", {"team_id": plan.team_id, "plan_hash": plan.plan_version_hash})
+
+    def commit_proposal(self, proposal: PlanProposal) -> TransitionResult:
+        task = self._task(proposal.task_id)
+        plan = self.plan_validator.validate(task, proposal)
+        return self.commit_plan(plan)
 
     def validate_plan(self, task: TaskEnvelope, plan: TeamPlan) -> None:
         if plan.task_id != task.task_id:
@@ -176,10 +210,13 @@ class Orchestrator:
 
     def execute_step(self, task_id: str, *, step_id: str, action: Callable[[], Any],
                      timeout_ms: int, max_attempts: int = 1, kind: str = "model",
-                     result_payload: Callable[[Any, int], dict[str, Any]] | None = None) -> StepResult:
-        if timeout_ms <= 0 or max_attempts < 1:
+                     result_payload: Callable[[Any, int], dict[str, Any]] | None = None,
+                     dependency: str | None = None) -> StepResult:
+        if timeout_ms <= 0 or max_attempts < 1 or kind not in {"model", "retrieval", "world_model", "verification", "tool"}:
             raise StepTimeout("step timeout and attempts must be positive")
-        request_event = "tool.requested" if kind == "tool" else "model.requested"
+        if dependency and dependency in self._circuit_open:
+            raise CircuitOpen(f"circuit is open for {dependency}")
+        request_event = "tool.requested" if kind == "tool" else f"{kind}.requested" if kind in {"retrieval", "world_model", "verification"} else "model.requested"
         self.transition(task_id, request_event, {"step_id": step_id, "timeout_ms": timeout_ms})
         for attempt in range(1, max_attempts + 1):
             started = time.monotonic()
@@ -194,11 +231,38 @@ class Orchestrator:
                 self._checkpoint(task_id, transition)
                 return StepResult(task_id, step_id, attempt, result, transition)
             except TimeoutError as exc:
+                if dependency:
+                    self._record_dependency_failure(dependency)
                 self._append("retry.started", task_id, {"step_id": step_id, "attempt": attempt, "reason": "timeout"}, "RetryRecord", idempotency_key("orchestrator.step.retry", task_id, step_id, attempt))
                 if attempt == max_attempts:
                     self.transition(task_id, "task.failed", {"failure_code": "step_timeout", "step_id": step_id})
                     raise RetryExhausted(f"step {step_id} exhausted its retry budget") from exc
+            except StorageFailure:
+                raise
+            except Exception as exc:
+                if dependency:
+                    self._record_dependency_failure(dependency)
+                self._append("retry.started", task_id, {"step_id": step_id, "attempt": attempt, "reason": "step_failure"}, "RetryRecord", idempotency_key("orchestrator.step.retry", task_id, step_id, attempt))
+                if attempt == max_attempts:
+                    self.transition(task_id, "task.failed", {"failure_code": "step_failed", "step_id": step_id})
+                    raise RetryExhausted(f"step {step_id} exhausted its retry budget") from exc
         raise RetryExhausted(f"step {step_id} exhausted its retry budget")
+
+    def cancel(self, task_id: str, *, reason: str) -> TransitionResult:
+        if not reason.strip():
+            raise CancellationRequested("cancellation reason is required")
+        return self.transition(task_id, "task.cancelled", {"reason": reason})
+
+    def request_review(self, task_id: str, *, reason: str) -> TransitionResult:
+        if not reason.strip():
+            raise TransitionRejected("review reason is required")
+        return self.transition(task_id, "human.review.required", {"reason": reason})
+
+    def _record_dependency_failure(self, dependency: str) -> None:
+        failures = self._circuit_failures.get(dependency, 0) + 1
+        self._circuit_failures[dependency] = failures
+        if failures >= 3:
+            self._circuit_open.add(dependency)
 
     def state(self, task_id: str) -> str:
         state = "absent"
