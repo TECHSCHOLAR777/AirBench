@@ -140,6 +140,31 @@ fn validate_clearance(value: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn clearance_rank(value: &str) -> Option<u8> {
+    match value {
+        "public" => Some(0),
+        "internal" => Some(1),
+        "restricted" => Some(2),
+        "secret" => Some(3),
+        _ => None,
+    }
+}
+
+fn validate_clearance_for_profile(
+    value: &str,
+    approved_context: &str,
+    label: &str,
+) -> Result<(), String> {
+    validate_clearance(value)?;
+    validate_clearance(approved_context)?;
+    if clearance_rank(value) > clearance_rank(approved_context) {
+        return Err(format!(
+            "The Node returned {label} above the approved profile clearance."
+        ));
+    }
+    Ok(())
+}
+
 fn validate_taint(value: &str) -> Result<(), String> {
     if !matches!(value, "clean" | "untrusted" | "contaminated") {
         return Err("The Node returned an invalid taint value.".to_string());
@@ -157,7 +182,10 @@ fn validate_status(value: &str, label: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_intake_manifest(manifest: &IntakeManifest) -> Result<(), String> {
+fn validate_intake_manifest(
+    manifest: &IntakeManifest,
+    approved_context: &str,
+) -> Result<(), String> {
     validate_node_reference(&manifest.intake_id, "intake")?;
     validate_node_reference(&manifest.revision_id, "revision")?;
     validate_node_reference(&manifest.preview_ref, "preview")?;
@@ -183,11 +211,15 @@ fn validate_intake_manifest(manifest: &IntakeManifest) -> Result<(), String> {
     validate_sha256(&manifest.source_hash, "source hash")?;
     validate_status(&manifest.ocr_status, "OCR")?;
     validate_status(&manifest.vision_status, "vision")?;
-    validate_clearance(&manifest.clearance)?;
+    validate_clearance_for_profile(&manifest.clearance, approved_context, "intake clearance")?;
     validate_taint(&manifest.taint)
 }
 
-fn validate_safe_preview(preview: &SafePreview, requested_ref: &str) -> Result<(), String> {
+fn validate_safe_preview(
+    preview: &SafePreview,
+    requested_ref: &str,
+    approved_context: &str,
+) -> Result<(), String> {
     validate_node_reference(requested_ref, "preview")?;
     if preview.preview_ref != requested_ref {
         return Err("The Node preview reference does not match the requested preview.".to_string());
@@ -208,7 +240,7 @@ fn validate_safe_preview(preview: &SafePreview, requested_ref: &str) -> Result<(
     if !preview.confidence.is_finite() || !(0.0..=1.0).contains(&preview.confidence) {
         return Err("The Node returned an invalid preview confidence.".to_string());
     }
-    validate_clearance(&preview.clearance)?;
+    validate_clearance_for_profile(&preview.clearance, approved_context, "preview clearance")?;
     validate_taint(&preview.taint)?;
     validate_node_reference(&preview.ledger_event_ref, "ledger event")
 }
@@ -216,6 +248,7 @@ fn validate_safe_preview(preview: &SafePreview, requested_ref: &str) -> Result<(
 fn validate_artifact_preview(
     preview: &ArtifactPreview,
     requested_artifact_id: &str,
+    approved_context: &str,
 ) -> Result<(), String> {
     validate_node_reference(requested_artifact_id, "artifact")?;
     if preview.artifact_id != requested_artifact_id {
@@ -245,7 +278,11 @@ fn validate_artifact_preview(
             return Err("The Node returned an unsafe artifact preview block.".to_string());
         }
     }
-    validate_clearance(&preview.clearance)?;
+    validate_clearance_for_profile(
+        &preview.clearance,
+        approved_context,
+        "artifact preview clearance",
+    )?;
     validate_taint(&preview.taint)?;
     validate_node_reference(&preview.ledger_event_ref, "ledger event")
 }
@@ -330,7 +367,7 @@ pub async fn upload_query_file_from_path(
         .json::<IntakeManifest>()
         .await
         .map_err(|_| "The Node did not return the File Intake manifest schema.".to_string())?;
-    validate_intake_manifest(&manifest)?;
+    validate_intake_manifest(&manifest, &profile.clearance_context)?;
     if manifest.file_name != file_name || manifest.byte_size != metadata.len() {
         return Err("The Node intake manifest does not match the uploaded file.".to_string());
     }
@@ -388,7 +425,7 @@ pub async fn fetch_safe_preview_from_profile(
         .json::<SafePreview>()
         .await
         .map_err(|_| "The Node did not return a safe preview schema.".to_string())?;
-    validate_safe_preview(&preview, &preview_ref)?;
+    validate_safe_preview(&preview, &preview_ref, &profile.clearance_context)?;
     Ok(preview)
 }
 
@@ -433,7 +470,7 @@ pub async fn fetch_artifact_preview_from_profile(
         .json::<ArtifactPreview>()
         .await
         .map_err(|_| "The Node did not return an artifact preview schema.".to_string())?;
-    validate_artifact_preview(&preview, &artifact_id)?;
+    validate_artifact_preview(&preview, &artifact_id, &profile.clearance_context)?;
     Ok(preview)
 }
 
@@ -578,16 +615,16 @@ mod tests {
     #[test]
     fn intake_manifest_validation_rejects_inconsistent_or_untrusted_shapes() {
         let mut manifest = valid_manifest();
-        assert!(validate_intake_manifest(&manifest).is_ok());
+        assert!(validate_intake_manifest(&manifest, "restricted").is_ok());
 
         manifest.source_hash = "sha256:not-a-digest".to_string();
-        assert!(validate_intake_manifest(&manifest).is_err());
+        assert!(validate_intake_manifest(&manifest, "restricted").is_err());
         manifest = valid_manifest();
         manifest.page_count = 0;
-        assert!(validate_intake_manifest(&manifest).is_err());
+        assert!(validate_intake_manifest(&manifest, "restricted").is_err());
         manifest = valid_manifest();
         manifest.file_name = "..\\secret.pdf".to_string();
-        assert!(validate_intake_manifest(&manifest).is_err());
+        assert!(validate_intake_manifest(&manifest, "restricted").is_err());
     }
 
     #[test]
@@ -603,12 +640,12 @@ mod tests {
             taint: "untrusted".to_string(),
             ledger_event_ref: "ledger-preview-1".to_string(),
         };
-        assert!(validate_safe_preview(&preview, "preview-1").is_ok());
-        assert!(validate_safe_preview(&preview, "preview-2").is_err());
+        assert!(validate_safe_preview(&preview, "preview-1", "restricted").is_ok());
+        assert!(validate_safe_preview(&preview, "preview-2", "restricted").is_err());
 
         let mut invalid = preview;
         invalid.confidence = 1.1;
-        assert!(validate_safe_preview(&invalid, "preview-1").is_err());
+        assert!(validate_safe_preview(&invalid, "preview-1", "restricted").is_err());
     }
 
     #[test]
@@ -625,11 +662,33 @@ mod tests {
             taint: "untrusted".to_string(),
             ledger_event_ref: "ledger-artifact-1".to_string(),
         };
-        assert!(validate_artifact_preview(&preview, "artifact-1").is_ok());
-        assert!(validate_artifact_preview(&preview, "artifact-2").is_err());
+        assert!(validate_artifact_preview(&preview, "artifact-1", "restricted").is_ok());
+        assert!(validate_artifact_preview(&preview, "artifact-2", "restricted").is_err());
 
         let mut invalid = preview;
         invalid.blocks[0].text = "bad\0preview".to_string();
-        assert!(validate_artifact_preview(&invalid, "artifact-1").is_err());
+        assert!(validate_artifact_preview(&invalid, "artifact-1", "restricted").is_err());
+    }
+
+    #[test]
+    fn clearance_above_approved_profile_is_rejected() {
+        let mut manifest = valid_manifest();
+        manifest.clearance = "secret".to_string();
+        assert!(validate_intake_manifest(&manifest, "restricted").is_err());
+
+        let mut preview = SafePreview {
+            preview_ref: "preview-1".to_string(),
+            preview_kind: "text".to_string(),
+            text: "preview".to_string(),
+            source_hash: format!("sha256:{}", "b".repeat(64)),
+            source_region: "page:1".to_string(),
+            confidence: 1.0,
+            clearance: "secret".to_string(),
+            taint: "untrusted".to_string(),
+            ledger_event_ref: "ledger-preview-1".to_string(),
+        };
+        assert!(validate_safe_preview(&preview, "preview-1", "restricted").is_err());
+        preview.clearance = "restricted".to_string();
+        assert!(validate_safe_preview(&preview, "preview-1", "restricted").is_ok());
     }
 }

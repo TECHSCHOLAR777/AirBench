@@ -89,7 +89,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 "source_hash": manifest["source_hash"],
                 "source_region": "page:1;region:full-page",
                 "confidence": 0.98,
-                "clearance": manifest["clearance"],
+                "clearance": "secret" if self.server.clearance_mismatch else manifest["clearance"],
                 "taint": manifest["taint"],
                 "ledger_event_ref": "fixture-ledger-preview-001",
             })
@@ -104,7 +104,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     {"kind": "heading", "text": "Approval note"},
                     {"kind": "paragraph", "text": "Synthetic fixture artifact preview. Values are supplied by the Node artifact contract."},
                 ],
-                "clearance": "restricted",
+                "clearance": "secret" if self.server.clearance_mismatch else "restricted",
                 "taint": "untrusted",
                 "ledger_event_ref": "fixture-ledger-artifact-preview-001",
             })
@@ -193,7 +193,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             "page_count": 1,
             "ocr_status": "completed",
             "vision_status": "completed",
-            "clearance": "restricted",
+            "clearance": "secret" if self.server.clearance_mismatch else "restricted",
             "taint": "untrusted",
             "preview_ref": intake_id,
             "artifact_ref": "artifact-approval-note",
@@ -225,6 +225,7 @@ class FixtureServer(ThreadingHTTPServer):
         self.log_path = args.log_path
         self.intakes: dict[str, dict[str, object]] = {}
         self.deny_download = args.deny_download
+        self.clearance_mismatch = args.clearance_mismatch
 
     def log_event(self, event: dict[str, str]) -> None:
         event = {"fixture": "airbench-node", **event}
@@ -248,6 +249,7 @@ def main() -> int:
     parser.add_argument("--cert-path")
     parser.add_argument("--key-path")
     parser.add_argument("--deny-download", action="store_true")
+    parser.add_argument("--clearance-mismatch", action="store_true")
     args = parser.parse_args()
 
     if bool(args.cert_path) != bool(args.key_path):
