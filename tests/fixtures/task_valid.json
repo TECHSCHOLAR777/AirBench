@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0", "compatibility_id": "airbench-core-contracts",
+  "task_id": "task.inspection-001", "principal_id": "principal.operator-001", "clearance": "restricted",
+  "request": "Prepare a sourced inspection summary", "domain_pack_ref": "pack.refinery:1.0", "risk_class": "high",
+  "autonomy_ceiling": "review_required", "allowed_evidence_scope": ["evidence.report-001"],
+  "permitted_worker_capabilities": ["research", "verification"], "permitted_tools": ["local.read"],
+  "output_contract": "approval-note", "verification_criteria": ["sources_attached", "numbers_verified"],
+  "resource_budget": {"max_model_calls": 10, "max_tool_calls": 4, "timeout_ms": 60000}, "state": "created"
+}
