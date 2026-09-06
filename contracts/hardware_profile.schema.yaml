@@ -1,0 +1,254 @@
+# hardware_profile.schema.yaml
+# M5.2 — Typed schema for a signed, locally measured HardwareProfile.
+#
+# Every field that maps to HardwareProfile.from_dict() is marked (required) or (optional).
+# The schema is for offline validation only; no network access is needed.
+#
+# Measurement rules
+# -----------------
+# - All values must come from a local probe (nvidia-smi, /proc/meminfo, lscpu, df).
+# - Timestamps must be RFC 3339 UTC.
+# - A profile without a valid HMAC signature must not be admitted for consequential work.
+# - A profile older than max_age_hours should trigger re-measurement.
+# - vram_available_bytes must be <= vram_total_bytes; negative available is invalid.
+
+schema_id: airbench.hardware_profile.v1
+schema_version: "1.0"
+description: >
+  Signed hardware capability record produced by the AirBench local hardware probe.
+  Used by the admission controller to make deterministic parallel/serial/queue decisions.
+
+required_top_level_fields:
+  - profile_id          # stable lowercase identifier, e.g. "gpu-96gb-01"
+  - schema_version      # must equal "1.0"
+  - measured_at         # RFC 3339 UTC timestamp of the probe run
+  - measurement_tool_version  # probe script version, e.g. "airbench-probe-0.1.0"
+  - gpu
+  - cpu
+  - memory
+  - storage
+  - runtime
+  - isolation
+  - benchmark_summary
+  - provenance
+
+fields:
+  profile_id:
+    type: string
+    pattern: "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    description: Stable lowercase identifier for this hardware node.
+
+  schema_version:
+    type: string
+    enum: ["1.0"]
+
+  measured_at:
+    type: string
+    format: rfc3339
+    description: UTC timestamp when the probe collected these measurements.
+
+  measurement_tool_version:
+    type: string
+    description: Exact version of the AirBench hardware probe that produced this file.
+
+  host:
+    type: object
+    description: (optional) Human-readable host identity for traceability.
+    fields:
+      hostname_or_local_id:
+        type: string
+      os_and_kernel:
+        type: string
+        description: "e.g. Ubuntu 24.04 / Linux 6.8.0"
+      architecture:
+        type: string
+        enum: ["x86_64", "aarch64", "other"]
+
+  gpu:
+    type: object
+    required: true
+    fields:
+      count:
+        type: integer
+        minimum: 1
+      devices:
+        type: array
+        min_items: 1
+        item_fields:
+          index:
+            type: integer
+            minimum: 0
+          model:
+            type: string
+            description: "e.g. NVIDIA H100 80GB HBM3"
+          device_id:
+            type: string
+            description: PCI bus ID or equivalent hardware identifier.
+          fingerprint:
+            type: string
+            description: >
+              Stable hardware fingerprint for this GPU instance.
+              Used to detect substitution between measurement and deployment.
+          vram_total_bytes:
+            type: integer
+            minimum: 1
+          vram_available_bytes:
+            type: integer
+            minimum: 0
+            note: Must be <= vram_total_bytes
+          driver_version:
+            type: string
+            description: "e.g. 550.90.07"
+          cuda_or_equivalent_version:
+            type: string
+            description: "e.g. 12.4 (CUDA) or ROCm 6.1"
+          interconnect:
+            type: string
+            nullable: true
+            description: "NVLink, PCIe-5, or null for single-GPU."
+
+  cpu:
+    type: object
+    required: true
+    fields:
+      model:
+        type: string
+        description: "e.g. Intel Xeon Gold 6438M"
+      logical_cores:
+        type: integer
+        minimum: 1
+      physical_cores:
+        type: integer
+        nullable: true
+      available_capacity_percent:
+        type: number
+        minimum: 0
+        maximum: 100
+        description: Idle CPU percentage at measurement time.
+
+  memory:
+    type: object
+    required: true
+    fields:
+      ram_total_bytes:
+        type: integer
+        minimum: 1
+      ram_available_bytes:
+        type: integer
+        minimum: 0
+
+  storage:
+    type: object
+    required: true
+    fields:
+      root_total_bytes:
+        type: integer
+        minimum: 1
+      root_available_bytes:
+        type: integer
+        minimum: 0
+      scratch_path:
+        type: string
+        description: Absolute path to the scratch directory used for model swap files.
+      scratch_total_bytes:
+        type: integer
+        minimum: 0
+      scratch_available_bytes:
+        type: integer
+        minimum: 0
+
+  runtime:
+    type: object
+    required: true
+    fields:
+      model_server:
+        type: string
+        enum: ["vllm", "nim", "custom"]
+        description: Model-serving runtime used on this node.
+      model_server_version:
+        type: string
+        description: Exact pinned version, e.g. "0.8.5".
+      sandbox_runtime:
+        type: string
+        description: "Sandbox execution runtime, e.g. 'firejail-0.9.72' or 'none'."
+      sandbox_version:
+        type: string
+        nullable: true
+      container_or_image_fingerprints:
+        type: array
+        items:
+          type: string
+          description: "sha256:<digest> of each container image used."
+
+  isolation:
+    type: object
+    required: true
+    fields:
+      egress_policy:
+        type: string
+        enum: ["deny-all", "allow-local-only", "unrestricted"]
+        description: >
+          deny-all is required for air-gapped deployment.
+          allow-local-only permits loopback and LAN but no internet.
+      network_check_id:
+        type: string
+        description: >
+          Ledger event ID of the egress-denial evidence produced during startup.
+          Must reference a hardware.measurement.completed event.
+      host_socket_access:
+        type: boolean
+        description: True if model containers have access to host sockets (should be false for air-gapped).
+
+  benchmark_summary:
+    type: object
+    required: true
+    description: High-level scheduling capacity derived from model benchmarks.
+    fields:
+      safe_parallel_slots:
+        type: integer
+        minimum: 1
+        description: Maximum number of model workers that fit concurrently with safety headroom.
+      supported_execution_modes:
+        type: array
+        min_items: 1
+        items:
+          type: string
+          enum: ["parallel", "pipelined", "serial_virtual_team"]
+      benchmark_result_ref:
+        type: string
+        description: Relative path to benchmarks/model_hardware_results.yaml entry for this profile.
+
+  provenance:
+    type: object
+    required: true
+    description: Supply-chain integrity fields for this hardware measurement.
+    fields:
+      source_measurements:
+        type: array
+        items:
+          type: string
+          description: "Command or tool that produced each measurement (e.g. 'nvidia-smi --query-gpu=...')."
+      evidence_hashes:
+        type: array
+        items:
+          type: string
+          description: "sha256:<digest> of each raw probe output file."
+      signer_key_id:
+        type: string
+        description: Key identifier used to produce the HMAC signature of this profile.
+      signature:
+        type: string
+        description: HMAC-SHA-256 hex digest of the canonical JSON of this document (excluding the signature field).
+
+validation_rules:
+  - vram_available_bytes must be <= vram_total_bytes for each GPU device
+  - scratch_available_bytes must be <= scratch_total_bytes
+  - ram_available_bytes must be <= ram_total_bytes
+  - root_available_bytes must be <= root_total_bytes
+  - safe_parallel_slots must be supported by benchmark evidence
+  - egress_policy must be deny-all for profiles used in air-gapped deployments
+  - signature must verify against the canonical JSON before the profile is admitted
+  - measured_at must be within max_age_hours of the current clock for live admission
+  - container_or_image_fingerprints must use sha256: prefixed digests (no mutable tags)
+
+max_age_hours: 24

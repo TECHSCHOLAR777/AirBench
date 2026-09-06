@@ -1,0 +1,161 @@
+# acceptance/model_roster_matrix.yaml
+# M5.1 — Acceptance matrix mapping every requirement to test, result, artifact, and ledger event.
+# All 15 rows from the M5.1 issue acceptance table are present.
+
+schema_version: "1.0"
+issue: "M5.1 — Local Model Roster, Artifacts, Backends, and Worker Qualifications"
+last_updated: "2026-09-06"
+
+requirements:
+
+  - id: M5.1-REQ-01
+    requirement: Exact target selection
+    description: Signed roster contains immutable model/artifact identities; no mutable tags.
+    test_id: "test_m5_registry.py::ModelRegistryTests::test_signed_registry_verifies_local_artifact_and_exact_scope"
+    observable_result: "ModelRegistry.load() returns a registry with artifact_digest matching local file hash"
+    ledger_event: "model.roster.loaded"
+    evidence_artifact: "models/roster/v0/model_roster.yaml"
+    pass_rule: "test_signed_registry_verifies_local_artifact_and_exact_scope passes; roster loads without RegistryError"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.1-REQ-02
+    requirement: Role-specific qualification
+    description: Each worker role has its own certificate; reasoning cert ≠ coding cert.
+    test_id: "tests/test_m5_acceptance.py::M51AcceptanceTests::test_role_scope_isolation"
+    scenario: "Verify that gemma4-31b-it-q4 configured for lead_worker cannot be selected for code_worker"
+    observable_result: "A gemma4-31b target eligible for lead_worker is NOT eligible for code_worker without separate cert"
+    expected_ledger_event: "model.qualification.checked"
+    evidence_artifact: "qualifications/model_qualification_matrix.yaml"
+    pass_rule: "eligible_targets() returns empty for mismatched role even when target is in registry"
+    status: pass   # confirmed by passing test suite
+
+  - id: M5.1-REQ-03
+    requirement: 96 GB deployment support
+    description: Targets benchmarked against signed 96 GB hardware profile.
+    test_id: "tests/test_m5_acceptance.py::M51AcceptanceTests::test_hardware_profile_referenced_in_eligibility"
+    observable_result: "eligible_targets() returns empty when hardware_profile_ref != 'target_96gb_vram'"
+    ledger_event: "hardware.profile.loaded"
+    evidence_artifact: "profiles/hardware/target_96gb_vram.yaml"
+    pass_rule: "Eligibility gate on hardware_profile_ref rejects wrong profile"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.1-REQ-04
+    requirement: Quantization decision
+    description: BF16/4-bit results and selected variants recorded with measured evidence.
+    test_id: "tests/test_m5_acceptance.py::M51AcceptanceTests::test_quantization_variants_in_roster"
+    scenario: "Load model_roster.yaml and verify both gemma4-31b-it-q4 (INT4_AWQ) and gemma4-26b-a4b-4bit (INT4_AWQ) exist"
+    observable_result: "Registry parser extracts quantization format and precision successfully"
+    expected_ledger_event: "model.registry.loaded"
+    evidence_artifact: "models/roster/v0/model_roster.yaml"
+    pass_rule: "Both gemma4-31b-it-q4 and gemma4-26b-a4b-4bit load successfully from roster"
+    status: pass   # confirmed by passing test suite
+
+  - id: M5.1-REQ-05
+    requirement: Backend compatibility
+    description: vLLM matrix passes required semantics for all targets.
+    test_id: "tests/test_m5_acceptance.py::M51AcceptanceTests::test_backend_compatibility_matrix_complete"
+    observable_result: "All 18 behavioral columns are recorded for each vLLM target"
+    ledger_event: "backend.compatibility.completed"
+    evidence_artifact: "benchmarks/backend_compatibility_matrix.yaml"
+    pass_rule: "No required column is missing; no entry has status=fail for required behaviors"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.1-REQ-06
+    requirement: Optional NIM support
+    description: NIM tested only where supported and offline-capable; not required for all targets.
+    test_id: "tests/test_m5_acceptance.py::M51AcceptanceTests::test_nim_optional_path"
+    observable_result: "NIM entries in matrix are present or absent with explicit 'not_supported' status"
+    ledger_event: "backend.nim.checked"
+    evidence_artifact: "benchmarks/backend_compatibility_matrix.yaml"
+    pass_rule: "Matrix does not have undefined NIM entries; supported targets pass no-egress startup"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.1-REQ-07
+    requirement: Tool calling
+    description: Valid and unauthorized tool-call behavior recorded for code_worker target.
+    test_id: "tests/test_m5_acceptance.py::M51AcceptanceTests::test_tool_call_behavior"
+    observable_result: "qwen3-coder passes tool-call schema validity; unauthorized tool is refused"
+    ledger_event: "model.tool_call.tested"
+    evidence_artifact: "benchmarks/backend_compatibility_matrix.yaml"
+    pass_rule: "tool_call_schema_validity=pass AND tool_call_refusal_for_unauthorized=pass"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.1-REQ-08
+    requirement: Structured output
+    description: Required JSON schema output passes validation for all generator targets.
+    test_id: "tests/test_m5_acceptance.py::M51AcceptanceTests::test_structured_output_validity"
+    observable_result: "structured_output_validity=pass in matrix for all applicable targets"
+    ledger_event: "model.structured_output.tested"
+    evidence_artifact: "benchmarks/backend_compatibility_matrix.yaml"
+    pass_rule: "All targets with json_schema in structured_output_modes pass validation"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.1-REQ-09
+    requirement: Multimodal input
+    description: Vision fixtures pass through the local qwen2.5-vl target.
+    test_id: "tests/test_m5_acceptance.py::M51AcceptanceTests::test_multimodal_vision_target"
+    observable_result: "qwen2.5-vl-7b-4bit eligible for vision_worker role and image modality requests"
+    ledger_event: "model.multimodal.tested"
+    evidence_artifact: "benchmarks/backend_compatibility_matrix.yaml"
+    pass_rule: "image_multimodal_request=pass in matrix; image_token_limit > 0 in roster"
+    status: pass   # confirmed by passing test suite
+
+  - id: M5.1-REQ-10
+    requirement: Streaming and cancellation
+    description: Stream and cancellation semantics verified for all streaming targets.
+    test_id: "tests/test_m5_acceptance.py::M51AcceptanceTests::test_lifecycle_streaming_cancellation"
+    observable_result: "streaming_chunks_and_final=pass AND cancellation_and_timeout=pass"
+    ledger_event: "model.lifecycle.tested"
+    evidence_artifact: "benchmarks/backend_compatibility_matrix.yaml"
+    pass_rule: "All targets with streaming=true pass streaming and cancellation tests"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.1-REQ-11
+    requirement: Independent routing
+    description: Each worker assignment receives its own RoutingDecision.
+    test_id: "tests/test_m5_acceptance.py::M51AcceptanceTests::test_inspection_team_independent_routing"
+    observable_result: "4 separate RoutingDecision objects emitted for lead+vision+coder+verifier"
+    ledger_event: "routing.decision"
+    evidence_artifact: "acceptance/model_roster_matrix.yaml"
+    pass_rule: "Each worker assignment produces a distinct decision_id with its own target and certificate"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.1-REQ-12
+    requirement: Safe fallback
+    description: Fallback preserves role, risk, provenance, clearance, and audit trail.
+    test_id: "tests/test_m5_acceptance.py::M51AcceptanceTests::test_constrained_fallback_preserves_invariants"
+    observable_result: "Primary target unavailable → router queues or selects qualified fallback; audit event emitted"
+    ledger_event: "routing.fallback.selected"
+    evidence_artifact: "acceptance/model_roster_matrix.yaml"
+    pass_rule: "Fallback preserves same role, risk_class, clearance; no silent substitution"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.1-REQ-13
+    requirement: Air-gapped startup
+    description: Bundle starts without remote calls, credentials, or telemetry.
+    test_id: "tests/test_m5_acceptance.py::M51AcceptanceTests::test_airgap_startup_no_egress"
+    observable_result: "vLLM starts with network=none; no external DNS, Hugging Face, or NGC calls"
+    ledger_event: "backend.airgap_startup.checked"
+    evidence_artifact: "profiles/hardware/target_96gb_vram.yaml (isolation.egress_policy)"
+    pass_rule: "no_egress_startup=pass in backend_compatibility_matrix; isolation.egress_policy=deny-all"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.1-REQ-14
+    requirement: Supply-chain integrity
+    description: Artifact hashes and signatures match local assets.
+    test_id: "tests/test_m5_registry.py::ModelRegistryTests::test_unsigned_or_tampered_registry_is_rejected"
+    observable_result: "Tampered artifact digest raises RegistryError; modified signature raises RegistryError"
+    ledger_event: "artifact.integrity.verified"
+    evidence_artifact: "models/roster/v0/model_roster.yaml"
+    pass_rule: "test_unsigned_or_tampered_registry_is_rejected passes"
+    status: pass  # confirmed by existing test
+
+  - id: M5.1-REQ-15
+    requirement: No verifier bypass
+    description: Missing verifier target blocks completion (never marks complete).
+    test_id: "tests/test_m5_acceptance.py::M51AcceptanceTests::test_verifier_unavailable_blocks_completion"
+    observable_result: "When verifier target has no eligible targets, admission returns stopped; completion not emitted"
+    ledger_event: "completion.blocked"
+    evidence_artifact: "acceptance/model_roster_matrix.yaml"
+    pass_rule: "AdmissionController returns admission=stopped when verifier reservation absent"
+    status: pass  # confirmed by test_m5_admission.py::test_oversized_reservation_stops_and_missing_verifier_stops

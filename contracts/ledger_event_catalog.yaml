@@ -1,34 +1,64 @@
+# contracts/ledger_event_catalog.yaml
+# Single source of truth for all valid ledger event type strings.
+# Must stay in sync with LEDGER_EVENT_TYPES in contracts/models.py.
+#
+# Validation rule: any event written to the ledger whose type is not in this
+# catalog must be rejected by the ledger's append guard.
+#
+# Section labels match the groups in LEDGER_EVENT_TYPES.
+
 event_envelope: LedgerEventEnvelope
+required_payload_fields:
+  - task_id
+  - actor_id
+  - clearance
+  - payload_contract
+  - payload_version
+  - payload_hash
+  - idempotency_key
+failure_rule: "ledger write failure blocks the consequential action"
+
 events:
+  # ── Core task lifecycle ────────────────────────────────────────────────────
   - task.created
+  - task.authorized
+  - task.plan.committed
+  - task.checkpoint.committed
+  - task.cancelled
+  - task.failed
   - team.created
   - worker.assigned
+  - worker.started
+  - worker.completed
+  - worker.failed
   - worker.handoff
   - model.requested
-  - model.route.decided
-  - hardware.profile.loaded
-  - resource.plan.created
-  - resource.plan.admitted
-  - resource.plan.queued
-  - resource.exhaustion.detected
   - routing.decided
   - model.responded
   - model.failed
-  - retrieval.requested
-  - world_model.requested
-  - verification.requested
   - tool.requested
   - tool.authorized
-  - tool.result
   - tool.denied
+  - tool.result
   - evidence.created
   - fact.candidate
   - fact.committed
   - verification.completed
   - retry.started
-  - escalation.required
+  - fallback.selected
+  - resource.plan.admitted
+  - resource.plan.queued
+  - barrier.waiting
+  - barrier.completed
+  - artifact.staged
+  - artifact.checked
+  - human.review.required
   - human.signoff
   - completion.recorded
+  - escalation.required
+  - retrieval.requested
+  - world_model.requested
+  - verification.requested
   - projection.rebuilt
   - projection.exported
   - checkpoint.committed
@@ -39,6 +69,61 @@ events:
   - side_effect.uncertain
   - recovery.resumed
   - crash.recovered
-  - task.cancelled
-required_payload_fields: [task_id, actor_id, clearance, payload_contract, payload_version, payload_hash, idempotency_key]
-failure_rule: ledger write failure blocks the consequential action
+
+  # ── M5.1: Model registry, artifact integrity, qualification ───────────────
+  - model.registry.loaded
+  - model.registry.signature.verified
+  - model.target.rejected
+  - model.target.qualified
+  - model.artifact.integrity.verified
+  - model.qualification.checked
+  - model.variant.qualified
+  - backend.compatibility.started
+  - backend.compatibility.completed
+  - backend.airgap_startup.checked
+  - backend.nim.checked
+  - model.loaded
+  - model.resident
+  - model.evicted
+  - model.unloaded
+  - model.call.started
+  - model.call.completed
+  - model.call.failed
+  - model.tool_call.tested
+  - model.structured_output.tested
+  - model.multimodal.tested
+  - model.lifecycle.tested
+  - routing.decision
+  - routing.fallback.selected
+  - routing.queued
+  - verification.reservation.confirmed
+  - completion.blocked
+  - completion.ready
+  - artifact.integrity.verified
+
+  # ── M5.2: Hardware measurement, scheduling, residency ─────────────────────
+  - hardware.profile.measured
+  - hardware.measurement.started
+  - hardware.measurement.completed
+  - hardware.profile.loaded
+  - model.benchmark.started
+  - model.benchmark.completed
+  - team.resource_plan.created
+  - team.resource_plan.admitted
+  - team.resource_plan.queued
+  - team.resource_plan.degraded_needs_review
+  - team.resource_plan.rejected
+  - worker.resource_reserved
+  - worker.preempted
+  - worker.cancelled
+  - execution.mode.selected
+  - execution.mode.changed
+  - join_barrier.waiting
+  - join_barrier.completed
+  - background.work.yielded
+  - resource.exhaustion.detected
+  - resource.recovered
+  - resource.lease.granted
+  - resource.lease.released
+  - resource.admission.degraded
+  - resource.queue.updated

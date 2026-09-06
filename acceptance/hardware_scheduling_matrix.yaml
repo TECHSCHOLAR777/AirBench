@@ -1,0 +1,152 @@
+# acceptance/hardware_scheduling_matrix.yaml
+# M5.2 — Acceptance matrix mapping every requirement to test, observable result, ledger event, and artifact.
+# All 13 rows from the M5.2 issue acceptance table are present.
+
+schema_version: "1.0"
+issue: "M5.2 — Hardware-Aware Scheduling and Resource Management"
+last_updated: "2026-09-06"
+
+requirements:
+
+  - id: M5.2-REQ-01
+    requirement: Hardware measurement
+    description: Signed profile with exact GPU/CPU/RAM/storage data from the target machine.
+    test_id: "tests/test_m5_admission.py::AdmissionTests::test_parallel_admission_records_verifier_and_capacity"
+    scenario: "Load a signed HardwareProfile and verify all required fields are present and non-zero"
+    observable_result: "HardwareProfile.from_dict() succeeds with all required fields validated"
+    expected_ledger_event: "hardware.measurement.completed"
+    evidence_artifact: "profiles/hardware/target_96gb_vram.yaml"
+    pass_rule: "Profile validates without ContractValidationError; all measurement fields are filled (not placeholder)"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.2-REQ-02
+    requirement: 96 GB reference target
+    description: Profile records measured 96 GB VRAM device with exact GPU model, driver, and fingerprint.
+    test_id: "tests/test_m5_acceptance.py::M52AcceptanceTests::test_96gb_profile_vram_field"
+    scenario: "Verify target_96gb_vram.yaml vram_total_bytes >= 96 GB (103,079,215,104 bytes)"
+    observable_result: "vram_total_bytes field in profile is >= 103,079,215,104"
+    expected_ledger_event: "hardware.profile.loaded"
+    evidence_artifact: "profiles/hardware/target_96gb_vram.yaml"
+    pass_rule: "gpu.devices[0].vram_total_bytes >= 103079215104"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.2-REQ-03
+    requirement: Model measurements
+    description: Load, latency, throughput, context, KV-cache, and concurrency results for each target.
+    test_id: "tests/test_m5_acceptance.py::M52AcceptanceTests::test_hardware_results_matrix_complete"
+    scenario: "Verify benchmarks/model_hardware_results.yaml has all required columns for all 6 targets"
+    observable_result: "All 6 target_id entries present with non-placeholder values after measurement"
+    expected_ledger_event: "model.benchmark.completed"
+    evidence_artifact: "benchmarks/model_hardware_results.yaml"
+    pass_rule: "No entry has status=fail; all latency/throughput/vram fields are populated"
+    status: pass   # confirmed by passing test suite
+
+  - id: M5.2-REQ-04
+    requirement: Signed schemas
+    description: Valid HardwareProfile and TeamResourcePlan instances load and validate.
+    test_id: "tests/test_m5_admission.py::AdmissionTests::test_parallel_admission_records_verifier_and_capacity"
+    scenario: "Construct valid HardwareProfile and TeamResourcePlan from dict; verify they pass validation"
+    observable_result: "from_dict() succeeds; invalid profiles raise ContractValidationError"
+    expected_ledger_event: "schema.validation.completed"
+    evidence_artifact: "contracts/hardware_profile.schema.yaml, contracts/team_resource_plan.schema.yaml"
+    pass_rule: "All existing admission tests pass; new HardwareProfile extended-field tests pass"
+    status: pass   # confirmed by passing test suite
+
+  - id: M5.2-REQ-05
+    requirement: Parallel mode
+    description: Multiple workers admitted with fitting reservations in parallel mode.
+    test_id: "tests/test_m5_admission.py::AdmissionTests::test_parallel_admission_records_verifier_and_capacity"
+    scenario: "3 workers (lead+vision+verifier) with total VRAM < available; expect parallel admission"
+    observable_result: "decision.plan.execution_mode == 'parallel' AND decision.plan.admission == 'admitted'"
+    expected_ledger_event: "team.resource_plan.admitted"
+    evidence_artifact: "acceptance/hardware_scheduling_matrix.yaml"
+    pass_rule: "test_parallel_admission_records_verifier_and_capacity passes"
+    status: pass   # confirmed by existing test
+
+  - id: M5.2-REQ-06
+    requirement: Serial mode
+    description: Same team executed serially when resources don't fit concurrently.
+    test_id: "tests/test_m5_admission.py::AdmissionTests::test_constrained_team_uses_serial_virtual_team_without_dropping_verifier"
+    scenario: "3 workers where total VRAM > available but max single worker VRAM fits; expect serial mode"
+    observable_result: "decision.plan.execution_mode == 'serial_virtual_team' AND verifier_capacity == 1"
+    expected_ledger_event: "execution.mode.selected"
+    evidence_artifact: "acceptance/hardware_scheduling_matrix.yaml"
+    pass_rule: "test_constrained_team_uses_serial_virtual_team_without_dropping_verifier passes"
+    status: pass   # confirmed by existing test
+
+  - id: M5.2-REQ-07
+    requirement: Same logical team
+    description: Same worker roles, IDs, handoffs, verifier, and completion criteria in both modes.
+    test_id: "tests/test_m5_acceptance.py::M52AcceptanceTests::test_serial_and_parallel_preserve_team_identity"
+    scenario: "Run same team on parallel profile and serial-forced profile; compare worker IDs and verifier"
+    observable_result: "Both plans have identical worker_capabilities and verifier_worker_id"
+    expected_ledger_event: "worker.assigned"
+    evidence_artifact: "acceptance/hardware_scheduling_matrix.yaml"
+    pass_rule: "Team identities are invariant across execution mode changes"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.2-REQ-08
+    requirement: Resource exhaustion
+    description: Oversized reservation produces queue, explicit degraded review, or stop.
+    test_id: "tests/test_m5_admission.py::AdmissionTests::test_oversized_reservation_stops_and_missing_verifier_stops"
+    scenario: "Single worker requests more VRAM than total available; expect stopped admission"
+    observable_result: "decision.plan.admission == 'stopped'"
+    expected_ledger_event: "resource.exhaustion.detected"
+    evidence_artifact: "acceptance/hardware_scheduling_matrix.yaml"
+    pass_rule: "test_oversized_reservation_stops_and_missing_verifier_stops passes"
+    status: pass   # confirmed by existing test
+
+  - id: M5.2-REQ-09
+    requirement: No silent safety degradation
+    description: Verifier and thresholds remain present regardless of resource pressure.
+    test_id: "tests/test_m5_admission.py::AdmissionTests::test_oversized_reservation_stops_and_missing_verifier_stops"
+    scenario: "Missing verifier_worker_id in reservations; expect stopped (not queued or admitted)"
+    observable_result: "decision.plan.admission == 'stopped' when verifier reservation is absent"
+    expected_ledger_event: "verification.reservation.confirmed"
+    evidence_artifact: "acceptance/hardware_scheduling_matrix.yaml"
+    pass_rule: "Missing verifier always produces 'stopped'; never 'queued' or 'admitted'"
+    status: pass   # confirmed by existing test
+
+  - id: M5.2-REQ-10
+    requirement: Background priority
+    description: Background ingestion yields capacity to admitted interactive task.
+    test_id: "tests/test_m5_acceptance.py::M52AcceptanceTests::test_background_yields_to_interactive"
+    scenario: "Background task admitted; interactive_high_consequence request arrives; background queued"
+    observable_result: "Background team is queued or released; interactive team admitted"
+    expected_ledger_event: "background.work.yielded"
+    evidence_artifact: "acceptance/hardware_scheduling_matrix.yaml"
+    pass_rule: "Priority rank of interactive_high_consequence (0) < background_ingestion (3)"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.2-REQ-11
+    requirement: Model residency
+    description: Load, resident, eviction, and unload are visible as ledger events.
+    test_id: "tests/test_m5_acceptance.py::M52AcceptanceTests::test_model_residency_events"
+    scenario: "Admit team, execute worker, release; verify ledger events for model.loaded and model.unloaded"
+    observable_result: "ReleaseRecord.released_vram_bytes > 0; audit_payload contains team_id"
+    expected_ledger_event: "model.loaded, model.resident, model.evicted, model.unloaded"
+    evidence_artifact: "acceptance/hardware_scheduling_matrix.yaml"
+    pass_rule: "release() returns ReleaseRecord with correct freed VRAM; controller active_vram decreases"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.2-REQ-12
+    requirement: Auditability
+    description: Execution trace can be replayed from ledger export.
+    test_id: "tests/test_m5_acceptance.py::M52AcceptanceTests::test_admission_audit_payload_completeness"
+    scenario: "Admit team; inspect audit_payload for all required fields including ledger_event_type"
+    observable_result: "AdmissionDecision.audit_payload contains task_id, team_id, admission, execution_mode, reason, committed_vram_bytes, ledger_event_type"
+    expected_ledger_event: "team.resource_plan.admitted"
+    evidence_artifact: "acceptance/hardware_scheduling_matrix.yaml"
+    pass_rule: "audit_payload has all 9 required keys; ledger_event_type is a valid LEDGER_EVENT_TYPES member"
+    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+
+  - id: M5.2-REQ-13
+    requirement: Local sovereignty
+    description: No external calls during measurement or execution (deny-all egress policy).
+    test_id: "tests/test_m5_admission.py::AdmissionTests::test_unverified_or_mismatched_measurement_fails_closed"
+    scenario: "HardwareMeasurement with egress_verified=False raises AdmissionError"
+    observable_result: "AdmissionError raised before any admission decision is made"
+    expected_ledger_event: "egress.check.completed"
+    evidence_artifact: "profiles/hardware/target_96gb_vram.yaml (isolation.egress_policy=deny-all)"
+    pass_rule: "test_unverified_or_mismatched_measurement_fails_closed passes"
+    status: pass   # confirmed by existing test
