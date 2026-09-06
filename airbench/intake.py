@@ -10,24 +10,33 @@ bulk-ingestion or query-upload boundary.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
 import shutil
+import stat
 import tempfile
+import zipfile
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Any, Protocol
+from xml.etree import ElementTree
 
 from contracts import Clearance, EventLedger, Taint, build_event, idempotency_key, stable_id
 
 
 MAX_FILE_BYTES = 50_000_000
+MAX_OFFICE_ZIP_MEMBERS = 1_024
+MAX_OFFICE_UNCOMPRESSED_BYTES = 100_000_000
 _PDF_MAGIC = b"%PDF-"
 _PDF_PAGE = re.compile(rb"/Type\s*/Page\b")
 _TEXT_SUFFIXES = {".txt", ".md", ".csv", ".json", ".log"}
+_DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+_XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _IMAGE_SIGNATURES = (
     (b"\x89PNG\r\n\x1a\n", "image/png"),
     (b"\xff\xd8\xff", "image/jpeg"),
@@ -428,6 +437,14 @@ def _media_type(file_name: str, content: bytes) -> str:
     suffix = Path(file_name).suffix.lower()
     if content.startswith(_PDF_MAGIC) and suffix == ".pdf":
         return "application/pdf"
+    if suffix == ".docx":
+        if not content.startswith(b"PK"):
+            raise IntakeError("malformed_office", "the DOCX archive is malformed")
+        return _DOCX_MEDIA_TYPE
+    if suffix == ".xlsx":
+        if not content.startswith(b"PK"):
+            raise IntakeError("malformed_office", "the XLSX archive is malformed")
+        return _XLSX_MEDIA_TYPE
     for signature, media_type in _IMAGE_SIGNATURES:
         if content.startswith(signature):
             return media_type
@@ -444,6 +461,195 @@ def _media_type(file_name: str, content: bytes) -> str:
             ".log": "text/plain",
         }[suffix]
     raise IntakeError("unsupported_media", "the File Intake Layer does not support this file type")
+
+
+def _safe_office_members(content: bytes) -> dict[str, bytes]:
+    """Read only bounded ZIP members and never extract archive paths."""
+
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(content))
+    except (OSError, ValueError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+        raise IntakeError("malformed_office", "the office archive is malformed") from exc
+
+    try:
+        infos = archive.infolist()
+        if len(infos) > MAX_OFFICE_ZIP_MEMBERS:
+            raise IntakeError("office_archive_too_many_members", "the office archive has too many members")
+        total_size = 0
+        names: dict[str, zipfile.ZipInfo] = {}
+        for info in infos:
+            name = info.filename
+            path = PurePosixPath(name)
+            if not name or "\\" in name or path.is_absolute() or ".." in path.parts:
+                raise IntakeError("office_archive_path", "the office archive contains an unsafe path")
+            if stat.S_ISLNK((info.external_attr >> 16) & 0xFFFF):
+                raise IntakeError("office_archive_symlink", "the office archive contains a symlink")
+            if info.file_size < 0 or info.file_size > MAX_OFFICE_UNCOMPRESSED_BYTES:
+                raise IntakeError("office_member_too_large", "an office archive member is too large")
+            total_size += info.file_size
+            if total_size > MAX_OFFICE_UNCOMPRESSED_BYTES:
+                raise IntakeError("office_archive_too_large", "the office archive is too large")
+            if not info.is_dir():
+                if name in names:
+                    raise IntakeError("office_archive_duplicate", "the office archive contains duplicate members")
+                names[name] = info
+        if any(name.lower().endswith("vbaproject.bin") for name in names):
+            raise IntakeError("office_macros_not_allowed", "macro content is not accepted by the intake parser")
+
+        members: dict[str, bytes] = {}
+        for name, info in names.items():
+            try:
+                members[name] = archive.read(info)
+            except (OSError, RuntimeError, ValueError, zipfile.BadZipFile) as exc:
+                raise IntakeError("malformed_office", "the office archive could not be read") from exc
+        return members
+    finally:
+        archive.close()
+
+
+_DOCX_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_SPREADSHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+
+
+def _xml_root(members: dict[str, bytes], name: str) -> ElementTree.Element:
+    content = members.get(name)
+    if content is None:
+        raise IntakeError("malformed_office", "the office document is missing a required part")
+    upper_content = content.upper()
+    if b"<!DOCTYPE" in upper_content or b"<!ENTITY" in upper_content:
+        raise IntakeError("office_xml_entities", "XML entity declarations are not accepted by the intake parser")
+    try:
+        return ElementTree.fromstring(content)
+    except ElementTree.ParseError as exc:
+        raise IntakeError("malformed_office", "the office XML part is malformed") from exc
+
+
+def _docx_pages(content: bytes) -> list[str]:
+    members = _safe_office_members(content)
+    if "[Content_Types].xml" not in members or "word/document.xml" not in members:
+        raise IntakeError("malformed_office", "the DOCX document is missing required parts")
+    root = _xml_root(members, "word/document.xml")
+    body = root.find(f"{{{_DOCX_NS}}}body")
+    if body is None:
+        raise IntakeError("malformed_office", "the DOCX document has no body")
+
+    pages: list[list[str]] = [[]]
+    for block in body:
+        tag = block.tag.rsplit("}", 1)[-1]
+        if tag == "p":
+            parts: list[str] = []
+            page_break = False
+            for node in block.iter():
+                node_tag = node.tag.rsplit("}", 1)[-1]
+                if node_tag == "t":
+                    parts.append(node.text or "")
+                elif node_tag == "tab":
+                    parts.append("\t")
+                elif node_tag == "br":
+                    if node.attrib.get(f"{{{_DOCX_NS}}}type") == "page":
+                        page_break = True
+                    else:
+                        parts.append("\n")
+                elif node_tag == "lastRenderedPageBreak":
+                    page_break = True
+            text = "".join(parts).strip()
+            if text:
+                pages[-1].append(text)
+            if page_break:
+                pages.append([])
+        elif tag == "tbl":
+            rows: list[str] = []
+            for row in block.findall(f".//{{{_DOCX_NS}}}tr"):
+                cells = []
+                for cell in row.findall(f"{{{_DOCX_NS}}}tc"):
+                    cells.append("".join(node.text or "" for node in cell.iter(f"{{{_DOCX_NS}}}t")).strip())
+                rows.append("\t".join(cells))
+            if rows:
+                pages[-1].append("\n".join(rows))
+    return ["\n".join(blocks) for blocks in pages] or [""]
+
+
+def _column_number(cell_ref: str) -> int:
+    letters = "".join(char for char in cell_ref if char.isalpha()).upper()
+    if not letters:
+        return 1
+    value = 0
+    for char in letters:
+        value = value * 26 + ord(char) - ord("A") + 1
+    return value
+
+
+def _xlsx_shared_strings(root: ElementTree.Element | None) -> list[str]:
+    if root is None:
+        return []
+    return ["".join(node.text or "" for node in item.iter(f"{{{_SPREADSHEET_NS}}}t")) for item in root.findall(f"{{{_SPREADSHEET_NS}}}si")]
+
+
+def _xlsx_cell_text(cell: ElementTree.Element, shared_strings: list[str]) -> str:
+    formula = cell.find(f"{{{_SPREADSHEET_NS}}}f")
+    if formula is not None:
+        return f"={formula.text or ''}"
+    value = cell.find(f"{{{_SPREADSHEET_NS}}}v")
+    cell_type = cell.attrib.get("t")
+    if cell_type == "inlineStr":
+        return "".join(node.text or "" for node in cell.iter(f"{{{_SPREADSHEET_NS}}}t"))
+    raw = "" if value is None else value.text or ""
+    if cell_type == "s":
+        try:
+            return shared_strings[int(raw)]
+        except (ValueError, IndexError) as exc:
+            raise IntakeError("malformed_office", "the XLSX shared-string reference is invalid") from exc
+    if cell_type == "b":
+        return "TRUE" if raw == "1" else "FALSE"
+    return raw
+
+
+def _xlsx_pages(content: bytes) -> list[tuple[str, str]]:
+    members = _safe_office_members(content)
+    if "[Content_Types].xml" not in members or "xl/workbook.xml" not in members:
+        raise IntakeError("malformed_office", "the XLSX workbook is missing required parts")
+    workbook = _xml_root(members, "xl/workbook.xml")
+    shared_strings = _xlsx_shared_strings(
+        _xml_root(members, "xl/sharedStrings.xml") if "xl/sharedStrings.xml" in members else None
+    )
+    relationships: dict[str, str] = {}
+    if "xl/_rels/workbook.xml.rels" in members:
+        rels = _xml_root(members, "xl/_rels/workbook.xml.rels")
+        for rel in rels.findall(f"{{{_PACKAGE_REL_NS}}}Relationship"):
+            target = rel.attrib.get("Target", "")
+            if target.startswith("/"):
+                target = target[1:]
+            else:
+                target = str(PurePosixPath("xl") / target)
+            normalized = str(PurePosixPath(target))
+            if normalized.startswith("xl/") and ".." not in PurePosixPath(normalized).parts:
+                relationships[rel.attrib.get("Id", "")] = normalized
+
+    sheets = workbook.find(f"{{{_SPREADSHEET_NS}}}sheets")
+    if sheets is None:
+        raise IntakeError("malformed_office", "the XLSX workbook has no worksheets")
+    pages: list[tuple[str, str]] = []
+    for index, sheet in enumerate(sheets.findall(f"{{{_SPREADSHEET_NS}}}sheet"), start=1):
+        relationship_id = sheet.attrib.get(f"{{{_REL_NS}}}id", "")
+        target = relationships.get(relationship_id, f"xl/worksheets/sheet{index}.xml")
+        if target not in members:
+            raise IntakeError("malformed_office", "the XLSX worksheet part is missing")
+        root = _xml_root(members, target)
+        rows: list[str] = []
+        sheet_data = root.find(f"{{{_SPREADSHEET_NS}}}sheetData")
+        if sheet_data is not None:
+            for row in sheet_data.findall(f"{{{_SPREADSHEET_NS}}}row"):
+                cells: dict[int, str] = {}
+                for cell in row.findall(f"{{{_SPREADSHEET_NS}}}c"):
+                    column = _column_number(cell.attrib.get("r", "A1"))
+                    cells[column] = _xlsx_cell_text(cell, shared_strings)
+                if cells:
+                    rows.append("\t".join(cells.get(column, "") for column in range(1, max(cells) + 1)))
+        sheet_name = sheet.attrib.get("name", f"Sheet{index}")
+        pages.append((f"sheet:{sheet_name}", "\n".join(rows)))
+    return pages or [("sheet:Sheet1", "")]
 
 
 def _validate_request(request: IntakeRequest) -> None:
@@ -471,41 +677,44 @@ def _validate_request(request: IntakeRequest) -> None:
 
 class BuiltinDocumentParser:
     name = "builtin-safe-metadata-parser"
-    version = "builtin-intake-1"
+    version = "builtin-intake-2"
 
     def parse(self, request: IntakeRequest, source_hash: str) -> tuple[str, tuple[PageRecord, ...]]:
         media_type = _media_type(request.file_name, request.content)
-        suffix = Path(request.file_name).suffix.lower()
         if media_type == "application/pdf":
             page_count = max(1, len(_PDF_PAGE.findall(request.content)))
             extraction_method = "pdf_metadata_only"
-            texts = [""] * page_count
+            page_data = [(f"page:{page_number}", "") for page_number in range(1, page_count + 1)]
         elif media_type.startswith("image/"):
-            page_count = 1
             extraction_method = "image_metadata_only"
-            texts = [""]
+            page_data = [("page:1", "")]
+        elif media_type == _DOCX_MEDIA_TYPE:
+            extraction_method = "docx_xml_text"
+            page_data = [(f"page:{page_number}", text) for page_number, text in enumerate(_docx_pages(request.content), start=1)]
+        elif media_type == _XLSX_MEDIA_TYPE:
+            extraction_method = "xlsx_xml_table"
+            page_data = _xlsx_pages(request.content)
         else:
-            page_count = 1
             extraction_method = "utf8_text_decode"
-            texts = [request.content.decode("utf-8")]
+            page_data = [("page:1", request.content.decode("utf-8"))]
 
         pages = tuple(
             PageRecord(
                 page_id=stable_id("page", request.source_ref, source_hash, page_number),
                 page_number=page_number,
-                source_region=f"page:{page_number}",
+                source_region=source_region,
                 content_hash=hashlib.sha256(f"{source_hash}:page:{page_number}".encode()).hexdigest(),
                 media_type=media_type,
                 text=text,
                 extraction_method=extraction_method,
-                confidence=1.0 if extraction_method == "utf8_text_decode" else 0.0,
+                confidence=1.0 if extraction_method in {"utf8_text_decode", "docx_xml_text", "xlsx_xml_table"} else 0.0,
                 clearance=request.clearance,
                 taint=Taint.untrusted,
                 evidence_ref=stable_id("evidence", request.source_ref, source_hash, page_number),
                 rendered_page_ref=None,
                 render_status="deferred",
             )
-            for page_number, text in enumerate(texts, start=1)
+            for page_number, (source_region, text) in enumerate(page_data, start=1)
         )
         return media_type, pages
 
