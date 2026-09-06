@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "compatibility_id": "airbench-core-contracts",
+  "action_id": "action.read-001",
+  "task_id": "task.inspection-001",
+  "worker_id": "worker.vision-001",
+  "tool_name": "file_intake.read",
+  "arguments": {"file_id": "file.report-001"},
+  "path_scope": ["task-inputs"],
+  "clearance": "restricted",
+  "taint": "untrusted",
+  "risk_class": "high",
+  "timeout_ms": 1000,
+  "idempotency_key": "tool-read-001",
+  "status": "proposed"
+}
