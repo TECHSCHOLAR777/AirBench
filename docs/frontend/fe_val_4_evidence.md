@@ -21,7 +21,9 @@ npm run validate:node
 
 The validation runner creates a synthetic scanned PDF containing instruction-bearing text, uploads it through the fixture File Intake endpoint, compares the returned source hash with the selected file, checks that taint remains `untrusted`, displays a safe text preview contract, verifies the downloaded artifact hash and ledger reference, rejects a denied artifact download, and rejects an unsupported `.exe` file.
 
-Run: `AirBenchNodeValidation-20260906-093801-1789648d61b9499e8a9cedb30ecd49fb`
+Run: `AirBenchNodeValidation-20260906-154729-451dba1512374d1aad3d1eec26eee77b`
+
+The run passed local and pinned internal HTTPS connection handshakes, event replay, query-upload intake, source-hash comparison, untrusted taint preservation, safe preview metadata, artifact hash verification, denied artifact download, and unsupported-document rejection. The fixture produced redacted JSONL logs under the run directory and retained the limitation that it is not a packaged desktop or production Python Node proof.
 
 The fixture parses only the multipart envelope needed to receive the bytes. It does not interpret document instructions or execute content. It is not the production File Intake Layer.
 
