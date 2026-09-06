@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "compatibility_id": "airbench-core-contracts",
+  "decision_id": "decision.vision-001",
+  "request_id": "request.vision-001",
+  "eligible_targets": ["model.qwen-vl-local"],
+  "selected_target": "model.qwen-vl-local",
+  "policy_version_hash": "sha256:route-policy",
+  "decision_source": "deterministic_capability_router",
+  "rule_or_threshold": "qualified_multimodal_target",
+  "qualification_certificate": "qualification.vision-001",
+  "session_affinity": "task.inspection-001",
+  "fallback_target": null,
+  "resource_admission": "admitted",
+  "status": "accepted",
+  "reason": "qualified target fits active lease"
+}

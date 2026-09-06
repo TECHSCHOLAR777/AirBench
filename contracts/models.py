@@ -185,7 +185,7 @@ class TeamPlan(Contract):
     team_id: str; task_id: str; assignments: tuple[str, ...]; dependency_graph: dict[str, tuple[str, ...]]; concurrency_ceiling: int; required_verification: bool; completion_criteria: tuple[str, ...]; plan_version_hash: str; policy_version_hash: str; status: ContractStatus = ContractStatus.proposed
     def _validate(self, hints):
         issues = super()._validate(hints)
-        if self.concurrency_ceiling < 1:
+        if type(self.concurrency_ceiling) is not int or self.concurrency_ceiling < 1:
             issues.append(ValidationIssue("concurrency_ceiling", "range", "must be at least 1"))
         if not self.required_verification:
             issues.append(ValidationIssue("required_verification", "safety", "independent verification is mandatory"))
@@ -262,21 +262,65 @@ class CompletionRecord(Contract):
 @dataclass(frozen=True)
 class ModelCallRequest(Contract):
     request_id: str; task_id: str; team_id: str | None; worker_id: str | None; task_kind: str; modality: str; required_capability: str; evidence_summary: tuple[str, ...]; clearance: Clearance; action_risk: str; resource_budget: dict[str, int]; attempt: int; idempotency_key: str; timeout_ms: int
+    role: str = ""
+    resource_lease_id: str = ""
     def _validate(self, hints):
         issues = super()._validate(hints)
-        if self.timeout_ms <= 0 or self.timeout_ms > 86_400_000: issues.append(ValidationIssue("timeout_ms", "range", "must be 1..86400000"))
-        if self.attempt < 1: issues.append(ValidationIssue("attempt", "range", "must be >= 1"))
+        if type(self.timeout_ms) is not int or self.timeout_ms <= 0 or self.timeout_ms > 86_400_000: issues.append(ValidationIssue("timeout_ms", "range", "must be 1..86400000"))
+        if type(self.attempt) is not int or self.attempt < 1: issues.append(ValidationIssue("attempt", "range", "must be >= 1"))
+        if not self.role.strip(): issues.append(ValidationIssue("role", "required", "worker role is required"))
+        if not self.resource_lease_id.strip(): issues.append(ValidationIssue("resource_lease_id", "required", "resource lease is required"))
+        if not self.required_capability.strip(): issues.append(ValidationIssue("required_capability", "required", "model capability is required"))
+        if isinstance(self.resource_budget, dict) and any(type(value) is not int or value < 0 for value in self.resource_budget.values()): issues.append(ValidationIssue("resource_budget", "resource", "budget values must be non-negative integers"))
         return issues
 
 
 @dataclass(frozen=True)
 class RoutingDecision(Contract):
     decision_id: str; request_id: str; eligible_targets: tuple[str, ...]; selected_target: str | None; policy_version_hash: str; decision_source: str; rule_or_threshold: str; qualification_certificate: str; session_affinity: str; fallback_target: str | None; resource_admission: str; status: ContractStatus; reason: str
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if not self.eligible_targets:
+            issues.append(ValidationIssue("eligible_targets", "required", "routing requires an eligible target set"))
+        if self.status == ContractStatus.accepted and (not self.selected_target or not self.qualification_certificate or self.resource_admission != "admitted"):
+            issues.append(ValidationIssue("selected_target", "admission", "accepted routing requires target, qualification, and admitted resources"))
+        if self.resource_admission not in {"admitted", "queued", "rejected", "needs_review"}:
+            issues.append(ValidationIssue("resource_admission", "enum", "invalid resource admission"))
+        return issues
 
 
 @dataclass(frozen=True)
 class TeamResourcePlan(Contract):
     team_id: str; hardware_profile_ref: str; worker_capabilities: dict[str, str]; reservations: dict[str, dict[str, int]]; concurrency_ceiling: int; execution_mode: str; priority: str; verifier_capacity: int; admission: str; reason: str
+    task_id: str = ""
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if not self.task_id.strip(): issues.append(ValidationIssue("task_id", "required", "resource plan must identify its task"))
+        if self.concurrency_ceiling < 1: issues.append(ValidationIssue("concurrency_ceiling", "range", "must be at least 1"))
+        if type(self.verifier_capacity) is not int or self.verifier_capacity < 1: issues.append(ValidationIssue("verifier_capacity", "safety", "at least one verifier reservation is required"))
+        if self.execution_mode not in {"parallel", "pipelined", "serial_virtual_team"}: issues.append(ValidationIssue("execution_mode", "enum", "invalid execution mode"))
+        if self.admission not in {"admitted", "queued", "degraded_needs_review", "rejected", "stopped"}: issues.append(ValidationIssue("admission", "enum", "invalid admission state"))
+        if isinstance(self.reservations, dict):
+            for worker, reservation in self.reservations.items():
+                if not isinstance(reservation, dict) or any(type(value) is not int or value < 0 for value in reservation.values()):
+                    issues.append(ValidationIssue(f"reservations.{worker}", "resource", "reservations must contain non-negative integer values"))
+        return issues
+
+
+@dataclass(frozen=True)
+class HardwareProfile(Contract):
+    profile_id: str; gpu_model: str; gpu_count: int; vram_bytes: int; driver_version: str; accelerator_runtime: str; cpu_model: str; cpu_cores: int; ram_bytes: int; storage_bytes: int; scratch_bytes: int; model_context_tokens: int; kv_cache_bytes: int; safe_parallel_slots: int; egress_policy: str; measurement_hash: str
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        for name in ("gpu_model", "driver_version", "accelerator_runtime", "cpu_model", "egress_policy", "measurement_hash"):
+            if not getattr(self, name).strip(): issues.append(ValidationIssue(name, "required", f"{name} is required"))
+        for name in ("gpu_count", "vram_bytes", "cpu_cores", "ram_bytes", "storage_bytes", "scratch_bytes", "model_context_tokens", "kv_cache_bytes", "safe_parallel_slots"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0: issues.append(ValidationIssue(name, "resource", "must be a non-negative integer"))
+        if type(self.gpu_count) is int and self.gpu_count < 1: issues.append(ValidationIssue("gpu_count", "resource", "at least one GPU is required"))
+        if type(self.vram_bytes) is int and self.vram_bytes == 0: issues.append(ValidationIssue("vram_bytes", "resource", "VRAM capacity is required"))
+        if type(self.safe_parallel_slots) is int and self.safe_parallel_slots < 1: issues.append(ValidationIssue("safe_parallel_slots", "resource", "at least one execution slot is required"))
+        return issues
 
 
 @dataclass(frozen=True)
@@ -285,7 +329,8 @@ class ToolAction(Contract):
     def _validate(self, hints):
         issues = super()._validate(hints)
         if self.taint != Taint.clean: issues.append(ValidationIssue("taint", "security", "tool actions require clean, policy-cleared inputs"))
-        if self.timeout_ms <= 0: issues.append(ValidationIssue("timeout_ms", "range", "must be positive"))
+        if type(self.timeout_ms) is not int or self.timeout_ms <= 0: issues.append(ValidationIssue("timeout_ms", "range", "must be positive"))
+        if not self.path_scope: issues.append(ValidationIssue("path_scope", "security", "tool path scope is required"))
         return issues
 
 

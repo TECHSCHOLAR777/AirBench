@@ -5,7 +5,8 @@ from pathlib import Path
 
 from contracts import (CompletionRecord, ContractValidationError, FactEnvelope,
                        LedgerEventEnvelope, TaskEnvelope, TeamPlan,
-                       WorkerAssignment, WorkerResult, WorkPacket, Clearance,
+                       WorkerAssignment, WorkerResult, WorkPacket, HardwareProfile,
+                       ModelCallRequest, RoutingDecision, TeamResourcePlan, ToolAction, Clearance,
                        Taint, UntrustedEvidence, idempotency_key, stable_id)
 
 
@@ -54,6 +55,31 @@ class ContractTests(unittest.TestCase):
     payload["required_verification"] = False
     with self.assertRaises(ContractValidationError):
       TeamPlan.from_dict(payload)
+
+
+  def test_m13_valid_routing_resource_and_hardware_fixtures_are_typed(self):
+    hardware = HardwareProfile.from_dict(json.loads((FIXTURES / "hardware_profile_96gb_valid.json").read_text()))
+    request = ModelCallRequest.from_dict(json.loads((FIXTURES / "model_call_request_valid.json").read_text()))
+    route = RoutingDecision.from_dict(json.loads((FIXTURES / "routing_decision_valid.json").read_text()))
+    resource = TeamResourcePlan.from_dict(json.loads((FIXTURES / "team_resource_plan_valid.json").read_text()))
+    assert hardware.vram_bytes == 96 * 1024**3
+    assert request.role == "vision_worker"
+    assert route.resource_admission == "admitted"
+    assert resource.verifier_capacity == 1
+
+
+  def test_m13_security_and_resource_failures_are_rejected(self):
+    hardware = json.loads((FIXTURES / "hardware_profile_96gb_valid.json").read_text())
+    hardware["vram_bytes"] = -1
+    with self.assertRaises(ContractValidationError):
+      HardwareProfile.from_dict(hardware)
+    request = json.loads((FIXTURES / "model_call_request_valid.json").read_text())
+    request["resource_lease_id"] = ""
+    with self.assertRaises(ContractValidationError):
+      ModelCallRequest.from_dict(request)
+    action = json.loads((FIXTURES / "tool_action_invalid_taint.json").read_text())
+    with self.assertRaises(ContractValidationError):
+      ToolAction.from_dict(action)
     payload = json.loads((FIXTURES / "team_valid.json").read_text())
     payload["concurrency_ceiling"] = 0
     with self.assertRaises(ContractValidationError):
