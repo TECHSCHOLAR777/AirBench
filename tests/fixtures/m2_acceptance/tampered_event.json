@@ -1,0 +1,11 @@
+{
+  "event_type": "task.created",
+  "task_id": "task.m24-fixture-001",
+  "actor_id": "orchestrator.m24",
+  "actor_type": "service",
+  "payload_contract": "TaskEnvelope",
+  "payload_version": "1.0",
+  "payload": {"state": "tampered"},
+  "clearance": "public",
+  "idempotency": "m24-tampered-event"
+}
