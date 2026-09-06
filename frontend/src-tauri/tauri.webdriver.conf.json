@@ -1,0 +1,15 @@
+{
+  "build": {
+    "beforeBuildCommand": "npm run build:webdriver",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "security": {
+      "capabilities": ["main-window", "wdio"]
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}

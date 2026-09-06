@@ -4,7 +4,14 @@ pub mod intake;
 pub mod node_transport;
 
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    #[cfg(feature = "wdio")]
+    let builder = builder
+        .plugin(tauri_plugin_wdio::init())
+        .plugin(tauri_plugin_wdio_webdriver::init());
+
+    builder
         .manage(intake::IntakeState::default())
         .invoke_handler(tauri::generate_handler![
             node_transport::connect_node,

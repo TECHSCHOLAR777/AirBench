@@ -55,7 +55,7 @@ function App() {
         <button className="new-task-button" onClick={() => selectScreen("home")}><span aria-hidden="true">+</span><span>New task</span><kbd>Ctrl N</kbd></button>
         <nav className="nav-groups"><NavGroup title="Work" items={primaryNav} active={state.screen} onSelect={selectScreen} /><NavGroup title="Records" items={recordNav} active={state.screen} onSelect={selectScreen} /></nav>
         <div className="sidebar-spacer" />
-        <button className="node-chip" onClick={() => selectScreen("node")} aria-label="Open Node and settings"><span className="status-dot" aria-hidden="true" /><span><strong>Node not connected</strong><small>Choose an approved Node</small></span><span className="chevron" aria-hidden="true">&gt;</span></button>
+        <button className="node-chip" data-testid="node-chip" onClick={() => selectScreen("node")} aria-label="Open Node and settings"><span className="status-dot" aria-hidden="true" /><span><strong>Node not connected</strong><small>Choose an approved Node</small></span><span className="chevron" aria-hidden="true">&gt;</span></button>
         <div className="user-row"><div className="avatar">RG</div><div><strong>Local operator</strong><small>Clearance not resolved</small></div><span className="more-icon" aria-hidden="true">...</span></div>
       </aside>
 
@@ -79,15 +79,15 @@ function NavGroup({ title, items, active, onSelect }: { title: string; items: Ar
 function HomeView({ taskText, setTaskText, selectedFile, notice, canStart, onAttach, onRemoveFile, onHelp, onOpenNode }: { taskText: string; setTaskText: (value: string) => void; selectedFile: SelectedFile | null; notice: string | null; canStart: boolean; onAttach: () => void; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void }) {
   return <div className="home-view">
     <section className="welcome-block"><p className="eyebrow">PRIVATE BY DESIGN</p><h1>What should AirBench complete?</h1><p className="lead">Describe the outcome. Add files if they are part of the work.</p></section>
-    <section className="composer-card" aria-label="New task composer">
+    <section className="composer-card" data-testid="task-composer" aria-label="New task composer">
       <textarea value={taskText} onChange={(event) => setTaskText(event.target.value)} placeholder="For example: Review the scanned inspection report and draft an approval note with the key findings and required actions." rows={4} />
       {selectedFile && <div className="selected-file"><span className="file-badge">FILE</span><span><strong>{selectedFile.file_name}</strong><small>{formatBytes(selectedFile.byte_size)} · ready for File Intake</small></span><button className="remove-file" onClick={onRemoveFile} aria-label="Remove selected file">Remove</button></div>}
-      <div className="composer-footer"><div className="composer-tools"><button className="secondary-button" onClick={onAttach}><span aria-hidden="true">+</span> Attach files</button><button className="secondary-button" disabled>Choose project</button></div><button className="primary-button" disabled={!canStart} title={canStart ? "Start task" : "Connect an approved Node before starting work"}>Start task <kbd>Enter</kbd></button></div>
+      <div className="composer-footer"><div className="composer-tools"><button className="secondary-button" data-testid="attach-files" onClick={onAttach}><span aria-hidden="true">+</span> Attach files</button><button className="secondary-button" disabled>Choose project</button></div><button className="primary-button" data-testid="start-task" disabled={!canStart} title={canStart ? "Start task" : "Connect an approved Node before starting work"}>Start task <kbd>Enter</kbd></button></div>
     </section>
     {notice && <div className="inline-notice" role="status">{notice}</div>}
     <div className="trust-line" role="status"><span className="trust-item"><span className="trust-check" aria-hidden="true">OK</span> Files stay on your node</span><span className="trust-item"><span className="trust-check" aria-hidden="true">OK</span> External network denied</span><button className="text-button" onClick={onHelp}>How this works</button></div>
     <section className="continue-section"><div className="section-heading"><div><h2>Continue work</h2><p>Your recent tasks will appear here.</p></div><button className="text-button" disabled>View history <span aria-hidden="true">-&gt;</span></button></div><div className="empty-state"><div className="empty-icon" aria-hidden="true">T</div><p>No tasks yet</p><small>When you start work, you can return to it here.</small></div></section>
-    <section className="readiness-card"><div><p className="eyebrow">READY WHEN YOU ARE</p><h2>Connect a trusted Node to begin</h2><p>Your organization controls the models, tools, files, and audit record on that Node.</p></div><button className="secondary-button bordered-button" onClick={onOpenNode}>Open Node settings</button></section>
+    <section className="readiness-card"><div><p className="eyebrow">READY WHEN YOU ARE</p><h2>Connect a trusted Node to begin</h2><p>Your organization controls the models, tools, files, and audit record on that Node.</p></div><button className="secondary-button bordered-button" data-testid="open-node-settings" onClick={onOpenNode}>Open Node settings</button></section>
   </div>;
 }
 

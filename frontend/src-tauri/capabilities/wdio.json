@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "wdio",
+  "description": "Test-only WebDriver capability. Never included in production builds.",
+  "windows": ["main"],
+  "permissions": [
+    "wdio:allow-execute",
+    "wdio:allow-log-frontend",
+    "wdio:allow-debug-plugin",
+    "wdio:allow-get-active-window-label",
+    "wdio:allow-get-window-states",
+    "wdio:allow-list-windows"
+  ]
+}
