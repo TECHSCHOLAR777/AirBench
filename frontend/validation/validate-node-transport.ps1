@@ -104,6 +104,8 @@ $localProcess = $null
 $remoteProcess = $null
 $wrongEndpointProcess = $null
 $blockedProcess = $null
+$interruptedUploadProcess = $null
+$truncatedDownloadProcess = $null
 $mismatchProcess = $null
 $malformedProcess = $null
 $wrongHashProcess = $null
@@ -115,6 +117,8 @@ try {
   $remotePort = Get-FreePort
   $wrongPort = Get-FreePort
   $blockedPort = Get-FreePort
+  $interruptedUploadPort = Get-FreePort
+  $truncatedDownloadPort = Get-FreePort
   $mismatchPort = Get-FreePort
   $malformedPort = Get-FreePort
   $wrongHashPort = Get-FreePort
@@ -123,6 +127,8 @@ try {
   $remoteLog = Join-Path $runRoot "remote-node.jsonl"
   $wrongLog = Join-Path $runRoot "wrong-endpoint.jsonl"
   $blockedLog = Join-Path $runRoot "blocked-node.jsonl"
+  $interruptedUploadLog = Join-Path $runRoot "interrupted-upload-node.jsonl"
+  $truncatedDownloadLog = Join-Path $runRoot "truncated-download-node.jsonl"
   $mismatchLog = Join-Path $runRoot "clearance-mismatch-node.jsonl"
   $malformedLog = Join-Path $runRoot "malformed-preview-node.jsonl"
   $wrongHashLog = Join-Path $runRoot "wrong-source-hash-node.jsonl"
@@ -136,6 +142,8 @@ try {
   $remoteProcess = Start-Fixture $remotePort $remoteLog @{ "--cert-path" = $certMeta.certificate_path; "--key-path" = $certMeta.key_path }
   $wrongEndpointProcess = Start-Process -FilePath $python -ArgumentList @("-m", "http.server", $wrongPort, "--bind", "127.0.0.1") -WindowStyle Hidden -RedirectStandardOutput $wrongLog -RedirectStandardError (Join-Path $runRoot "wrong.err") -PassThru
   $blockedProcess = Start-Fixture $blockedPort $blockedLog @{ "--deny-download" = $null }
+  $interruptedUploadProcess = Start-Fixture $interruptedUploadPort $interruptedUploadLog @{ "--interrupt-upload" = $null }
+  $truncatedDownloadProcess = Start-Fixture $truncatedDownloadPort $truncatedDownloadLog @{ "--truncate-download" = $null }
   $mismatchProcess = Start-Fixture $mismatchPort $mismatchLog @{ "--clearance-mismatch" = $null }
   $malformedProcess = Start-Fixture $malformedPort $malformedLog @{ "--malformed-preview" = $null }
   $wrongHashProcess = Start-Fixture $wrongHashPort $wrongHashLog @{ "--wrong-source-hash" = $null }
@@ -144,6 +152,8 @@ try {
   Wait-Port $remotePort $remoteProcess
   Wait-Port $wrongPort $wrongEndpointProcess
   Wait-Port $blockedPort $blockedProcess
+  Wait-Port $interruptedUploadPort $interruptedUploadProcess
+  Wait-Port $truncatedDownloadPort $truncatedDownloadProcess
   Wait-Port $mismatchPort $mismatchProcess
   Wait-Port $malformedPort $malformedProcess
   Wait-Port $wrongHashPort $wrongHashProcess
@@ -155,6 +165,8 @@ try {
   $wrongIdentityProfile = Join-Path $runRoot "wrong-identity-profile.json"
   $wrongEndpointProfile = Join-Path $runRoot "wrong-endpoint-profile.json"
   $blockedProfile = Join-Path $runRoot "blocked-profile.json"
+  $interruptedUploadProfile = Join-Path $runRoot "interrupted-upload-profile.json"
+  $truncatedDownloadProfile = Join-Path $runRoot "truncated-download-profile.json"
   $mismatchProfile = Join-Path $runRoot "mismatch-profile.json"
   $malformedProfile = Join-Path $runRoot "malformed-profile.json"
   $wrongHashProfile = Join-Path $runRoot "wrong-hash-profile.json"
@@ -165,6 +177,8 @@ try {
   Write-Profile $wrongIdentityProfile "https://127.0.0.1:$remotePort" "internal_https" "not-the-fixture-node" $certMeta.certificate_pin_sha256 $caPem
   Write-Profile $wrongEndpointProfile "http://127.0.0.1:$wrongPort" "loopback" "fixture-node-01" $null $null
   Write-Profile $blockedProfile "http://127.0.0.1:$blockedPort" "loopback" "fixture-node-01" $null $null
+  Write-Profile $interruptedUploadProfile "http://127.0.0.1:$interruptedUploadPort" "loopback" "fixture-node-01" $null $null
+  Write-Profile $truncatedDownloadProfile "http://127.0.0.1:$truncatedDownloadPort" "loopback" "fixture-node-01" $null $null
   Write-Profile $mismatchProfile "http://127.0.0.1:$mismatchPort" "loopback" "fixture-node-01" $null $null
   Write-Profile $malformedProfile "http://127.0.0.1:$malformedPort" "loopback" "fixture-node-01" $null $null
   Write-Profile $wrongHashProfile "http://127.0.0.1:$wrongHashPort" "loopback" "fixture-node-01" $null $null
@@ -200,6 +214,15 @@ try {
   if (-not (Test-Path -LiteralPath $downloadedArtifact)) { throw "The allowed artifact was not downloaded." }
   $results.intake_blocked_download = Invoke-IntakeProbe $blockedProfile $inputFile (Join-Path $runRoot "blocked-approval-note.pdf")
   if ($results.intake_blocked_download.code -eq 0) { throw "The blocked artifact download unexpectedly succeeded." }
+  $results.intake_truncated_download = Invoke-IntakeProbe $truncatedDownloadProfile $inputFile (Join-Path $runRoot "truncated-approval-note.pdf")
+  if ($results.intake_truncated_download.code -eq 0 -or $results.intake_truncated_download.payload.error -notmatch "interrupted|hash") { throw "The truncated artifact download unexpectedly passed validation: $($results.intake_truncated_download.payload | ConvertTo-Json -Compress)" }
+  $results.intake_interrupted_upload = Invoke-IntakeProbe $interruptedUploadProfile $inputFile (Join-Path $runRoot "interrupted-upload-note.pdf")
+  if ($results.intake_interrupted_upload.code -eq 0) { throw "The interrupted intake upload unexpectedly succeeded." }
+  $oversizedFile = Join-Path $runRoot "oversized-query-upload.pdf"
+  $oversizedStream = [IO.File]::Open($oversizedFile, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None)
+  try { $oversizedStream.SetLength((100 * 1024 * 1024) + 1) } finally { $oversizedStream.Dispose() }
+  $results.intake_oversized_file = Invoke-IntakeProbe $localProfile $oversizedFile (Join-Path $runRoot "oversized-output.bin")
+  if ($results.intake_oversized_file.code -eq 0 -or $results.intake_oversized_file.payload.error -notmatch "larger than the query-upload limit") { throw "The oversized intake file unexpectedly passed validation: $($results.intake_oversized_file.payload | ConvertTo-Json -Compress)" }
   $results.intake_clearance_mismatch = Invoke-IntakeProbe $mismatchProfile $inputFile (Join-Path $runRoot "clearance-mismatch-note.pdf")
   if ($results.intake_clearance_mismatch.code -eq 0 -or $results.intake_clearance_mismatch.payload.error -notmatch "clearance") { throw "The clearance-mismatch artifact unexpectedly passed validation: $($results.intake_clearance_mismatch.payload | ConvertTo-Json -Compress)" }
   $results.intake_malformed_preview = Invoke-IntakeProbe $malformedProfile $inputFile (Join-Path $runRoot "malformed-preview-note.pdf")
@@ -233,14 +256,14 @@ try {
     remote_endpoint = "https://127.0.0.1:$remotePort"
     certificate_pin_sha256 = $certMeta.certificate_pin_sha256
     results = $results
-    logs = @($localLog, $remoteLog, $wrongLog)
+    logs = @($localLog, $remoteLog, $wrongLog, $interruptedUploadLog, $truncatedDownloadLog)
     limitation = "Synthetic fixture evidence only. Production identity policy, packaged desktop invocation, and OS network monitor capture remain separate gates."
   }
   $reportPath = Join-Path $runRoot "report.json"
   [IO.File]::WriteAllText($reportPath, ($report | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
   Write-Output ($report | ConvertTo-Json -Depth 8)
 } finally {
-  foreach ($process in @($localProcess, $remoteProcess, $wrongEndpointProcess, $blockedProcess, $mismatchProcess, $malformedProcess, $wrongHashProcess, $unsafeRefProcess)) {
+  foreach ($process in @($localProcess, $remoteProcess, $wrongEndpointProcess, $blockedProcess, $interruptedUploadProcess, $truncatedDownloadProcess, $mismatchProcess, $malformedProcess, $wrongHashProcess, $unsafeRefProcess)) {
     if ($null -ne $process -and -not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
   }
   if ($credentialSet) {

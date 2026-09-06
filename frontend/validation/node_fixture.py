@@ -12,6 +12,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import socket
 import ssl
 import sys
 from email.parser import BytesParser
@@ -115,13 +116,22 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 self._json(403, {"error": "clearance_denied"})
                 return
             pdf = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<<>>\n%%EOF\n"
+            response_body = pdf[: len(pdf) // 2] if self.server.truncate_download else pdf  # type: ignore[attr-defined]
             self.send_response(200)
             self.send_header("Content-Type", "application/pdf")
             self.send_header("Content-Length", str(len(pdf)))
             self.send_header("X-AirBench-Artifact-Hash", f"sha256:{hashlib.sha256(pdf).hexdigest()}")
             self.send_header("X-AirBench-Ledger-Event-Ref", "fixture-ledger-download-001")
             self.end_headers()
-            self.wfile.write(pdf)
+            self.wfile.write(response_body)
+            self.wfile.flush()
+            if self.server.truncate_download:  # type: ignore[attr-defined]
+                self.close_connection = True
+                try:
+                    self.connection.shutdown(socket.SHUT_WR)
+                except OSError:
+                    pass
+                return
             self.server.log_event({"event": "artifact_download_allowed", "artifact_id": "artifact-approval-note"})  # type: ignore[attr-defined]
             return
 
@@ -163,6 +173,15 @@ class FixtureHandler(BaseHTTPRequestHandler):
             return
         if content_length <= 0 or content_length > 100 * 1024 * 1024:
             self._json(413, {"error": "upload_too_large"})
+            return
+        if self.server.interrupt_upload:  # type: ignore[attr-defined]
+            self.rfile.read(min(content_length, 1))
+            self.server.log_event({"event": "intake_upload_interrupted"})  # type: ignore[attr-defined]
+            self.close_connection = True
+            try:
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             return
         body = self.rfile.read(content_length)
         raw_message = b"Content-Type: " + self.headers.get("Content-Type", "").encode("utf-8") + b"\r\nMIME-Version: 1.0\r\n\r\n" + body
@@ -227,6 +246,8 @@ class FixtureServer(ThreadingHTTPServer):
         self.log_path = args.log_path
         self.intakes: dict[str, dict[str, object]] = {}
         self.deny_download = args.deny_download
+        self.interrupt_upload = args.interrupt_upload
+        self.truncate_download = args.truncate_download
         self.clearance_mismatch = args.clearance_mismatch
         self.malformed_preview = args.malformed_preview
         self.wrong_source_hash = args.wrong_source_hash
@@ -254,6 +275,8 @@ def main() -> int:
     parser.add_argument("--cert-path")
     parser.add_argument("--key-path")
     parser.add_argument("--deny-download", action="store_true")
+    parser.add_argument("--interrupt-upload", action="store_true")
+    parser.add_argument("--truncate-download", action="store_true")
     parser.add_argument("--clearance-mismatch", action="store_true")
     parser.add_argument("--malformed-preview", action="store_true")
     parser.add_argument("--wrong-source-hash", action="store_true")

@@ -28,6 +28,8 @@ from typing import Any, Protocol
 from xml.etree import ElementTree
 
 from contracts import Clearance, EventLedger, Taint, build_event, idempotency_key, stable_id
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 
 MAX_FILE_BYTES = 50_000_000
@@ -35,8 +37,10 @@ MAX_OFFICE_ZIP_MEMBERS = 1_024
 MAX_OFFICE_UNCOMPRESSED_BYTES = 100_000_000
 MAX_CSV_ROWS = 1_000_000
 MAX_CSV_COLUMNS = 4_096
+MAX_PDF_PAGES = 10_000
+MAX_PDF_PAGE_TEXT_BYTES = 2_000_000
+MAX_PDF_TEXT_BYTES = 20_000_000
 _PDF_MAGIC = b"%PDF-"
-_PDF_PAGE = re.compile(rb"/Type\s*/Page\b")
 _TEXT_SUFFIXES = {".txt", ".md", ".csv", ".json", ".log"}
 _DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -466,6 +470,41 @@ def _media_type(file_name: str, content: bytes) -> str:
     raise IntakeError("unsupported_media", "the File Intake Layer does not support this file type")
 
 
+def _pdf_pages(content: bytes) -> list[tuple[str, str]]:
+    """Extract bounded digital PDF text without executing document content."""
+
+    try:
+        reader = PdfReader(io.BytesIO(content), strict=False)
+    except (OSError, ValueError, TypeError, PdfReadError) as exc:
+        raise IntakeError("malformed_pdf", "the PDF document is malformed") from exc
+    if reader.is_encrypted:
+        raise IntakeError("encrypted_pdf", "encrypted PDF documents require an approved decryption adapter")
+    try:
+        page_count = len(reader.pages)
+    except (OSError, ValueError, TypeError, PdfReadError) as exc:
+        raise IntakeError("malformed_pdf", "the PDF page tree is malformed") from exc
+    if page_count < 1:
+        raise IntakeError("pdf_no_pages", "the PDF document has no pages")
+    if page_count > MAX_PDF_PAGES:
+        raise IntakeError("pdf_too_many_pages", "the PDF document has too many pages")
+
+    pages: list[tuple[str, str]] = []
+    total_text_bytes = 0
+    for page_number, page in enumerate(reader.pages, start=1):
+        try:
+            text = page.extract_text() or ""
+        except (OSError, ValueError, TypeError, PdfReadError) as exc:
+            raise IntakeError("pdf_text_extraction_failed", "the PDF text could not be extracted") from exc
+        page_text_bytes = len(text.encode("utf-8"))
+        if page_text_bytes > MAX_PDF_PAGE_TEXT_BYTES:
+            raise IntakeError("pdf_page_text_too_large", "a PDF page contains too much extracted text")
+        total_text_bytes += page_text_bytes
+        if total_text_bytes > MAX_PDF_TEXT_BYTES:
+            raise IntakeError("pdf_text_too_large", "the PDF contains too much extracted text")
+        pages.append((f"page:{page_number}", text))
+    return pages
+
+
 def _csv_table(content: bytes) -> str:
     try:
         decoded = content.decode("utf-8")
@@ -704,9 +743,8 @@ class BuiltinDocumentParser:
     def parse(self, request: IntakeRequest, source_hash: str) -> tuple[str, tuple[PageRecord, ...]]:
         media_type = _media_type(request.file_name, request.content)
         if media_type == "application/pdf":
-            page_count = max(1, len(_PDF_PAGE.findall(request.content)))
-            extraction_method = "pdf_metadata_only"
-            page_data = [(f"page:{page_number}", "") for page_number in range(1, page_count + 1)]
+            extraction_method = "pdf_text"
+            page_data = _pdf_pages(request.content)
         elif media_type.startswith("image/"):
             extraction_method = "image_metadata_only"
             page_data = [("page:1", "")]
@@ -732,7 +770,10 @@ class BuiltinDocumentParser:
                 media_type=media_type,
                 text=text,
                 extraction_method=extraction_method,
-                confidence=1.0 if extraction_method in {"utf8_text_decode", "csv_table", "docx_xml_text", "xlsx_xml_table"} else 0.0,
+                confidence=1.0
+                if extraction_method in {"utf8_text_decode", "csv_table", "docx_xml_text", "xlsx_xml_table"}
+                or (extraction_method == "pdf_text" and bool(text))
+                else 0.0,
                 clearance=request.clearance,
                 taint=Taint.untrusted,
                 evidence_ref=stable_id("evidence", request.source_ref, source_hash, page_number),
