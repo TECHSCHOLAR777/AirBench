@@ -80,10 +80,12 @@ export function uploadSelectedQueryFile(
 export function fetchSafePreview(
   profile: ApprovedNodeProfileReference | ApprovedNodeProfile,
   previewRef: string,
+  expectedSourceHash: string,
 ): Promise<SafePreview> {
   return invoke<SafePreview>("fetch_safe_preview", {
     profileId: approvedProfilePayload(profile).profile_id,
     preview_ref: previewRef,
+    expected_source_hash: expectedSourceHash,
   });
 }
 

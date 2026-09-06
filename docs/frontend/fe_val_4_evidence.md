@@ -23,9 +23,9 @@ npm run validate:node
 
 The validation runner creates a synthetic scanned PDF containing instruction-bearing text, uploads it through the fixture File Intake endpoint, compares the returned source hash with the selected file, checks that source and artifact preview taint remain `untrusted`, displays both safe preview contracts, verifies the downloaded artifact hash and ledger reference, rejects a denied artifact download, and rejects an unsupported `.exe` file.
 
-Latest fixture run: `AirBenchNodeValidation-20260906-233852-338900f3a0754246a68ecbac717396a5`. The run passed local and pinned internal HTTPS handshakes, event replay, query upload, source-hash comparison, source and artifact preview validation, artifact hash verification, denied download, clearance mismatch rejection, and unsupported-document rejection.
+Latest fixture run: `AirBenchNodeValidation-20260906-234714-0e8c87ef764145f69938514a7b4ab5a8`. The run passed local and pinned internal HTTPS handshakes, event replay, query upload, source-hash comparison, source and artifact preview validation, artifact hash verification, denied download, clearance mismatch rejection, malformed-preview rejection, source-hash mismatch rejection, unsafe-preview-reference rejection, and unsupported-document rejection.
 
-The intake boundary now also compares every returned manifest and preview clearance with the approved Node profile. A `secret` response from a `restricted` profile fails before preview or download. The live clearance-mismatch case is included in the validation runner.
+The intake boundary now also compares every returned manifest and preview clearance with the approved Node profile. A `secret` response from a `restricted` profile fails before preview or download. The preview request is bound to the manifest source hash, so a mismatched source hash fails closed. The live clearance-mismatch, malformed-preview, hash-mismatch, and unsafe-reference cases are included in the validation runner.
 
 Run: `AirBenchNodeValidation-20260906-173337-4902af3ae5ef4d5aa4239c8e5211d9d3`
 
@@ -35,7 +35,7 @@ The fixture parses only the multipart envelope needed to receive the bytes. It d
 
 The packaged Tauri smoke suite now drives the same trust boundary with IPC mocks. The test builds the WebDriver binary, launches the packaged debug executable through external `tauri-driver`, connects an approved profile, uploads a selected scanned-document fixture, renders the Node-generated safe preview with `untrusted` taint, renders the bounded artifact preview, and exercises the Node-authorized download receipt. This is one packaged UI path, not a complete FE-VAL-4 pass.
 
-Latest external WebDriver run: `npm run test:desktop` with `AIRBENCH_WDIO_DRIVER=external` and the installed `tauri-driver`. Result: 5/5 tests passed. The retained log is `frontend/logs/wdio-2026-09-06T18-01-14-545Z.log`. The default embedded provider still returns HTTP 404 from its direct-eval harness and is not treated as application evidence.
+Latest external WebDriver run: `npm run test:desktop` with `AIRBENCH_WDIO_DRIVER=external` and the installed `tauri-driver`. Result: 5/5 tests passed against the rebuilt source-hash-bound binary. The retained log is `frontend/logs/wdio-2026-09-06T18-25-23-901Z.log`. The default embedded provider still returns HTTP 404 from its direct-eval harness and is not treated as application evidence.
 
 ## Remaining acceptance evidence
 

@@ -23,8 +23,12 @@ async fn run() -> Result<String, Box<dyn std::error::Error>> {
     let output_path = PathBuf::from(args.next().ok_or("expected output path")?);
     let profile: NodeProfile = serde_json::from_str(&fs::read_to_string(profile_path)?)?;
     let manifest = upload_query_file_from_path(profile.clone(), input_path).await?;
-    let preview =
-        fetch_safe_preview_from_profile(profile.clone(), manifest.preview_ref.clone()).await?;
+    let preview = fetch_safe_preview_from_profile(
+        profile.clone(),
+        manifest.preview_ref.clone(),
+        manifest.source_hash.clone(),
+    )
+    .await?;
     let artifact_preview =
         fetch_artifact_preview_from_profile(profile.clone(), manifest.artifact_ref.clone()).await?;
     let receipt =

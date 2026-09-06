@@ -46,12 +46,12 @@ describe("File Intake frontend bridge", () => {
     invokeMock.mockResolvedValueOnce({ artifact_id: "artifact-1", blocks: [] });
     invokeMock.mockResolvedValueOnce({ artifact_id: "artifact-1" });
 
-    await fetchSafePreview(profile, "preview-1");
+    await fetchSafePreview(profile, "preview-1", `sha256:${"a".repeat(64)}`);
     await fetchArtifactPreview(profile, "artifact-1");
     await downloadArtifact(profile, "artifact-1", "approval-note.pdf");
 
     expect(invokeMock.mock.calls.slice(-3)).toEqual([
-      ["fetch_safe_preview", expect.objectContaining({ profileId: "profile-1", preview_ref: "preview-1" })],
+      ["fetch_safe_preview", expect.objectContaining({ profileId: "profile-1", preview_ref: "preview-1", expected_source_hash: `sha256:${"a".repeat(64)}` })],
       ["fetch_artifact_preview", expect.objectContaining({ profileId: "profile-1", artifact_id: "artifact-1" })],
       ["download_artifact", expect.objectContaining({ profileId: "profile-1", artifact_id: "artifact-1", suggested_name: "approval-note.pdf" })],
     ]);

@@ -128,7 +128,7 @@ function App() {
     setNotice(null);
     try {
       const manifest = await uploadSelectedQueryFile(profile, selectedFile.selection_id);
-      const preview = await fetchSafePreview(profile, manifest.preview_ref);
+      const preview = await fetchSafePreview(profile, manifest.preview_ref, manifest.source_hash);
       const artifact = await fetchArtifactPreview(profile, manifest.artifact_ref);
       setIntakeManifest(manifest);
       setSafePreview(preview);

@@ -84,9 +84,9 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 return
             self._json(200, {
                 "preview_ref": manifest["preview_ref"],
-                "preview_kind": "text",
+                "preview_kind": "html" if self.server.malformed_preview else "text",
                 "text": "Synthetic scanned-document page preview. The source remains untrusted data and was not executed.",
-                "source_hash": manifest["source_hash"],
+                "source_hash": f"sha256:{'0' * 64}" if self.server.wrong_source_hash else manifest["source_hash"],
                 "source_region": "page:1;region:full-page",
                 "confidence": 0.98,
                 "clearance": "secret" if self.server.clearance_mismatch else manifest["clearance"],
@@ -199,6 +199,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
             "artifact_ref": "artifact-approval-note",
             "ledger_event_ref": "fixture-ledger-intake-001",
         }
+        if self.server.unsafe_preview_ref:
+            manifest["preview_ref"] = "../unsafe-preview"
         self.server.intakes[intake_id] = manifest  # type: ignore[attr-defined]
         self.server.log_event({"event": "intake_created", "intake_id": intake_id, "source_hash": source_hash, "taint": "untrusted", "intake_mode": "query_upload"})  # type: ignore[attr-defined]
         self._json(200, manifest)
@@ -226,6 +228,9 @@ class FixtureServer(ThreadingHTTPServer):
         self.intakes: dict[str, dict[str, object]] = {}
         self.deny_download = args.deny_download
         self.clearance_mismatch = args.clearance_mismatch
+        self.malformed_preview = args.malformed_preview
+        self.wrong_source_hash = args.wrong_source_hash
+        self.unsafe_preview_ref = args.unsafe_preview_ref
 
     def log_event(self, event: dict[str, str]) -> None:
         event = {"fixture": "airbench-node", **event}
@@ -250,6 +255,9 @@ def main() -> int:
     parser.add_argument("--key-path")
     parser.add_argument("--deny-download", action="store_true")
     parser.add_argument("--clearance-mismatch", action="store_true")
+    parser.add_argument("--malformed-preview", action="store_true")
+    parser.add_argument("--wrong-source-hash", action="store_true")
+    parser.add_argument("--unsafe-preview-ref", action="store_true")
     args = parser.parse_args()
 
     if bool(args.cert_path) != bool(args.key_path):

@@ -60,5 +60,6 @@ There is no delegated subagent runtime available in this environment. Parallel r
 - `a9e1c24`: typed native task-event envelope before IPC.
 - `4982591`: typed artifact preview validation, Node-authorized download UI, fixture coverage, and external WebDriver evidence for FE-VAL-4.
 - Current FE-VAL-4 fixture evidence also rejects a `secret` response for a `restricted` approved profile.
+- Current FE-VAL-4 fixture evidence also rejects malformed previews, source-hash mismatches, and unsafe preview references.
 
-The latest local evidence is 124 passing Python tests, 33 passing frontend tests, 12 passing Rust tests, a passing frontend build, generated-contract check, static no-egress check, live Node fixture validation, and 5/5 external WebDriver tests. The default embedded WebDriver provider remains blocked by a direct-eval HTTP 404; the external `tauri-driver` path passes. The local branch must still be pushed after the next main-branch refresh.
+The latest local evidence is 124 passing Python tests, 33 passing frontend tests, 13 passing Rust tests, a passing frontend build, generated-contract check, static no-egress check, live Node fixture validation, and 5/5 external WebDriver tests. The default embedded WebDriver provider remains blocked by a direct-eval HTTP 404; the external `tauri-driver` path passes. The local branch must still be pushed after the next main-branch refresh.
