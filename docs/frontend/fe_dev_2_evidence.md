@@ -10,6 +10,7 @@ Status: shared core-contract generation slice complete. The full issue remains o
 - `npm run generate:contracts` regenerates the file during the frontend build.
 - `npm run check:contracts` fails when the checked-in generated file is stale.
 - `tests/test_frontend_contract_generation.py` protects the generated-file drift boundary.
+- `TaskEventSynchronizer` now rejects inconsistent batches before projection, including wrong Node identity, protocol or clearance mismatch, malformed cursor progression, non-increasing sequences, event metadata mismatch, and ledger-reference misalignment.
 
 ## Evidence
 
@@ -33,8 +34,8 @@ npm run check:tauri-config
 Observed results for this slice:
 
 - Python contract generation check passed.
-- Backend Python suite passed with 81 tests.
-- Frontend suite passed with 32 tests.
+- Backend Python suite passed.
+- Frontend suite passed with 35 tests.
 - TypeScript and Vite production build passed.
 - Static no-egress and Tauri policy checks passed.
 
