@@ -1,0 +1,6 @@
+{
+  "task_id": "task.inspection-001", "principal_id": "principal.operator-001", "clearance": "restricted",
+  "request": "Prepare summary", "domain_pack_ref": "pack.refinery:1.0", "risk_class": "high", "autonomy_ceiling": "review_required",
+  "allowed_evidence_scope": [], "permitted_worker_capabilities": [], "permitted_tools": [], "output_contract": "approval-note",
+  "verification_criteria": [], "resource_budget": {}, "secret_hacker_field": "secret-value"
+}

@@ -1,0 +1,6 @@
+{
+  "task_id": "task.inspection-002", "principal_id": "principal.operator-002", "clearance": "internal",
+  "request": "Prepare summary", "domain_pack_ref": "pack.generic:1.0", "risk_class": "low", "autonomy_ceiling": "draft",
+  "allowed_evidence_scope": [], "permitted_worker_capabilities": ["research"], "permitted_tools": [], "output_contract": "summary",
+  "verification_criteria": [], "resource_budget": {}
+}

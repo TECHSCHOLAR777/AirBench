@@ -1,0 +1,19 @@
+# AirBench contracts (M1.1)
+
+`contracts.models` is the provider-neutral boundary shared by the orchestrator, harness, router, workers, tools, verification, and ledger. Every model is a frozen dataclass with strict construction through `from_dict()`. Unknown fields, missing required fields, wrong primitive types, incompatible versions, resource-limit violations, and unsafe taint states fail closed with `ContractValidationError.to_dict()`.
+
+## Usage
+
+```python
+from contracts import TaskEnvelope
+
+task = TaskEnvelope.from_dict(payload)
+wire_payload = task.to_dict()
+replay_key = task.digest()
+```
+
+Use `stable_id(kind, ...)` for deterministic UUID5 identities and `idempotency_key(operation, ...)` for retry-safe operations. `canonical_json()` is sorted and compact for hashing and replay. The ledger envelope carries the payload hash, previous hash, sequence, parent event, and immutable flag; a ledger write failure must prevent the consequential action.
+
+`FactEnvelope` always carries source, confidence, clearance, timestamps, derivation parents, and taint. `UntrustedEvidence` can never be marked clean. `ToolAction` accepts only clean, policy-cleared inputs. Worker/model outputs are proposals until deterministic orchestration and verification accept them.
+
+The compatibility rules are in `compatibility_policy.md`; the machine-readable registry and event/state catalogs are YAML and require no network or runtime service.
