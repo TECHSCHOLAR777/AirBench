@@ -12,6 +12,8 @@ export interface ApprovedNodeProfile {
   protocolVersion: string;
   clearanceContext: Clearance;
   certificatePinSha256: string | null;
+  trustedCaPem: string | null;
+  credentialRef: string;
   approvedByPolicy: boolean;
 }
 
@@ -27,10 +29,11 @@ export interface NodeConnectionResult {
 
 export type ProfileValidation =
   | { valid: true; normalizedEndpoint: string }
-  | { valid: false; code: "not_approved" | "invalid_endpoint" | "external_endpoint" | "credentials_in_endpoint" | "missing_certificate_pin" | "protocol_not_allowed"; message: string };
+  | { valid: false; code: "not_approved" | "invalid_endpoint" | "external_endpoint" | "credentials_in_endpoint" | "missing_certificate_pin" | "missing_credential_ref" | "protocol_not_allowed"; message: string };
 
 export function validateApprovedProfile(profile: ApprovedNodeProfile): ProfileValidation {
   if (!profile.approvedByPolicy) return { valid: false, code: "not_approved", message: "This Node profile has not been approved by policy." };
+  if (!profile.credentialRef.trim()) return { valid: false, code: "missing_credential_ref", message: "An approved OS credential reference is required." };
   let parsed: URL;
   try {
     parsed = new URL(profile.endpoint);

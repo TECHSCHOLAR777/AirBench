@@ -10,6 +10,8 @@ const baseProfile: ApprovedNodeProfile = {
   protocolVersion: "0.1",
   clearanceContext: "restricted",
   certificatePinSha256: "sha256/approved-pin",
+  trustedCaPem: null,
+  credentialRef: "fixture-user",
   approvedByPolicy: true,
 };
 

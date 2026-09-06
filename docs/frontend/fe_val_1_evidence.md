@@ -17,7 +17,7 @@ The first shell also uses a production CSP with `connect-src 'none'`. FE-VAL-2 m
 - `frontend/scripts/check-no-egress.mjs` scans frontend source.
 - `frontend/scripts/check-tauri-config.mjs` checks the FE-VAL-1 packaging and CSP decisions.
 - `frontend/scripts/create-resource-manifest.mjs` records a SHA-256 manifest for the built local assets.
-- The first native Windows executable has built successfully with Tauri 2.11.5 and Rust 1.98.1. Its current SHA-256 is `AFDD2B673D01D1351941458456A14FFA0686879C1C101C3F0611F2140B063EFE`.
+- The native Windows executable has built successfully with Tauri 2.11.5 and Rust 1.98.1. The current executable hash is recorded in the native build evidence below.
 
 ## Commands
 
@@ -54,14 +54,19 @@ npm run tauri:build
 - Tauri API: 2.11.1
 - Tauri CLI: 2.11.4
 - Native executable: `frontend/src-tauri/target/release/airbench-desktop.exe`
-- Native executable SHA-256: `AFDD2B673D01D1351941458456A14FFA0686879C1C101C3F0611F2140B063EFE`
+- Native executable size: 14,339,072 bytes
+- Native executable SHA-256: `AA840A374BA3F3F3614320A8058330B427BD280E9E0A1008DC4E6CB990387D7F`
+- Offline NSIS installer: `frontend/src-tauri/target/release/bundle/nsis/AirBench_0.1.0_x64-setup.exe`
+- Offline NSIS installer size: 265,612,390 bytes
+- Offline NSIS installer SHA-256: `11853741B8ACB519548AAAE8E17AA0B411A31618239A066515D9FEE62CE1D97A`
 - Installer status: built successfully with the WebView2 offline package embedded; clean offline image evidence remains pending.
 
 ## Host installer smoke run
 
 Command: `npm run validate:installer`
 
-- Run: `20260906-072213`
+- Run: `20260906-101534`
+- Installer SHA-256: `11853741B8ACB519548AAAE8E17AA0B411A31618239A066515D9FEE62CE1D97A`
 - Exit code: `0`
 - Installed executable: present in the isolated temp install directory
 - Established connections observed from the installer process tree: none

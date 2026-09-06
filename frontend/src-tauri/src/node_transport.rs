@@ -1,11 +1,12 @@
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 
 const HANDSHAKE_PATH: &str = "/api/v1/node/handshake";
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct NodeProfile {
     pub profile_id: String,
@@ -15,10 +16,12 @@ pub struct NodeProfile {
     pub protocol_version: String,
     pub clearance_context: String,
     pub certificate_pin_sha256: Option<String>,
+    pub trusted_ca_pem: Option<String>,
+    pub credential_ref: String,
     pub approved_by_policy: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeTransport {
     Loopback,
@@ -31,6 +34,7 @@ struct NodeHandshake {
     node_identity: String,
     protocol_version: String,
     clearance_context: String,
+    authenticated_subject: String,
     ledger_event_ref: String,
 }
 
@@ -42,8 +46,22 @@ pub struct NodeConnectionResult {
     pub node_identity: String,
     pub protocol_version: String,
     pub clearance_context: String,
+    pub authenticated_subject: String,
     pub sovereignty: &'static str,
     pub ledger_event_ref: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct TaskEventBatch {
+    pub stream_id: String,
+    pub node_identity: String,
+    pub protocol_version: String,
+    pub clearance_context: String,
+    pub events: Vec<Value>,
+    pub next_sequence: u64,
+    pub has_more: bool,
+    pub ledger_event_refs: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,6 +79,10 @@ pub enum NodeTransportError {
     ProtocolMismatch(String),
     ClearanceMismatch(String),
     CertificatePinMismatch(String),
+    CredentialUnavailable(String),
+    InvalidTaskId(String),
+    EventStreamFailed(String),
+    EventSchemaInvalid(String),
 }
 
 impl std::fmt::Display for NodeTransportError {
@@ -77,7 +99,11 @@ impl std::fmt::Display for NodeTransportError {
             | Self::IdentityMismatch(message)
             | Self::ProtocolMismatch(message)
             | Self::ClearanceMismatch(message)
-            | Self::CertificatePinMismatch(message) => formatter.write_str(message),
+            | Self::CertificatePinMismatch(message)
+            | Self::CredentialUnavailable(message)
+            | Self::InvalidTaskId(message)
+            | Self::EventStreamFailed(message)
+            | Self::EventSchemaInvalid(message) => formatter.write_str(message),
         }
     }
 }
@@ -106,6 +132,7 @@ fn validate_profile(profile: &NodeProfile) -> Result<Url, NodeTransportError> {
     if profile.profile_id.trim().is_empty()
         || profile.node_identity.trim().is_empty()
         || profile.protocol_version.trim().is_empty()
+        || profile.credential_ref.trim().is_empty()
     {
         return Err(NodeTransportError::InvalidEndpoint(
             "The approved Node profile is incomplete.".to_string(),
@@ -176,24 +203,93 @@ fn certificate_pin(response: &reqwest::Response) -> Option<String> {
         .map(|certificate| format!("sha256:{}", hex::encode(Sha256::digest(certificate))))
 }
 
-#[tauri::command]
-pub async fn connect_node(profile: NodeProfile) -> Result<NodeConnectionResult, String> {
-    let handshake_url = validate_profile(&profile).map_err(String::from)?;
-    let is_remote = matches!(profile.transport, NodeTransport::InternalHttps);
-    let expected_pin = profile.certificate_pin_sha256.clone();
+pub(crate) fn credential_token(profile: &NodeProfile) -> Result<String, NodeTransportError> {
+    let entry =
+        keyring::Entry::new("org.airbench.desktop", &profile.credential_ref).map_err(|_| {
+            NodeTransportError::CredentialUnavailable(
+                "The approved Node credential is not available in the OS credential store."
+                    .to_string(),
+            )
+        })?;
+    let token = entry.get_password().map_err(|_| {
+        NodeTransportError::CredentialUnavailable(
+            "The approved Node credential could not be read from the OS credential store."
+                .to_string(),
+        )
+    })?;
+    if token.trim().is_empty() {
+        return Err(NodeTransportError::CredentialUnavailable(
+            "The approved Node credential is empty.".to_string(),
+        ));
+    }
+    Ok(token)
+}
 
-    let client = reqwest::Client::builder()
+pub(crate) fn build_client(profile: &NodeProfile) -> Result<reqwest::Client, NodeTransportError> {
+    let is_remote = matches!(profile.transport, NodeTransport::InternalHttps);
+    let mut client_builder = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(10))
         .https_only(is_remote)
         .tls_info(true)
-        .user_agent("AirBench-Desktop/0.1")
+        .user_agent("AirBench-Desktop/0.1");
+    if let Some(ca_pem) = profile.trusted_ca_pem.as_deref() {
+        let ca = reqwest::Certificate::from_pem(ca_pem.as_bytes()).map_err(|_| {
+            NodeTransportError::CertificatePinMismatch(
+                "The approved Node trust anchor is not a valid certificate.".to_string(),
+            )
+        })?;
+        client_builder = client_builder.add_root_certificate(ca);
+    }
+    client_builder
         .build()
-        .map_err(|error| NodeTransportError::RequestFailed(error.to_string()))?;
+        .map_err(|error| NodeTransportError::RequestFailed(error.to_string()))
+}
+
+pub(crate) fn node_url(profile: &NodeProfile, path: &str) -> Result<Url, NodeTransportError> {
+    validate_profile(profile)?;
+    let mut endpoint = Url::parse(&profile.endpoint).map_err(|_| {
+        NodeTransportError::InvalidEndpoint(
+            "The approved Node endpoint is not a valid URL.".to_string(),
+        )
+    })?;
+    endpoint.set_path(path);
+    endpoint.set_query(None);
+    endpoint.set_fragment(None);
+    Ok(endpoint)
+}
+
+pub(crate) fn verify_certificate_pin(
+    profile: &NodeProfile,
+    response: &reqwest::Response,
+) -> Result<(), NodeTransportError> {
+    if matches!(profile.transport, NodeTransport::InternalHttps) {
+        let expected_pin = profile.certificate_pin_sha256.as_ref();
+        let presented_pin = certificate_pin(response).ok_or_else(|| {
+            NodeTransportError::CertificatePinMismatch(
+                "The remote Node did not expose a verifiable peer certificate.".to_string(),
+            )
+        })?;
+        if Some(&presented_pin) != expected_pin {
+            return Err(NodeTransportError::CertificatePinMismatch(
+                "The remote Node certificate pin does not match the approved profile.".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn connect_node(profile: NodeProfile) -> Result<NodeConnectionResult, String> {
+    let handshake_url = validate_profile(&profile).map_err(String::from)?;
+    let token = credential_token(&profile).map_err(String::from)?;
+
+    let client = build_client(&profile).map_err(String::from)?;
 
     let response = client
         .get(handshake_url)
         .header("Accept", "application/json")
+        .bearer_auth(token)
         .send()
         .await
         .map_err(|error| NodeTransportError::RequestFailed(redact_request_error(&error)))?;
@@ -206,19 +302,7 @@ pub async fn connect_node(profile: NodeProfile) -> Result<NodeConnectionResult, 
         .into());
     }
 
-    if is_remote {
-        let presented_pin = certificate_pin(&response).ok_or_else(|| {
-            NodeTransportError::CertificatePinMismatch(
-                "The remote Node did not expose a verifiable peer certificate.".to_string(),
-            )
-        })?;
-        if Some(presented_pin) != expected_pin {
-            return Err(NodeTransportError::CertificatePinMismatch(
-                "The remote Node certificate pin does not match the approved profile.".to_string(),
-            )
-            .into());
-        }
-    }
+    verify_certificate_pin(&profile, &response).map_err(String::from)?;
 
     let handshake: NodeHandshake = response.json().await.map_err(|_| {
         NodeTransportError::NonAirbenchResponse(
@@ -244,6 +328,12 @@ pub async fn connect_node(profile: NodeProfile) -> Result<NodeConnectionResult, 
         )
         .into());
     }
+    if handshake.authenticated_subject.trim().is_empty() {
+        return Err(NodeTransportError::NonAirbenchResponse(
+            "The AirBench handshake did not return an authenticated subject.".to_string(),
+        )
+        .into());
+    }
 
     Ok(NodeConnectionResult {
         state: "connected",
@@ -251,9 +341,106 @@ pub async fn connect_node(profile: NodeProfile) -> Result<NodeConnectionResult, 
         node_identity: handshake.node_identity,
         protocol_version: handshake.protocol_version,
         clearance_context: handshake.clearance_context,
+        authenticated_subject: handshake.authenticated_subject,
         sovereignty: "verified",
         ledger_event_ref: handshake.ledger_event_ref,
     })
+}
+
+fn task_events_url(
+    profile: &NodeProfile,
+    task_id: &str,
+    after_sequence: u64,
+) -> Result<Url, NodeTransportError> {
+    if task_id.is_empty()
+        || !task_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+    {
+        return Err(NodeTransportError::InvalidTaskId(
+            "Task identifiers may contain only letters, numbers, period, underscore, colon, and hyphen.".to_string(),
+        ));
+    }
+    validate_profile(profile)?;
+    let mut endpoint = Url::parse(&profile.endpoint).map_err(|_| {
+        NodeTransportError::InvalidEndpoint(
+            "The approved Node endpoint is not a valid URL.".to_string(),
+        )
+    })?;
+    endpoint.set_path(&format!("/api/v1/tasks/{task_id}/events"));
+    endpoint
+        .query_pairs_mut()
+        .append_pair("after_sequence", &after_sequence.to_string());
+    Ok(endpoint)
+}
+
+#[tauri::command]
+pub async fn fetch_task_events(
+    profile: NodeProfile,
+    task_id: String,
+    after_sequence: u64,
+) -> Result<TaskEventBatch, String> {
+    let events_url = task_events_url(&profile, &task_id, after_sequence).map_err(String::from)?;
+    let token = credential_token(&profile).map_err(String::from)?;
+    let response = build_client(&profile)
+        .map_err(String::from)?
+        .get(events_url)
+        .header("Accept", "application/json")
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|error| {
+            NodeTransportError::RequestFailed(redact_request_error(&error)).to_string()
+        })?;
+
+    if !response.status().is_success() {
+        return Err(NodeTransportError::EventStreamFailed(format!(
+            "The task event request returned HTTP {}.",
+            response.status().as_u16()
+        ))
+        .into());
+    }
+
+    verify_certificate_pin(&profile, &response).map_err(String::from)?;
+
+    let batch: TaskEventBatch = response.json().await.map_err(|_| {
+        NodeTransportError::EventSchemaInvalid(
+            "The Node did not return the task event batch schema.".to_string(),
+        )
+    })?;
+    if batch.node_identity != profile.node_identity {
+        return Err(NodeTransportError::IdentityMismatch(
+            "The event stream Node identity does not match the approved profile.".to_string(),
+        )
+        .into());
+    }
+    if batch.protocol_version != profile.protocol_version {
+        return Err(NodeTransportError::ProtocolMismatch(
+            "The event stream protocol is not compatible with this application.".to_string(),
+        )
+        .into());
+    }
+    if batch.clearance_context != profile.clearance_context {
+        return Err(NodeTransportError::ClearanceMismatch(
+            "The event stream clearance context does not match the approved profile.".to_string(),
+        )
+        .into());
+    }
+    for event in &batch.events {
+        if event.get("sequence").and_then(Value::as_u64).is_none() {
+            return Err(NodeTransportError::EventSchemaInvalid(
+                "An event did not contain a numeric sequence.".to_string(),
+            )
+            .into());
+        }
+    }
+    if batch.next_sequence < after_sequence {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The Node returned a cursor older than the requested sequence.".to_string(),
+        )
+        .into());
+    }
+    Ok(batch)
 }
 
 fn redact_request_error(error: &reqwest::Error) -> String {
@@ -279,6 +466,8 @@ mod tests {
             protocol_version: "0.1".to_string(),
             clearance_context: "restricted".to_string(),
             certificate_pin_sha256: pin.map(str::to_string),
+            trusted_ca_pem: None,
+            credential_ref: "fixture-user".to_string(),
             approved_by_policy: true,
         }
     }

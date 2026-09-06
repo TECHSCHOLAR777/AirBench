@@ -1,4 +1,5 @@
 import { applyEvent, projectionFromSnapshot, type TaskEvent, type TaskProjection, type TaskSnapshot } from "./protocol";
+import type { TaskEventBatch } from "./eventTransport";
 
 export type EventStoreOutcome =
   | { kind: "applied"; projection: TaskProjection }
@@ -40,9 +41,32 @@ export class TaskEventStore {
     return { taskId: this.projection.taskId, fromSequence: this.projection.lastAppliedSequence + 1 };
   }
 
+  applyBatch(batch: TaskEventBatch): EventStoreOutcome[] {
+    const results: EventStoreOutcome[] = [];
+    for (const event of batch.events) {
+      results.push(this.apply(event));
+      if (this.projection?.health === "resynchronizing") break;
+    }
+    return results;
+  }
+
   current(): TaskProjection {
     if (!this.projection) throw new Error("A task snapshot is required before reading projection state.");
     return this.projection;
+  }
+}
+
+export class CommandDeduplicator {
+  private readonly submitted = new Set<string>();
+
+  tryReserve(idempotencyKey: string): boolean {
+    if (this.submitted.has(idempotencyKey)) return false;
+    this.submitted.add(idempotencyKey);
+    return true;
+  }
+
+  release(idempotencyKey: string): void {
+    this.submitted.delete(idempotencyKey);
   }
 }
 
