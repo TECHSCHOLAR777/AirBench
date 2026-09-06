@@ -2,9 +2,9 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, fs};
 use std::path::PathBuf;
 use std::time::Duration;
+use std::{collections::HashSet, fs};
 use tauri::Manager;
 
 const HANDSHAKE_PATH: &str = "/api/v1/node/handshake";
@@ -70,13 +70,29 @@ pub struct NodeConnectionResult {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskEvent {
+    pub event_id: String,
+    pub task_id: String,
+    pub sequence: u64,
+    pub schema_version: String,
+    pub event_type: String,
+    pub occurred_at: String,
+    pub actor: String,
+    pub clearance_context: String,
+    pub payload_hash: String,
+    pub ledger_event_ref: String,
+    pub payload: Value,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct TaskEventBatch {
     pub stream_id: String,
     pub node_identity: String,
     pub protocol_version: String,
     pub clearance_context: String,
-    pub events: Vec<Value>,
+    pub events: Vec<TaskEvent>,
     pub next_sequence: u64,
     pub has_more: bool,
     pub ledger_event_refs: Vec<String>,
@@ -241,17 +257,25 @@ fn validate_profile_catalog(profiles: &[NodeProfile]) -> Result<(), String> {
     for profile in profiles {
         validate_profile(profile).map_err(|error| error.to_string())?;
         if !profile_ids.insert(profile.profile_id.as_str()) {
-            return Err("The approved Node profile catalog contains a duplicate profile identity.".to_string());
+            return Err(
+                "The approved Node profile catalog contains a duplicate profile identity."
+                    .to_string(),
+            );
         }
     }
     Ok(())
 }
 
-pub(crate) fn approved_profile_by_id(app: &tauri::AppHandle, profile_id: &str) -> Result<NodeProfile, String> {
+pub(crate) fn approved_profile_by_id(
+    app: &tauri::AppHandle,
+    profile_id: &str,
+) -> Result<NodeProfile, String> {
     load_approved_profiles(app)?
         .into_iter()
         .find(|profile| profile.profile_id == profile_id)
-        .ok_or_else(|| "The requested Node profile is not approved on this workstation.".to_string())
+        .ok_or_else(|| {
+            "The requested Node profile is not approved on this workstation.".to_string()
+        })
 }
 
 /// Returns administrator-provisioned profiles only. The catalog is not a user
@@ -492,57 +516,40 @@ fn validate_event_batch(
     }
     let mut previous_sequence = after_sequence;
     for (index, event) in batch.events.iter().enumerate() {
-        let sequence = event.get("sequence").and_then(Value::as_u64).ok_or_else(|| {
-            NodeTransportError::EventSchemaInvalid(
-                "An event did not contain a numeric sequence.".to_string(),
-            )
-        })?;
+        let sequence = event.sequence;
         if sequence <= previous_sequence {
             return Err(NodeTransportError::EventSchemaInvalid(
                 "The event batch sequence is not strictly increasing.".to_string(),
             ));
         }
-        if event.get("taskId").and_then(Value::as_str) != Some(task_id) {
+        if event.task_id != task_id {
             return Err(NodeTransportError::EventSchemaInvalid(
                 "An event belongs to a different task.".to_string(),
             ));
         }
-        for field in [
-            "eventId",
-            "schemaVersion",
-            "eventType",
-            "occurredAt",
-            "actor",
-            "clearanceContext",
-            "payloadHash",
-            "ledgerEventRef",
-        ] {
-            if event
-                .get(field)
-                .and_then(Value::as_str)
-                .map(str::is_empty)
-                .unwrap_or(true)
-            {
-                return Err(NodeTransportError::EventSchemaInvalid(format!(
-                    "An event did not contain a valid {field}."
-                )));
-            }
-        }
-        if !event
-            .get("payload")
-            .map(Value::is_object)
-            .unwrap_or(false)
+        if [
+            (&event.event_id, "eventId"),
+            (&event.schema_version, "schemaVersion"),
+            (&event.event_type, "eventType"),
+            (&event.occurred_at, "occurredAt"),
+            (&event.actor, "actor"),
+            (&event.clearance_context, "clearanceContext"),
+            (&event.payload_hash, "payloadHash"),
+            (&event.ledger_event_ref, "ledgerEventRef"),
+        ]
+        .iter()
+        .any(|(value, _)| value.trim().is_empty())
         {
+            return Err(NodeTransportError::EventSchemaInvalid(
+                "An event contained an empty identity field.".to_string(),
+            ));
+        }
+        if !event.payload.is_object() {
             return Err(NodeTransportError::EventSchemaInvalid(
                 "An event payload was not an object.".to_string(),
             ));
         }
-        if batch.ledger_event_refs[index]
-            != event
-                .get("ledgerEventRef")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-        {
+        if batch.ledger_event_refs[index] != event.ledger_event_ref {
             return Err(NodeTransportError::EventSchemaInvalid(
                 "An event ledger reference does not match the batch reference.".to_string(),
             ));
@@ -737,7 +744,7 @@ mod tests {
 
     #[test]
     fn event_batches_require_task_identity_order_and_ledger_alignment() {
-        let event = serde_json::json!({
+        let event: TaskEvent = serde_json::from_value(serde_json::json!({
             "eventId": "event-1",
             "taskId": "task-1",
             "sequence": 1,
@@ -749,7 +756,8 @@ mod tests {
             "payloadHash": "hash",
             "ledgerEventRef": "ledger-1",
             "payload": {}
-        });
+        }))
+        .unwrap();
         let mut batch = TaskEventBatch {
             stream_id: "task-1".to_string(),
             node_identity: "node-1".to_string(),

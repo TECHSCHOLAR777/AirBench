@@ -8,6 +8,7 @@ Status: cursor transport and projection validation in progress. No complete pack
 - The command accepts only an approved Node profile, task identifier, and numeric cursor.
 - It reads the bearer credential from the OS credential store, requests the cursor range from the Node, checks Node identity, protocol version, clearance context, and numeric event sequences, and returns the typed batch to the webview.
 - `frontend/src/eventTransport.ts` is the only TypeScript entry point for this command.
+- The Rust transport deserializes each event into a typed envelope before it crosses IPC; the payload remains opaque structured data for the presentation projection.
 - The TypeScript boundary rejects path-like or oversized task identifiers and negative or unsafe-integer cursors before IPC; Rust repeats the validation at the native boundary.
 - `frontend/src/eventStore.ts` applies a batch through the existing sequence-aware projection and stops at the first gap.
 - The Rust transport rejects a batch for the wrong task, non-increasing sequences, missing event identity fields, non-object payloads, cursor regression, or ledger-reference cardinality mismatch before the batch reaches the webview.
