@@ -23,7 +23,9 @@ npm run validate:node
 
 The validation runner creates a synthetic scanned PDF containing instruction-bearing text, uploads it through the fixture File Intake endpoint, compares the returned source hash with the selected file, checks that source and artifact preview taint remain `untrusted`, displays both safe preview contracts, verifies the downloaded artifact hash and ledger reference, rejects a denied artifact download, and rejects an unsupported `.exe` file.
 
-Latest fixture run: `AirBenchNodeValidation-20260906-232445-68a26105626b40bc9fd6805af14853f4`. The run passed local and pinned internal HTTPS handshakes, event replay, query upload, source-hash comparison, source and artifact preview validation, artifact hash verification, denied download, and unsupported-document rejection.
+Latest fixture run: `AirBenchNodeValidation-20260906-233852-338900f3a0754246a68ecbac717396a5`. The run passed local and pinned internal HTTPS handshakes, event replay, query upload, source-hash comparison, source and artifact preview validation, artifact hash verification, denied download, clearance mismatch rejection, and unsupported-document rejection.
+
+The intake boundary now also compares every returned manifest and preview clearance with the approved Node profile. A `secret` response from a `restricted` profile fails before preview or download. The live clearance-mismatch case is included in the validation runner.
 
 Run: `AirBenchNodeValidation-20260906-173337-4902af3ae5ef4d5aa4239c8e5211d9d3`
 
