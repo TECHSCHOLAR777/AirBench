@@ -14,6 +14,7 @@ Start with `architecture_design.md`. It explains the whole system and points to 
 - `models.md` - the reference model roster and what each model is qualified for.
 - `orchestration_engine.md` - the deterministic controller and the agent loop.
 - `airbench_harness.md` - the session, worker-team, tool, context, verification, and hardware-aware execution harness.
+- `ui_design_proposal.md` - the desktop workbench screen system, updated UI stack, interaction model, and UI-to-Node boundary.
 - `backend_development_plan.md` - the Python implementation baseline, M1-M10 dependency graph, and backend-complete definition.
 - `agent_development_workflow.md` - the issue-first workflow, document map, parallel work rules, and completion evidence required from coding agents.
 - `serving_and_routing.md` - hosting the models and sending each task to the right one.
@@ -26,6 +27,10 @@ Start with `architecture_design.md`. It explains the whole system and points to 
 - `deliverable_engine.md` - turning verified facts into finished documents.
 - `deployment_and_scale.md` - packaging, offline install and update, fixed hardware, and many sites.
 - `future_full_fledged_must_have.md` - deliberately deferred hardening, production, and fleet requirements.
+
+## Frontend documentation
+
+The desktop workbench is documented as a separate subsystem in `frontend/`. Read `frontend/README.md` first. It maps the Tauri and React architecture, design system, screen contracts, event and command protocol, validation tracks, and parallel development workflow.
 
 ## Owned separately
 
