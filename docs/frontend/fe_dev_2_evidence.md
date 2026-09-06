@@ -39,9 +39,15 @@ Observed results for this slice:
 - TypeScript and Vite production build passed.
 - Static no-egress and Tauri policy checks passed.
 
+## Backend Node API slice now available
+
+The first Python Node API slice is implemented in `airbench/node_api.py` and documented in `docs/m10_1_node_api_evidence.md`. It provides authenticated handshake and health routes, task creation and lifecycle commands through the orchestrator, authoritative snapshots, task-local cursor event batches, evidence, route trace, and review projections. Its event batches use the Node clearance context required by the native transport while evidence and facts retain their individual clearance and taint.
+
+This is an integration-ready backend slice, not a production-complete Node. The frontend must still connect its live command and snapshot paths to the API and verify the packaged local and internal-HTTPS deployment.
+
 ## Remaining issue scope
 
-- Define the authoritative versioned Node handshake, task snapshot, event batch, command, command-result, safe-preview, and download-receipt contracts in the backend.
+- Complete the authoritative versioned Node handshake, task snapshot, event batch, command, command-result, safe-preview, and download-receipt contracts in the backend.
 - Replace provisional presentation event adapters with a real Node transport using those contracts.
 - Add protocol negotiation and compatibility refusal at the live Node boundary.
 - Prove command idempotency and ledger references against the Python Node rather than only synthetic fixtures.
