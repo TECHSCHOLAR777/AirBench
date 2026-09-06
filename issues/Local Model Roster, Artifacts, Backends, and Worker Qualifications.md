@@ -479,7 +479,7 @@ The matrix must map each requirement to a test, an observable result, an artifac
 
 | Requirement | Observable result | Ledger evidence |
 |---|---|---|
-| Exact target selection | Signed roster contains immutable model/artifact identities | `model.roster.loaded` |
+| Exact target selection | Signed roster contains immutable model/artifact identities | `model.registry.loaded` |
 | Role-specific qualification | Each worker role has its own certificate | `model.qualification.checked` |
 | 96 GB deployment support | Targets benchmarked against signed 96 GB profile | `hardware.profile.referenced` |
 | Quantization decision | BF16/4-bit results and selected variants recorded | `model.variant.qualified` |
@@ -491,7 +491,7 @@ The matrix must map each requirement to a test, an observable result, an artifac
 | Streaming/cancellation | Stream and cancellation semantics are verified | `model.lifecycle.tested` |
 | Independent routing | Each worker assignment receives its own route decision | `routing.decision` |
 | Safe fallback | Fallback preserves role, risk, provenance, and audit | `routing.fallback.selected` |
-| Air-gapped startup | Bundle starts without remote calls or credentials | `model.airgap_startup.completed` |
+| Air-gapped startup | Bundle starts without remote calls or credentials | `backend.airgap_startup.checked` |
 | Supply-chain integrity | Hashes/signatures match local assets | `artifact.integrity.verified` |
 | No verifier bypass | Missing verifier blocks completion | `completion.blocked` |
 
@@ -500,8 +500,8 @@ The matrix must map each requirement to a test, an observable result, an artifac
 At minimum, emit immutable events for:
 
 ```text
-model.roster.loaded
-model.roster.signature.verified
+model.registry.loaded
+model.registry.signature.verified
 model.artifact.integrity.verified
 model.qualification.checked
 model.variant.qualified

@@ -1,6 +1,6 @@
-# AirBench M5.1 & M5.2 — Implementation, Progress & Setup Guide
+# AirBench M5.1–M5.3 — Implementation, Progress & Setup Guide
 
-This document provides a comprehensive overview of the **M5.1 (Model Registry, Artifacts & Worker Qualifications)** and **M5.2 (Hardware-Aware Scheduling & Admission)** milestones, summarizing all implemented contracts, frozen model artifacts, acceptance matrices, and exact instructions for setting up and reproducing the local deployment from scratch.
+This document provides a comprehensive overview of the **M5.1 (Model Registry, Artifacts & Worker Qualifications)**, **M5.2 (Hardware-Aware Scheduling & Admission)**, and **M5.3 (Provider-Neutral Backend Contract)** milestones, summarizing implemented contracts, frozen model artifacts, acceptance matrices, and setup instructions.
 
 ---
 
@@ -9,7 +9,7 @@ This document provides a comprehensive overview of the **M5.1 (Model Registry, A
 AirBench is designed for sensitive, air-gapped industrial environments (such as refinery and PSU inspection reviews). The M5 milestones guarantee that:
 
 1. **Deterministic Authority**: Control and state transition remain strictly inside the deterministic Python orchestrator and admission controller; models act as constrained, single-turn workers.
-2. **Provider-Neutral Routing**: Model serving (vLLM / NIM) is decoupled from the router through normalized `ModelCallRequest` and `RoutingDecision` contracts.
+2. **Provider-Neutral Routing**: Model serving (vLLM / NIM or a future approved endpoint) is decoupled from the router through normalized `ModelCallRequest`, `RoutingDecision`, and `BackendRequest`/`BackendResponse` contracts. The deterministic fake backend provides an offline conformance seam.
 3. **Supply-Chain Immutability**: No target is ever referenced by a mutable tag (`latest`), an unverified container, or an unrecorded local directory. Every model weight, tokenizer, and chat template is pinned to its SHA-256 digest.
 4. **Role-Specific Qualification**: Qualification is non-transferable (`qualified(target, role_A) != qualified(target, role_B)`). A lead reasoning model cannot be routed code execution or verification tasks without distinct, validated certificates.
 5. **Hardware-Aware Admission**: Physical hardware is treated as a signed budget. Multi-agent teams are admitted in `parallel` when reservations fit, or serialized safely into a `serial_virtual_team` without dropping worker contexts, clearance, or the independent verifier.
@@ -38,6 +38,8 @@ All 6 reference model targets for the refinery/PSU inspection slice have been do
 ### Contracts & Controllers
 * [`contracts/model_registry.py`](contracts/model_registry.py): `ModelTarget` and `ModelRegistry` implementing HMAC-SHA256 manifest verification, on-disk tamper validation (`local_storage_hash`), path traversal protection, role/modality/clearance eligibility filtering, and mutable tag rejection.
 * [`contracts/admission.py`](contracts/admission.py): `AdmissionController`, `AdmissionRequest`, `HardwareMeasurement`, `AdmissionDecision`, and `ReleaseRecord` managing parallel vs. serial virtual-team scheduling, VRAM/RAM/KV-cache budgeting, priority queues (`interactive_high_consequence` down to `background_ingestion`), and verifier capacity reservation.
+* [`contracts/backend.py`](contracts/backend.py): Provider-neutral backend request/response, capability, usage, error, streaming, cancellation, and provenance contracts plus the deterministic `FakeBackend`.
+* [`contracts/router.py`](contracts/router.py) and [`contracts/orchestrator.py`](contracts/orchestrator.py): Qualification-first target selection and orchestrator-owned route recording, backend invocation, retries, and queued/rejected outcomes.
 * [`contracts/models.py`](contracts/models.py): Added M5.1 and M5.2 ledger events to `LEDGER_EVENT_TYPES` and extended `HardwareProfile` with execution modes, egress verification, and sandbox parameters.
 * [`contracts/ledger_event_catalog.yaml`](contracts/ledger_event_catalog.yaml): Cataloged all ~45 lifecycle events across model qualification, serving, and hardware scheduling.
 
@@ -53,7 +55,7 @@ All 6 reference model targets for the refinery/PSU inspection slice have been do
 * [`acceptance/model_roster_matrix.yaml`](acceptance/model_roster_matrix.yaml) & [`acceptance/hardware_scheduling_matrix.yaml`](acceptance/hardware_scheduling_matrix.yaml): Traceability matrices mapping every issue requirement to tests, observable results, and ledger events.
 
 ### Test Suite
-* **85/85 Passing Tests** across `tests/test_m5_registry.py`, `tests/test_m5_admission.py`, `tests/test_m5_acceptance.py`, and core contract suites.
+* M5.3 focused tests pass 12/12. The full standard-library discovery currently finds 137 tests: 135 pass and 2 require the declared PyYAML dependency to be installed in the active environment.
 
 ---
 
@@ -141,4 +143,3 @@ The code, contracts, schemas, and static checks are complete. The only remaining
 2. **Offline vLLM Startup**: Launch vLLM with `--network none` to prove zero-egress operation and record container digests in `benchmarks/backend_compatibility_matrix.yaml`.
 3. **Runtime Latency & VRAM Benchmarks**: Record actual cold load times, peak VRAM usage under load, and prompt/generation tokens/sec in `benchmarks/model_hardware_results.yaml`.
 4. **Domain Evaluation**: Run refinery inspection prompt sets to record empirical accuracy and structured output pass rates in `qualifications/model_qualification_matrix.yaml`.
-
