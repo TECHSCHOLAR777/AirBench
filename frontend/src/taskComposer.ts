@@ -104,3 +104,32 @@ export function buildApprovePlanCommand(
     arguments: { approval_ref: normalizedApprovalRef },
   };
 }
+
+export function buildCancelTaskCommand(
+  actor: string,
+  taskId: string,
+  expectedSequence: number,
+  reason: string,
+  commandId: string,
+  idempotencyKey: string,
+): NodeCommandEnvelope {
+  const normalizedActor = required(actor, "The authenticated subject", 256);
+  const normalizedTaskId = required(taskId, "The task identifier", 128);
+  const normalizedReason = required(reason, "The stop reason", 4_096);
+  if (!Number.isSafeInteger(expectedSequence) || expectedSequence < 0) {
+    throw new Error("The task sequence is invalid.");
+  }
+  if (!commandId.trim() || !idempotencyKey.trim()) throw new Error("The stop command identity is incomplete.");
+  return {
+    schema_version: "1.0",
+    compatibility_id: "airbench-core-contracts",
+    command_id: commandId,
+    task_id: normalizedTaskId,
+    actor: normalizedActor,
+    expected_sequence: expectedSequence,
+    idempotency_key: idempotencyKey,
+    client_version: "0.1",
+    command_type: "task.cancel",
+    arguments: { reason: normalizedReason },
+  };
+}

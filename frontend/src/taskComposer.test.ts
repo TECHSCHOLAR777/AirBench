@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildApprovePlanCommand, buildCreateTaskCommand } from "./taskComposer";
+import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand } from "./taskComposer";
 
 const base = {
   actor: "operator-1" as const,
@@ -42,5 +42,10 @@ describe("task composer command", () => {
       arguments: { approval_ref: "operator.confirmed.plan-review" },
     });
     expect(() => buildApprovePlanCommand("operator-1", "task.review-1", 6.5, "operator.confirmed.plan-review", "command.approve.1", "idempotency.approve.1")).toThrow(/sequence/);
+  });
+
+  it("builds a bounded stop command against the current task sequence", () => {
+    const command = buildCancelTaskCommand("operator-1", "task.running-1", 9, "Operator requested stop", "command.stop.1", "idempotency.stop.1");
+    expect(command).toMatchObject({ command_type: "task.cancel", task_id: "task.running-1", expected_sequence: 9, arguments: { reason: "Operator requested stop" } });
   });
 });

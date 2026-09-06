@@ -17,7 +17,7 @@ The implementation order is tracked by the development issues below. The validat
 | [FE-DEV-03, #75](https://github.com/TECHSCHOLAR777/AirBench/issues/75) | Trusted Node connection and profile selection | Serial critical path |
 | [FE-DEV-04, #76](https://github.com/TECHSCHOLAR777/AirBench/issues/76) | Home, task creation, and File Intake handoff | Serial critical path |
 | [FE-DEV-05, #77](https://github.com/TECHSCHOLAR777/AirBench/issues/77) | Task Plan Review | Node projection and approval slice implemented; production plan/admission gate remains |
-| [FE-DEV-06, #78](https://github.com/TECHSCHOLAR777/AirBench/issues/78) | Live Task Workspace | Serial critical path |
+| [FE-DEV-06, #78](https://github.com/TECHSCHOLAR777/AirBench/issues/78) | Live Task Workspace | First server-authoritative workspace slice implemented locally; production event and packaged evidence gates remain |
 | [FE-DEV-07, #79](https://github.com/TECHSCHOLAR777/AirBench/issues/79) | Evidence and safe preview | Serial critical path |
 | [FE-DEV-08, #80](https://github.com/TECHSCHOLAR777/AirBench/issues/80) | Artifact Review and approval | Serial critical path |
 | [FE-DEV-09, #81](https://github.com/TECHSCHOLAR777/AirBench/issues/81) | Review Queue and Artifact Library | Parallel records |
