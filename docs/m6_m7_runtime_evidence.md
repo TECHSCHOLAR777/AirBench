@@ -14,6 +14,10 @@ Implemented in `airbench/intake.py`.
 - Uploaded content is never treated as an instruction. Page text is retained as untrusted data and can be omitted from a manifest projection.
 - `evidence.created` is appended before a manifest is returned. A ledger failure returns an intake failure instead of an apparently successful manifest.
 - File names cannot contain path syntax. Empty, oversized, malformed, and unsupported files fail closed.
+- `LocalIntakeStore` stages source bytes and optional rendered page bytes under a deployment-local root. It writes the manifest only after the ledger evidence event is accepted, then atomically publishes the intake directory.
+- A renderer is an explicit typed adapter. Supplying a renderer without a store fails closed so rendered bytes cannot be silently discarded. Renderer identity and version are included in the intake identity and extraction settings.
+- Repeating an intake with the same local store and ledger returns the persisted manifest without reparsing or appending a duplicate evidence event. A stored manifest without its ledger evidence is rejected as an inconsistent recovery state.
+- Storage preparation and ledger failure paths remove staged files. The store uses only local filesystem operations and does not create network clients.
 
 The M7.1 issue should not be closed until the production parser adapter set, rendered-page artifact storage, and real Node integration are present. This slice establishes the shared boundary and replayable manifest contract.
 
@@ -39,7 +43,7 @@ python -m pytest -q
 python -m compileall -q airbench contracts tests
 ```
 
-Observed result: all tests pass. The full suite currently contains 48 passing tests.
+Observed result: all tests pass. The full suite currently contains 65 passing tests.
 
 ## Files
 

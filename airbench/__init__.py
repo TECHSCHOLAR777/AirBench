@@ -1,6 +1,14 @@
 """AirBench core runtime components."""
 
-from .intake import FileIntakeLayer, IntakeError, IntakeManifest, IntakeMode, IntakeRequest
+from .intake import (
+    FileIntakeLayer,
+    IntakeError,
+    IntakeManifest,
+    IntakeMode,
+    IntakeRequest,
+    LocalIntakeStore,
+    RenderedPage,
+)
 from .sandbox import SandboxError, SandboxPolicy, SandboxResult, SandboxRunner
 from .tool_gateway import (
     CapabilityScope,
@@ -47,6 +55,8 @@ __all__ = [
     "IntakeManifest",
     "IntakeMode",
     "IntakeRequest",
+    "LocalIntakeStore",
+    "RenderedPage",
     "SandboxError",
     "SandboxPolicy",
     "SandboxResult",

@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import shutil
+import tempfile
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
@@ -95,6 +98,7 @@ class PageRecord:
     evidence_ref: str
     rendered_page_ref: str | None = None
     render_status: str = "deferred"
+    rendered_media_type: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -111,7 +115,32 @@ class PageRecord:
             "evidence_ref": self.evidence_ref,
             "rendered_page_ref": self.rendered_page_ref,
             "render_status": self.render_status,
+            "rendered_media_type": self.rendered_media_type,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class RenderedPage:
+    """A renderer result that is still untrusted document data."""
+
+    page_number: int
+    content: bytes
+    media_type: str
+
+    def __post_init__(self) -> None:
+        if self.page_number < 1:
+            raise IntakeError("invalid_rendered_page", "rendered page number must be positive")
+        if not self.content:
+            raise IntakeError("empty_rendered_page", "rendered page content is empty")
+        if not self.media_type or "/" not in self.media_type:
+            raise IntakeError("invalid_rendered_media", "rendered page media type is invalid")
+
+
+class PageRenderer(Protocol):
+    name: str
+    version: str
+
+    def render(self, request: IntakeRequest, page: PageRecord) -> RenderedPage | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +167,8 @@ class IntakeManifest:
     destination: str
     trust_profile: str
     latency_profile: str
+    source_artifact_ref: str | None = None
+    manifest_artifact_ref: str | None = None
 
     def to_dict(self, *, include_page_text: bool = True) -> dict[str, Any]:
         pages = []
@@ -169,11 +200,14 @@ class IntakeManifest:
             "destination": self.destination,
             "trust_profile": self.trust_profile,
             "latency_profile": self.latency_profile,
+            "source_artifact_ref": self.source_artifact_ref,
+            "manifest_artifact_ref": self.manifest_artifact_ref,
         }
 
     def digest(self) -> str:
         payload = dict(self.to_dict(include_page_text=False))
         payload["ledger_event_ref"] = ""
+        payload.pop("ingested_at", None)
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -183,6 +217,203 @@ class DocumentParser(Protocol):
     version: str
 
     def parse(self, request: IntakeRequest, source_hash: str) -> tuple[str, tuple[PageRecord, ...]]: ...
+
+
+class IntakeStage(Protocol):
+    """Prepared local storage that becomes visible only after ledger success."""
+
+    def commit(self, manifest: IntakeManifest) -> None: ...
+
+    def abort(self) -> None: ...
+
+
+class IntakeStore(Protocol):
+    def load(self, intake_id: str) -> IntakeManifest | None: ...
+
+    def source_artifact_ref(self, intake_id: str) -> str: ...
+
+    def manifest_artifact_ref(self, intake_id: str) -> str: ...
+
+    def stage(
+        self,
+        manifest: IntakeManifest,
+        source_content: bytes,
+        rendered_pages: dict[str, bytes],
+    ) -> IntakeStage: ...
+
+
+class _LocalIntakeStage:
+    def __init__(self, staging_path: Path, final_path: Path) -> None:
+        self._staging_path = staging_path
+        self._final_path = final_path
+        self._closed = False
+
+    def commit(self, manifest: IntakeManifest) -> None:
+        if self._closed:
+            raise IntakeError("storage_stage_closed", "intake storage stage is already closed")
+        try:
+            _atomic_write_json(self._staging_path / "manifest.json", manifest.to_dict())
+            self._final_path.parent.mkdir(parents=True, exist_ok=True)
+            if self._final_path.exists():
+                raise IntakeError("storage_conflict", "intake identity already exists")
+            os.replace(self._staging_path, self._final_path)
+            self._closed = True
+        except IntakeError:
+            self.abort()
+            raise
+        except (OSError, TypeError, ValueError) as exc:
+            self.abort()
+            raise IntakeError("storage_commit_failed", "intake artifacts could not be committed") from exc
+
+    def abort(self) -> None:
+        if self._closed:
+            return
+        shutil.rmtree(self._staging_path, ignore_errors=True)
+        self._closed = True
+
+
+def _atomic_write_bytes(path: Path, content: bytes) -> None:
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_bytes(content)
+    os.replace(temporary, path)
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    _atomic_write_bytes(path, encoded)
+
+
+class LocalIntakeStore:
+    """A local, network-free, transactional store for intake artifacts."""
+
+    def __init__(self, root: str | Path) -> None:
+        self._root = Path(root).resolve()
+        self._staging_root = self._root / "staging"
+        self._intakes_root = self._root / "intakes"
+        self._staging_root.mkdir(parents=True, exist_ok=True)
+        self._intakes_root.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _validate_intake_id(intake_id: str) -> None:
+        if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", intake_id):
+            raise IntakeError("invalid_intake_id", "intake identity is invalid")
+
+    @classmethod
+    def _ref(cls, intake_id: str, name: str) -> str:
+        cls._validate_intake_id(intake_id)
+        return f"intake://{intake_id}/{name}"
+
+    def source_artifact_ref(self, intake_id: str) -> str:
+        return self._ref(intake_id, "source")
+
+    def manifest_artifact_ref(self, intake_id: str) -> str:
+        return self._ref(intake_id, "manifest")
+
+    def load(self, intake_id: str) -> IntakeManifest | None:
+        self._validate_intake_id(intake_id)
+        manifest_path = self._intakes_root / intake_id / "manifest.json"
+        if not manifest_path.exists():
+            return None
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            pages = tuple(
+                PageRecord(
+                    page_id=item["page_id"],
+                    page_number=item["page_number"],
+                    source_region=item["source_region"],
+                    content_hash=item["content_hash"],
+                    media_type=item["media_type"],
+                    text=item.get("text", ""),
+                    extraction_method=item["extraction_method"],
+                    confidence=item["confidence"],
+                    clearance=Clearance(item["clearance"]),
+                    taint=Taint(item["taint"]),
+                    evidence_ref=item["evidence_ref"],
+                    rendered_page_ref=item.get("rendered_page_ref"),
+                    render_status=item.get("render_status", "deferred"),
+                    rendered_media_type=item.get("rendered_media_type"),
+                )
+                for item in payload["pages"]
+            )
+            manifest = IntakeManifest(
+                intake_id=payload["intake_id"],
+                task_id=payload["task_id"],
+                source_ref=payload["source_ref"],
+                revision_id=payload["revision_id"],
+                source_hash=payload["source_hash"],
+                file_name=payload["file_name"],
+                media_type=payload["media_type"],
+                byte_size=payload["byte_size"],
+                page_count=payload["page_count"],
+                parser_name=payload["parser_name"],
+                parser_version=payload["parser_version"],
+                extraction_settings=dict(payload["extraction_settings"]),
+                pages=pages,
+                mode=IntakeMode(payload["mode"]),
+                clearance=Clearance(payload["clearance"]),
+                taint=Taint(payload["taint"]),
+                confidence=payload["confidence"],
+                ledger_event_ref=payload["ledger_event_ref"],
+                ingested_at=payload["ingested_at"],
+                destination=payload["destination"],
+                trust_profile=payload["trust_profile"],
+                latency_profile=payload["latency_profile"],
+                source_artifact_ref=payload.get("source_artifact_ref"),
+                manifest_artifact_ref=payload.get("manifest_artifact_ref"),
+            )
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise IntakeError("storage_corrupt", "stored intake manifest is invalid") from exc
+        if manifest.intake_id != intake_id:
+            raise IntakeError("storage_corrupt", "stored intake identity does not match its path")
+        source_path = self._intakes_root / intake_id / "source.bin"
+        try:
+            if not source_path.is_file() or source_path.stat().st_size != manifest.byte_size:
+                raise IntakeError("storage_corrupt", "stored intake source is missing or incomplete")
+            if _sha256(source_path.read_bytes()) != manifest.source_hash:
+                raise IntakeError("storage_corrupt", "stored intake source hash does not match")
+            for page in manifest.pages:
+                if page.render_status == "ready":
+                    page_path = self._intakes_root / intake_id / "pages" / f"{page.page_id}.bin"
+                    if not page_path.is_file() or page_path.stat().st_size == 0:
+                        raise IntakeError("storage_corrupt", "stored rendered page is missing")
+        except IntakeError:
+            raise
+        except OSError as exc:
+            raise IntakeError("storage_corrupt", "stored intake artifacts cannot be verified") from exc
+        return manifest
+
+    def stage(
+        self,
+        manifest: IntakeManifest,
+        source_content: bytes,
+        rendered_pages: dict[str, bytes],
+    ) -> IntakeStage:
+        if manifest.source_artifact_ref != self.source_artifact_ref(manifest.intake_id):
+            raise IntakeError("storage_reference_mismatch", "source artifact reference is invalid")
+        if manifest.manifest_artifact_ref != self.manifest_artifact_ref(manifest.intake_id):
+            raise IntakeError("storage_reference_mismatch", "manifest artifact reference is invalid")
+        if _sha256(source_content) != manifest.source_hash:
+            raise IntakeError("storage_source_mismatch", "source content does not match the manifest")
+        expected_pages = {
+            page.page_id for page in manifest.pages if page.render_status == "ready"
+        }
+        if set(rendered_pages) != expected_pages:
+            raise IntakeError("storage_page_mismatch", "rendered page artifacts do not match the manifest")
+
+        self._validate_intake_id(manifest.intake_id)
+        final_path = self._intakes_root / manifest.intake_id
+        if final_path.exists():
+            raise IntakeError("storage_conflict", "intake identity already exists")
+        staging_path = Path(tempfile.mkdtemp(prefix=f"{manifest.intake_id}-", dir=self._staging_root))
+        try:
+            (staging_path / "pages").mkdir(parents=True, exist_ok=False)
+            _atomic_write_bytes(staging_path / "source.bin", source_content)
+            for page_id, content in rendered_pages.items():
+                _atomic_write_bytes(staging_path / "pages" / f"{page_id}.bin", content)
+        except (OSError, ValueError) as exc:
+            shutil.rmtree(staging_path, ignore_errors=True)
+            raise IntakeError("storage_prepare_failed", "intake artifacts could not be staged") from exc
+        return _LocalIntakeStage(staging_path, final_path)
 
 
 def _now() -> str:
@@ -290,6 +521,10 @@ class LedgerSink(Protocol):
 
 
 def _append_evidence_event(ledger: LedgerSink, manifest: IntakeManifest) -> str:
+    key = idempotency_key("intake.evidence.created", manifest.task_id, manifest.intake_id)
+    existing = next((event for event in ledger.events if event.idempotency_key == key), None)
+    if existing is not None:
+        return existing.event_id
     event = build_event(
         event_type="evidence.created",
         task_id=manifest.task_id,
@@ -303,6 +538,11 @@ def _append_evidence_event(ledger: LedgerSink, manifest: IntakeManifest) -> str:
             "manifest_hash": manifest.digest(),
             "source_hash": manifest.source_hash,
             "page_ids": [page.page_id for page in manifest.pages],
+            "source_artifact_ref": manifest.source_artifact_ref,
+            "manifest_artifact_ref": manifest.manifest_artifact_ref,
+            "rendered_page_refs": [
+                page.rendered_page_ref for page in manifest.pages if page.rendered_page_ref
+            ],
             "destination": manifest.destination,
             "trust_profile": manifest.trust_profile,
             "latency_profile": manifest.latency_profile,
@@ -314,7 +554,7 @@ def _append_evidence_event(ledger: LedgerSink, manifest: IntakeManifest) -> str:
             },
         },
         clearance=manifest.clearance,
-        idempotency=idempotency_key("intake.evidence.created", manifest.task_id, manifest.intake_id),
+            idempotency=key,
         sequence=len(ledger.events),
         previous_event_hash=ledger.head_hash,
         occurred_at=manifest.ingested_at,
@@ -329,20 +569,68 @@ def _append_evidence_event(ledger: LedgerSink, manifest: IntakeManifest) -> str:
 class FileIntakeLayer:
     """One parser boundary shared by bulk ingestion and query uploads."""
 
-    def __init__(self, ledger: LedgerSink, parser: DocumentParser | None = None) -> None:
+    def __init__(
+        self,
+        ledger: LedgerSink,
+        parser: DocumentParser | None = None,
+        *,
+        renderer: PageRenderer | None = None,
+        store: IntakeStore | None = None,
+    ) -> None:
         self._ledger = ledger
         self._parser = parser or BuiltinDocumentParser()
+        self._renderer = renderer
+        self._store = store
 
     def intake(self, request: IntakeRequest) -> IntakeManifest:
         _validate_request(request)
         source_hash = _sha256(request.content)
+        renderer_name = self._renderer.name if self._renderer is not None else "none"
+        renderer_version = self._renderer.version if self._renderer is not None else "none"
+        intake_id = stable_id(
+            "intake", request.task_id, request.source_ref, source_hash, request.mode.value,
+            self._parser.name, self._parser.version, renderer_name, renderer_version,
+        )
+        if self._store is not None:
+            existing = self._store.load(intake_id)
+            if existing is not None:
+                if not any(event.event_id == existing.ledger_event_ref for event in self._ledger.events):
+                    raise IntakeError("storage_ledger_mismatch", "stored intake is missing its ledger evidence")
+                return existing
         media_type, pages = self._parser.parse(request, source_hash)
+        if self._renderer is not None and self._store is None:
+            raise IntakeError("renderer_requires_store", "rendered pages require an intake store")
+        rendered_pages: dict[str, bytes] = {}
+        rendered_records: list[PageRecord] = []
+        for page in pages:
+            if self._renderer is None:
+                rendered_records.append(page)
+                continue
+            try:
+                rendered = self._renderer.render(request, page)
+            except IntakeError:
+                raise
+            except Exception as exc:
+                raise IntakeError("render_failed", "page rendering failed") from exc
+            if rendered is None:
+                rendered_records.append(page)
+                continue
+            if rendered.page_number != page.page_number:
+                raise IntakeError("rendered_page_mismatch", "renderer returned the wrong page")
+            rendered_pages[page.page_id] = rendered.content
+            rendered_records.append(replace(
+                page,
+                rendered_page_ref=f"intake://{intake_id}/pages/{page.page_id}",
+                render_status="ready",
+                rendered_media_type=rendered.media_type,
+            ))
+        pages = tuple(rendered_records)
         ingested_at = _now()
         manifest = IntakeManifest(
-            intake_id=stable_id("intake", request.task_id, request.source_ref, source_hash, request.mode.value),
+            intake_id=intake_id,
             task_id=request.task_id,
             source_ref=request.source_ref,
-            revision_id=stable_id("revision", request.source_ref, source_hash, self._parser.version),
+            revision_id=stable_id("revision", request.source_ref, source_hash, self._parser.version, renderer_version),
             source_hash=source_hash,
             file_name=request.file_name,
             media_type=media_type,
@@ -350,7 +638,12 @@ class FileIntakeLayer:
             page_count=len(pages),
             parser_name=self._parser.name,
             parser_version=self._parser.version,
-            extraction_settings={"mode": request.mode.value, "parser_version": self._parser.version},
+            extraction_settings={
+                "mode": request.mode.value,
+                "parser_version": self._parser.version,
+                "renderer_name": renderer_name,
+                "renderer_version": renderer_version,
+            },
             pages=pages,
             mode=request.mode,
             clearance=request.clearance,
@@ -361,9 +654,33 @@ class FileIntakeLayer:
             destination=request.destination,
             trust_profile=request.trust_profile,
             latency_profile=request.latency_profile,
+            source_artifact_ref=(self._store.source_artifact_ref(intake_id) if self._store else None),
+            manifest_artifact_ref=(self._store.manifest_artifact_ref(intake_id) if self._store else None),
         )
-        ledger_event_ref = _append_evidence_event(self._ledger, manifest)
-        return replace(manifest, ledger_event_ref=ledger_event_ref)
+        staged: IntakeStage | None = None
+        if self._store is not None:
+            try:
+                staged = self._store.stage(manifest, request.content, rendered_pages)
+            except IntakeError:
+                raise
+            except Exception as exc:
+                raise IntakeError("storage_prepare_failed", "intake artifacts could not be staged") from exc
+        try:
+            ledger_event_ref = _append_evidence_event(self._ledger, manifest)
+        except IntakeError:
+            if staged is not None:
+                staged.abort()
+            raise
+        committed = replace(manifest, ledger_event_ref=ledger_event_ref)
+        if staged is not None:
+            try:
+                staged.commit(committed)
+            except IntakeError:
+                raise
+            except Exception as exc:
+                staged.abort()
+                raise IntakeError("storage_commit_failed", "intake artifacts could not be committed") from exc
+        return committed
 
     def bulk_ingest(self, *, task_id: str, source_ref: str, file_name: str, content: bytes, clearance: Clearance) -> IntakeManifest:
         return self.intake(IntakeRequest(task_id, source_ref, file_name, content, IntakeMode.bulk_ingest, clearance))
