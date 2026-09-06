@@ -123,6 +123,8 @@ class Orchestrator:
                     permitted_tools: tuple[str, ...] = (), output_contract: str = "text",
                     verification_criteria: tuple[str, ...] = (),
                     resource_budget: dict[str, int] | None = None,
+                    title: str = "", project_ref: str | None = None, priority: str = "normal",
+                    deadline: str | None = None, input_manifest_refs: tuple[str, ...] = (),
                     task_id: str | None = None,
                     command_metadata: dict[str, str] | None = None) -> TaskEnvelope:
         task = TaskEnvelope(
@@ -132,7 +134,8 @@ class Orchestrator:
             autonomy_ceiling=autonomy_ceiling, allowed_evidence_scope=allowed_evidence_scope,
             permitted_worker_capabilities=permitted_worker_capabilities, permitted_tools=permitted_tools,
             output_contract=output_contract, verification_criteria=verification_criteria,
-            resource_budget=resource_budget or {},
+            resource_budget=resource_budget or {}, title=title, project_ref=project_ref,
+            priority=priority, deadline=deadline, input_manifest_refs=input_manifest_refs,
         )
         try:
             if self.authorization is not None:

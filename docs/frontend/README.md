@@ -6,7 +6,7 @@ The frontend is not a second orchestrator, model client, parser, calculator, or 
 
 ## Implementation status
 
-The first frontend runtime now lives in the repository's `frontend/` directory. It is a Tauri 2 desktop shell with a React and TypeScript presentation layer. The shell now exposes the native-approved Node profile catalog and wires the existing Rust-owned handshake and connection controller into the Node settings screen. Task creation remains disabled until the typed task command and authoritative Python Node contract are integrated.
+The first frontend runtime now lives in the repository's `frontend/` directory. It is a Tauri 2 desktop shell with a React and TypeScript presentation layer. The shell exposes the native-approved Node profile catalog, wires the Rust-owned handshake and connection controller into the Node settings screen, and submits an outcome-first task manifest through the typed Node command boundary. The Home screen shows the Node acceptance receipt, ledger reference, and sequence without pretending that command acceptance is task completion. Full event-driven task state, real Python Node integration, and packaged production evidence remain downstream work.
 
 The implementation order is tracked by the development issues below. The validation issues remain evidence gates and are not replaced by a rendered mockup.
 

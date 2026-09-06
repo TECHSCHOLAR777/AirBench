@@ -6,6 +6,8 @@ import { NodeConnectionController, type NodeConnectionView } from "./nodeConnect
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 import { listApprovedNodeProfiles } from "./profileBridge";
 import { downloadArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, type ArtifactPreview, type DownloadReceipt, type IntakeManifest, type SafePreview } from "./intakeBridge";
+import { createTask, type CreateTaskResponse } from "./nodeCommands";
+import { buildCreateTaskCommand } from "./taskComposer";
 
 type SelectedFile = { selection_id: string; file_name: string; byte_size: number };
 
@@ -25,7 +27,7 @@ function App() {
   const [state, setState] = useState<AirBenchPresentationState>(initialPresentationState);
   const [connection, setConnection] = useState<NodeConnectionView>({
     state: "not_connected", profileId: null, nodeIdentity: null, protocolVersion: null,
-    clearanceContext: null, authenticatedSubject: null, sovereignty: "unknown", ledgerEventRef: null, failure: null,
+    clearanceContext: null, authenticatedSubject: null, domainPackRef: null, sovereignty: "unknown", ledgerEventRef: null, failure: null,
   });
   const [profiles, setProfiles] = useState<ApprovedNodeProfileReference[]>([]);
   const [profilesState, setProfilesState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
@@ -33,6 +35,11 @@ function App() {
   const [connectingProfileId, setConnectingProfileId] = useState<string | null>(null);
   const [showConnectionHelp, setShowConnectionHelp] = useState(false);
   const [taskText, setTaskText] = useState("");
+  const [taskTitle, setTaskTitle] = useState("");
+  const [projectRef, setProjectRef] = useState("");
+  const [outputContract, setOutputContract] = useState("document");
+  const [priority, setPriority] = useState("normal");
+  const [deadline, setDeadline] = useState("");
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [intakeState, setIntakeState] = useState<"idle" | "uploading" | "ready" | "failed">("idle");
   const [intakeManifest, setIntakeManifest] = useState<IntakeManifest | null>(null);
@@ -40,6 +47,8 @@ function App() {
   const [artifactPreview, setArtifactPreview] = useState<ArtifactPreview | null>(null);
   const [downloadState, setDownloadState] = useState<"idle" | "downloading" | "downloaded" | "failed">("idle");
   const [downloadReceipt, setDownloadReceipt] = useState<DownloadReceipt | null>(null);
+  const [taskResult, setTaskResult] = useState<CreateTaskResponse | null>(null);
+  const [creatingTask, setCreatingTask] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const controller = useMemo(() => new NodeConnectionController(), []);
 
@@ -162,7 +171,41 @@ function App() {
     }
   };
 
+  const startTask = async () => {
+    const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
+    if (!profile || !nodeConnected || !connection.authenticatedSubject || !connection.clearanceContext || !connection.domainPackRef) {
+      setNotice("Connect a verified Node before submitting a task.");
+      return;
+    }
+    setCreatingTask(true);
+    setTaskResult(null);
+    setNotice(null);
+    try {
+      const commandId = `command.create.${crypto.randomUUID()}`;
+      const command = buildCreateTaskCommand({
+        actor: connection.authenticatedSubject,
+        clearance: connection.clearanceContext,
+        domainPackRef: connection.domainPackRef,
+        request: taskText,
+        title: taskTitle,
+        projectRef: projectRef || null,
+        outputContract,
+        priority,
+        deadline: deadline || null,
+        inputManifestRefs: intakeManifest ? [intakeManifest.intake_id] : [],
+      }, commandId, `idempotency.${commandId}`);
+      const result = await createTask(profile, command);
+      setTaskResult(result);
+      setNotice(`Task accepted by ${profile.displayName}. The Node owns the task state and will provide the next event.`);
+    } catch {
+      setNotice("The Node did not accept this task. No local task state was created.");
+    } finally {
+      setCreatingTask(false);
+    }
+  };
+
   const nodeConnected = connection.state === "connected" && controller.canSendConsequential();
+  const canStart = nodeConnected && taskText.trim().length > 0 && (!selectedFile || intakeState === "ready") && !creatingTask;
   const nodeLabel = nodeConnected ? (profiles.find((profile) => profile.profileId === connection.profileId)?.displayName ?? "Node connected") : connection.state === "connecting" ? "Connecting to Node" : "Node not connected";
   const nodeDetail = nodeConnected ? "Verified and ready" : connection.state === "failed" ? "Connection blocked" : "Choose an approved Node";
 
@@ -181,7 +224,7 @@ function App() {
       <main className="main-area">
         <header className="topbar"><div className="breadcrumb"><span>AirBench</span><span className="breadcrumb-slash">/</span><strong>{screenTitle}</strong></div><div className="topbar-actions"><div className="quiet-status"><span className={`status-dot ${nodeConnected ? "status-dot-connected" : ""}`} aria-hidden="true" /> {nodeLabel}</div><button className="quiet-action" aria-label="Open command menu">Command</button><button className="quiet-action" aria-label="Open notifications">Alerts</button></div></header>
         <div className="content-wrap">
-          {state.screen === "home" && <HomeView taskText={taskText} setTaskText={setTaskText} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} notice={notice} canStart={false} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={() => setShowConnectionHelp(true)} onOpenNode={() => selectScreen("node")} />}
+          {state.screen === "home" && <HomeView taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} notice={notice} canStart={canStart} creatingTask={creatingTask} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={() => setShowConnectionHelp(true)} onOpenNode={() => selectScreen("node")} />}
           {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesState("idle"); }} onHome={() => selectScreen("home")} />}
           {state.screen !== "home" && state.screen !== "node" && <RecordView screen={screenTitle} onHome={() => selectScreen("home")} />}
         </div>
@@ -195,16 +238,24 @@ function NavGroup({ title, items, active, onSelect }: { title: string; items: Ar
   return <div className="nav-group"><div className="nav-group-title">{title}</div>{items.map((item) => <button key={item.id} className={`nav-item ${active === item.id ? "active" : ""}`} onClick={() => onSelect(item.id)}><span className="nav-icon" aria-hidden="true">{item.icon}</span><span>{item.label}</span>{item.id === "review" && <span className="nav-count">0</span>}</button>)}</div>;
 }
 
-function HomeView({ taskText, setTaskText, selectedFile, intakeState, intakeManifest, safePreview, artifactPreview, downloadState, downloadReceipt, notice, canStart, onAttach, onUpload, onDownload, onRemoveFile, onHelp, onOpenNode }: { taskText: string; setTaskText: (value: string) => void; selectedFile: SelectedFile | null; intakeState: "idle" | "uploading" | "ready" | "failed"; intakeManifest: IntakeManifest | null; safePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; downloadState: "idle" | "downloading" | "downloaded" | "failed"; downloadReceipt: DownloadReceipt | null; notice: string | null; canStart: boolean; onAttach: () => void; onUpload: () => void; onDownload: () => void; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void }) {
+function HomeView({ taskText, setTaskText, taskTitle, setTaskTitle, projectRef, setProjectRef, outputContract, setOutputContract, priority, setPriority, deadline, setDeadline, selectedFile, intakeState, intakeManifest, safePreview, artifactPreview, downloadState, downloadReceipt, taskResult, notice, canStart, creatingTask, onAttach, onUpload, onDownload, onStart, onRemoveFile, onHelp, onOpenNode }: { taskText: string; setTaskText: (value: string) => void; taskTitle: string; setTaskTitle: (value: string) => void; projectRef: string; setProjectRef: (value: string) => void; outputContract: string; setOutputContract: (value: string) => void; priority: string; setPriority: (value: string) => void; deadline: string; setDeadline: (value: string) => void; selectedFile: SelectedFile | null; intakeState: "idle" | "uploading" | "ready" | "failed"; intakeManifest: IntakeManifest | null; safePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; downloadState: "idle" | "downloading" | "downloaded" | "failed"; downloadReceipt: DownloadReceipt | null; taskResult: CreateTaskResponse | null; notice: string | null; canStart: boolean; creatingTask: boolean; onAttach: () => void; onUpload: () => void; onDownload: () => void; onStart: () => void; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void }) {
   return <div className="home-view">
     <section className="welcome-block"><p className="eyebrow">PRIVATE BY DESIGN</p><h1>What should AirBench complete?</h1><p className="lead">Describe the outcome. Add files if they are part of the work.</p></section>
     <section className="composer-card" data-testid="task-composer" aria-label="New task composer">
       <textarea value={taskText} onChange={(event) => setTaskText(event.target.value)} placeholder="For example: Review the scanned inspection report and draft an approval note with the key findings and required actions." rows={4} />
+      <div className="composer-fields" aria-label="Task details">
+        <label><span>Title</span><input value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} placeholder="A short name for this work" maxLength={256} /></label>
+        <label><span>Project</span><input value={projectRef} onChange={(event) => setProjectRef(event.target.value)} placeholder="Optional project reference" maxLength={256} /></label>
+        <label><span>Deliverable</span><select value={outputContract} onChange={(event) => setOutputContract(event.target.value)}><option value="document">Document</option><option value="summary">Summary</option><option value="spreadsheet">Spreadsheet</option><option value="presentation">Presentation</option><option value="code">Code</option></select></label>
+        <label><span>Priority</span><select value={priority} onChange={(event) => setPriority(event.target.value)}><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
+        <label><span>Deadline</span><input type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} /></label>
+      </div>
       {selectedFile && <div className="selected-file"><span className="file-badge">FILE</span><span><strong>{selectedFile.file_name}</strong><small>{formatBytes(selectedFile.byte_size)} / {intakeState === "ready" ? "accepted by File Intake" : "ready for File Intake"}</small></span><div className="selected-file-actions">{intakeState !== "ready" && <button className="secondary-button compact-button" onClick={onUpload} disabled={intakeState === "uploading"}>{intakeState === "uploading" ? "Sending..." : "Send to Node"}</button>}<button className="remove-file" onClick={onRemoveFile} aria-label="Remove selected file">Remove</button></div></div>}
-      <div className="composer-footer"><div className="composer-tools"><button className="secondary-button" data-testid="attach-files" onClick={onAttach}><span aria-hidden="true">+</span> Attach files</button><button className="secondary-button" disabled>Choose project</button></div><button className="primary-button" data-testid="start-task" disabled={!canStart} title={canStart ? "Start task" : "Connect an approved Node and wait for task intake to be available"}>Start task <kbd>Enter</kbd></button></div>
+      <div className="composer-footer"><div className="composer-tools"><button className="secondary-button" data-testid="attach-files" onClick={onAttach}><span aria-hidden="true">+</span> Attach files</button></div><button className="primary-button" data-testid="start-task" onClick={onStart} disabled={!canStart} title={canStart ? "Start task" : "Connect an approved Node, describe the outcome, and finish file intake before starting"}>{creatingTask ? "Submitting..." : "Start task"} <kbd>Enter</kbd></button></div>
     </section>
     {intakeManifest && safePreview && <section className="intake-result" data-testid="intake-result" aria-label="File Intake result"><div className="intake-result-head"><div><p className="eyebrow">FILE INTAKE COMPLETE</p><h2>{intakeManifest.file_name}</h2></div><span className="intake-badge">{intakeManifest.ocr_status} OCR</span></div><div className="intake-meta-grid"><div><span>Source hash</span><strong>{intakeManifest.source_hash}</strong></div><div><span>Pages</span><strong>{intakeManifest.page_count}</strong></div><div><span>Clearance</span><strong>{intakeManifest.clearance}</strong></div><div><span>Taint</span><strong>{intakeManifest.taint}</strong></div></div><div className="safe-preview"><div className="safe-preview-label">Node-generated safe preview <span>Page region: {safePreview.source_region}</span></div><p>{safePreview.text}</p><small>Confidence {Math.round(safePreview.confidence * 100)}% / ledger {safePreview.ledger_event_ref}</small></div></section>}
     {artifactPreview && <section className="artifact-preview" data-testid="artifact-preview" aria-label="Artifact preview"><div className="intake-result-head"><div><p className="eyebrow">NODE ARTIFACT PREVIEW</p><h2>{artifactPreview.title}</h2></div><span className="intake-badge">{artifactPreview.preview_kind}</span></div><div className="artifact-preview-meta"><span>{artifactPreview.clearance} clearance</span><span>{artifactPreview.taint} data</span><span>Ledger {artifactPreview.ledger_event_ref}</span></div><div className="artifact-blocks">{artifactPreview.blocks.map((block, index) => <div className="artifact-block" key={`${block.kind}-${index}`}><span className="artifact-block-kind">{block.kind}</span><p>{block.text}</p></div>)}</div><div className="artifact-actions"><button className="primary-button" data-testid="download-artifact" onClick={onDownload} disabled={downloadState === "downloading"}>{downloadState === "downloading" ? "Verifying..." : downloadState === "downloaded" ? "Download again" : "Download artifact"}</button>{downloadReceipt && <small data-testid="download-receipt">Saved {downloadReceipt.byte_size} bytes / {downloadReceipt.content_hash} / ledger {downloadReceipt.ledger_event_ref}</small>}</div></section>}
+    {taskResult && <section className="task-confirmation" data-testid="task-confirmation" aria-label="Task submission result"><p className="eyebrow">TASK ACCEPTED BY NODE</p><strong>{taskResult.task.task_id}</strong><span>State: {taskResult.command.state ?? taskResult.task.state ?? "created"}</span><small>Ledger {taskResult.command.ledger_event_ref ?? taskResult.ledger_event_ref} / sequence {taskResult.command.sequence ?? taskResult.snapshot.asOfSequence}</small></section>}
     {notice && <div className="inline-notice" role="status">{notice}</div>}
     <div className="trust-line" role="status"><span className="trust-item"><span className="trust-check" aria-hidden="true">OK</span> Files stay on your node</span><span className="trust-item"><span className="trust-check" aria-hidden="true">OK</span> External network denied</span><button className="text-button" onClick={onHelp}>How this works</button></div>
     <section className="continue-section"><div className="section-heading"><div><h2>Continue work</h2><p>Your recent tasks will appear here.</p></div><button className="text-button" disabled>View history <span aria-hidden="true">-&gt;</span></button></div><div className="empty-state"><div className="empty-icon" aria-hidden="true">T</div><p>No tasks yet</p><small>When you start work, you can return to it here.</small></div></section>

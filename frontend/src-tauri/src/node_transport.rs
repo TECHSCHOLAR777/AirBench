@@ -54,6 +54,7 @@ struct NodeHandshake {
     protocol_version: String,
     clearance_context: String,
     authenticated_subject: String,
+    domain_pack_ref: String,
     ledger_event_ref: String,
 }
 
@@ -66,6 +67,7 @@ pub struct NodeConnectionResult {
     pub protocol_version: String,
     pub clearance_context: String,
     pub authenticated_subject: String,
+    pub domain_pack_ref: String,
     pub sovereignty: &'static str,
     pub ledger_event_ref: String,
 }
@@ -708,6 +710,12 @@ pub async fn connect_node_profile(profile: NodeProfile) -> Result<NodeConnection
         )
         .into());
     }
+    if handshake.domain_pack_ref.trim().is_empty() {
+        return Err(NodeTransportError::NonAirbenchResponse(
+            "The AirBench handshake did not return an approved domain-pack reference.".to_string(),
+        )
+        .into());
+    }
     if handshake.ledger_event_ref.trim().is_empty() {
         return Err(NodeTransportError::NonAirbenchResponse(
             "The AirBench handshake did not return a ledger event reference.".to_string(),
@@ -722,6 +730,7 @@ pub async fn connect_node_profile(profile: NodeProfile) -> Result<NodeConnection
         protocol_version: handshake.protocol_version,
         clearance_context: handshake.clearance_context,
         authenticated_subject: handshake.authenticated_subject,
+        domain_pack_ref: handshake.domain_pack_ref,
         sovereignty: "verified",
         ledger_event_ref: handshake.ledger_event_ref,
     })

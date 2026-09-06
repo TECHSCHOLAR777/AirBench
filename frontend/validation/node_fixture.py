@@ -191,6 +191,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             "protocol_version": self.server.protocol_version,  # type: ignore[attr-defined]
             "clearance_context": self.server.clearance_context,  # type: ignore[attr-defined]
             "authenticated_subject": self.server.authenticated_subject,  # type: ignore[attr-defined]
+            "domain_pack_ref": self.server.domain_pack_ref,  # type: ignore[attr-defined]
             "ledger_event_ref": "fixture-ledger-connection-001",
         }
         self.server.log_event(  # type: ignore[attr-defined]
@@ -326,6 +327,7 @@ class FixtureServer(ThreadingHTTPServer):
         self.protocol_version = args.protocol_version
         self.clearance_context = args.clearance_context
         self.authenticated_subject = args.authenticated_subject
+        self.domain_pack_ref = args.domain_pack_ref
         self.log_path = args.log_path
         self.intakes: dict[str, dict[str, object]] = {}
         self.deny_download = args.deny_download
@@ -354,6 +356,7 @@ def main() -> int:
     parser.add_argument("--protocol-version", default="0.1")
     parser.add_argument("--clearance-context", default="restricted")
     parser.add_argument("--authenticated-subject", default="fixture-user")
+    parser.add_argument("--domain-pack-ref", default="fixture-pack.v0")
     parser.add_argument("--log-path", default="")
     parser.add_argument("--cert-path")
     parser.add_argument("--key-path")

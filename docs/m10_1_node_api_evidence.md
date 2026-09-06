@@ -14,7 +14,7 @@ All endpoints require a bearer credential. The bearer token is compared locally 
 
 | Method | Route | Behavior |
 | --- | --- | --- |
-| GET | `/api/v1/node/handshake` | Returns Node identity, protocol, clearance context, authenticated subject, and the configured ledger connection reference. |
+| GET | `/api/v1/node/handshake` | Returns Node identity, protocol, clearance context, authenticated subject, the configured domain-pack reference, and the configured ledger connection reference. |
 | GET | `/api/v1/health` | Verifies the local ledger chain and reports local readiness. |
 | POST | `/api/v1/tasks` | Validates a versioned `NodeCommandEnvelope` for task creation and delegates creation to `Orchestrator.create_task`. |
 | GET | `/api/v1/tasks/{task_id}` | Returns a clearance-filtered authoritative task snapshot. |
@@ -57,7 +57,7 @@ The focused Node API tests cover authentication failure, disabled documentation 
 
 The File Intake parity regression test also passes for DOCX bulk and query paths. Raw source hashes remain different when ZIP metadata differs, while semantic revision and page identities remain stable for equivalent parsed content.
 
-The frontend fixture transport run `AirBenchNodeValidation-20260907-014303-a0dc49481b334313892e586dd1b43f7b` also exercised the typed snapshot and command boundary over loopback and pinned internal HTTPS. It is synthetic fixture evidence only and does not replace a packaged run against Uvicorn and SQLite.
+The frontend fixture transport run `AirBenchNodeValidation-20260907-015945-fb13075cb05e4b8f8fc916bb49847522` also exercised the typed snapshot and command boundary over loopback and pinned internal HTTPS, including the Node-selected domain-pack reference and bounded task metadata. It is synthetic fixture evidence only and does not replace a packaged run against Uvicorn and SQLite.
 
 ## Remaining acceptance gates
 

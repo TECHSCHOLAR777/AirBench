@@ -36,7 +36,7 @@ function Wait-Port([int]$port, [Diagnostics.Process]$process) {
 
 function Start-Fixture([int]$port, [string]$logPath, [hashtable]$extra) {
   $scriptPath = Join-Path $PSScriptRoot "node_fixture.py"
-  $argumentLine = '"{0}" --port {1} --log-path "{2}" --token fixture-token --node-identity fixture-node-01 --protocol-version 0.1 --clearance-context restricted --authenticated-subject fixture-user' -f $scriptPath, $port, $logPath
+  $argumentLine = '"{0}" --port {1} --log-path "{2}" --token fixture-token --node-identity fixture-node-01 --protocol-version 0.1 --clearance-context restricted --authenticated-subject fixture-user --domain-pack-ref fixture-pack.v0' -f $scriptPath, $port, $logPath
   foreach ($key in $extra.Keys) {
     if ($null -eq $extra[$key]) { $argumentLine += " $key" }
     else { $argumentLine += ' {0} "{1}"' -f $key, $extra[$key] }

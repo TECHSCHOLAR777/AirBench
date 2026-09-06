@@ -134,6 +134,11 @@ export interface TaskEnvelope extends ContractEnvelope {
   output_contract: string;
   verification_criteria: Array<string>;
   resource_budget: Record<string, number>;
+  title?: string;
+  project_ref?: string | null;
+  priority?: string;
+  deadline?: string | null;
+  input_manifest_refs?: Array<string>;
   state?: string;
   parent_task_id?: string | null;
   created_at?: string;
