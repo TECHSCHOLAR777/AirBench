@@ -1,0 +1,19 @@
+states: [created, proposed, queued, running, needs_review, verified, completed, failed, cancelled]
+rules:
+  - from: created
+    to: proposed
+    owner: orchestrator
+  - from: proposed
+    to: queued
+    owner: orchestrator
+  - from: queued
+    to: running
+    owner: orchestrator
+  - from: running
+    to: [needs_review, verified, failed, cancelled]
+    owner: orchestrator_or_deterministic_checker
+  - from: verified
+    to: completed
+    owner: orchestrator
+    requires: all_completion_criteria_and_ledger_commit
+terminal: [completed, failed, cancelled]

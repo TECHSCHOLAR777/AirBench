@@ -1,0 +1,24 @@
+event_envelope: LedgerEventEnvelope
+events:
+  - task.created
+  - team.created
+  - worker.assigned
+  - worker.handoff
+  - model.requested
+  - routing.decided
+  - model.responded
+  - model.failed
+  - tool.requested
+  - tool.authorized
+  - tool.result
+  - evidence.created
+  - fact.candidate
+  - fact.committed
+  - verification.completed
+  - retry.started
+  - escalation.required
+  - human.signoff
+  - completion.recorded
+  - task.cancelled
+required_payload_fields: [task_id, actor_id, clearance, payload_contract, payload_version, payload_hash, idempotency_key]
+failure_rule: ledger write failure blocks the consequential action
