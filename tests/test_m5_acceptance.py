@@ -76,6 +76,8 @@ def _target(
         "display_name": f"Test {target_id}",
         "revision": "a" * 40,
         "container_digest": "sha256:" + "c" * 64,
+        "adapter_id": "airbench-vllm-adapter",
+        "adapter_version": "0.1.0",
     }
 
 
