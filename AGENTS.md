@@ -53,3 +53,13 @@ No code is written until the agent produces an understanding checkpoint containi
 - Load the automatic guard skills when the changed path touches their concern.
 - Use `airbench-review` and `airbench-finish` before merge or push.
 
+## Frontend work
+
+Frontend work is a first-class AirBench workstream, but it does not change the backend authority model. Before a UI task, read `docs/frontend/README.md` and the relevant frontend document bundle. Use:
+
+- `airbench-frontend-design` for screen, interaction, design-system, and UX decisions;
+- `airbench-frontend-develop` for approved Tauri and React implementation slices;
+- `airbench-frontend-validate` for offline, transport, event, preview, no-egress, and WebDriver validation;
+- `airbench-frontend-review` before merging or closing a frontend issue.
+
+The frontend connects only to the AirBench Node. It must preserve server-authoritative state, source, confidence, clearance, taint, derivation, and ledger references. It must never call model endpoints directly, parse files outside the File Intake Layer, execute untrusted content, calculate authoritative values, or bypass approval and qualification policy.
