@@ -1,0 +1,277 @@
+# model_qualification.schema.yaml
+# M5.1 — Typed schema for per-role model qualification certificates.
+#
+# A qualification certificate binds one model target to one exact worker role on one
+# exact hardware profile. It is NOT transferable across roles, hardware, or artifact versions.
+#
+# Rule: qualified(target, role_A) does NOT imply qualified(target, role_B)
+# Each certificate is independently signed.
+# Example: qualified(gemma4-31b, lead_worker) != qualified(gemma4-31b, verification_worker)
+
+schema_id: airbench.model_qualification.v1
+schema_version: "1.0"
+description: >
+  Role-specific qualification certificate for a model target.
+  Issued after the target passes the AirBench qualification harness
+  for the named role, hardware profile, and task kinds.
+
+required_top_level_fields:
+  - certificate_id
+  - schema_version
+  - target_id
+  - artifact_hash
+  - tokenizer_hash
+  - chat_template_hash
+  - runtime_version
+  - runtime_container_digest
+  - adapter_id
+  - adapter_version
+  - hardware_profile_id
+  - worker_role
+  - task_kinds
+  - risk_classes
+  - modality
+  - clearance_ceiling
+  - input_fixture_set_hash
+  - output_schema_id
+  - tool_permissions
+  - context_limit
+  - image_token_limit
+  - benchmark_scores
+  - pass_rates
+  - safety_results
+  - evaluator_id
+  - qualified_at
+  - expires_at
+  - requalification_triggers
+  - signer_key_id
+  - signature
+
+fields:
+  certificate_id:
+    type: string
+    pattern: "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    description: Stable unique identifier for this certificate.
+
+  schema_version:
+    type: string
+    enum: ["1.0"]
+
+  target_id:
+    type: string
+    description: Matches ModelTarget.target_id in the model roster.
+
+  artifact_hash:
+    type: string
+    format: sha256-hex
+    description: >
+      SHA-256 of the model weight file(s). Must match the artifact_digest field
+      in the model roster for this target_id.
+
+  tokenizer_hash:
+    type: string
+    format: sha256-hex
+    description: SHA-256 of the tokenizer files used during qualification.
+
+  chat_template_hash:
+    type: string
+    format: sha256-hex
+    description: SHA-256 of the chat template applied during qualification.
+
+  runtime_version:
+    type: string
+    description: "Exact serving runtime version, e.g. 'vllm-0.8.5'."
+
+  runtime_container_digest:
+    type: string
+    format: sha256-prefixed
+    description: "sha256:<digest> of the container image used during qualification."
+
+  adapter_id:
+    type: string
+    description: Backend adapter identifier, e.g. "airbench-vllm-adapter-v1".
+
+  adapter_version:
+    type: string
+    description: Exact version of the backend adapter.
+
+  hardware_profile_id:
+    type: string
+    description: profile_id of the HardwareProfile on which qualification was run.
+
+  worker_role:
+    type: string
+    enum:
+      - lead_worker
+      - workstation_lead
+      - reasoning_worker
+      - reasoning_fallback
+      - code_worker
+      - vision_worker
+      - verification_worker
+      - embedding_service
+      - reranking_service
+    description: >
+      The exact worker role this certificate grants. A target must hold a separate
+      certificate for each role it fills.
+
+  task_kinds:
+    type: array
+    min_items: 1
+    items:
+      type: string
+    description: >
+      The specific task kinds this certificate covers.
+      Examples: inspection_review, evidence_synthesis, code_generation,
+                scanned_page_extraction, approval_note_draft
+
+  risk_classes:
+    type: array
+    min_items: 1
+    items:
+      type: string
+    description: Risk classes for which the target is qualified in this role.
+
+  modality:
+    type: string
+    enum: ["text", "vision", "text_and_vision", "embedding", "reranking"]
+
+  clearance_ceiling:
+    type: string
+    enum: ["public", "internal", "restricted", "secret"]
+    description: Maximum clearance level of evidence this target may process in this role.
+
+  input_fixture_set_hash:
+    type: string
+    format: sha256-hex
+    description: SHA-256 of the qualification fixture set used (for reproducibility).
+
+  output_schema_id:
+    type: string
+    description: Identifier of the output schema the target was qualified against.
+
+  tool_permissions:
+    type: array
+    items:
+      type: string
+    description: >
+      Tool names this target is permitted to call in this role.
+      Empty list means no tool calls are permitted.
+
+  context_limit:
+    type: integer
+    minimum: 1
+    description: Maximum context window (tokens) used during qualification.
+
+  image_token_limit:
+    type: integer
+    minimum: 0
+    description: Maximum image tokens per call. 0 for text-only targets.
+
+  benchmark_scores:
+    type: object
+    description: Per-task-kind benchmark scores from the qualification harness.
+    example:
+      inspection_review_accuracy: 0.91
+      evidence_faithfulness: 0.94
+      structured_output_validity: 0.98
+      tool_call_schema_validity: 0.99
+      hallucination_rate: 0.02
+
+  pass_rates:
+    type: object
+    description: Pass rates for the required qualification dimensions.
+    fields:
+      structured_output_pass_rate:
+        type: number
+        minimum: 0
+        maximum: 1
+      tool_call_pass_rate:
+        type: number
+        minimum: 0
+        maximum: 1
+      citation_provenance_retention:
+        type: number
+        minimum: 0
+        maximum: 1
+      cancellation_and_timeout:
+        type: number
+        minimum: 0
+        maximum: 1
+      safety_injection_resistance:
+        type: number
+        minimum: 0
+        maximum: 1
+      no_egress_startup:
+        type: number
+        minimum: 0
+        maximum: 1
+
+  safety_results:
+    type: object
+    description: Qualitative safety and security test outcomes.
+    fields:
+      injection_resistance_result:
+        type: string
+        enum: ["pass", "fail", "partial"]
+      cancellation_result:
+        type: string
+        enum: ["pass", "fail"]
+      timeout_result:
+        type: string
+        enum: ["pass", "fail"]
+      no_egress_startup_result:
+        type: string
+        enum: ["pass", "fail"]
+      known_failure_modes:
+        type: array
+        items:
+          type: string
+
+  evaluator_id:
+    type: string
+    description: Identity of the evaluator (human or automated harness) that issued the certificate.
+
+  qualified_at:
+    type: string
+    format: rfc3339
+    description: UTC timestamp of qualification completion.
+
+  expires_at:
+    type: string
+    format: rfc3339
+    description: UTC timestamp after which this certificate must be renewed.
+
+  requalification_triggers:
+    type: array
+    items:
+      type: string
+    description: >
+      Conditions that immediately invalidate this certificate and require requalification.
+      Examples:
+        - model artifact hash changes
+        - runtime version upgrade
+        - evaluation set updated
+        - incident or drift signal detected
+        - hardware profile changes
+
+  signer_key_id:
+    type: string
+    description: Key identifier used to produce the HMAC signature.
+
+  signature:
+    type: string
+    format: sha256-hex
+    description: HMAC-SHA-256 of the canonical JSON of this certificate (excluding signature field).
+
+validation_rules:
+  - artifact_hash must match the model roster entry for target_id
+  - tokenizer_hash must match the model roster entry for target_id
+  - chat_template_hash must match the model roster entry for target_id
+  - hardware_profile_id must reference a signed, current HardwareProfile
+  - worker_role qualification is NOT transferable to other roles
+  - expires_at must be in the future at time of use
+  - all pass_rates must meet or exceed the domain pack's minimum thresholds
+  - no_egress_startup must be pass
+  - cancellation_result must be pass
+  - signature must verify before the certificate is used for routing
