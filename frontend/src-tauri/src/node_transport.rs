@@ -8,6 +8,7 @@ use std::time::Duration;
 use tauri::Manager;
 
 const HANDSHAKE_PATH: &str = "/api/v1/node/handshake";
+const MAX_TASK_ID_BYTES: usize = 128;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -403,6 +404,12 @@ pub async fn connect_node_profile(profile: NodeProfile) -> Result<NodeConnection
         )
         .into());
     }
+    if handshake.ledger_event_ref.trim().is_empty() {
+        return Err(NodeTransportError::NonAirbenchResponse(
+            "The AirBench handshake did not return a ledger event reference.".to_string(),
+        )
+        .into());
+    }
 
     Ok(NodeConnectionResult {
         state: "connected",
@@ -431,6 +438,8 @@ fn task_events_url(
     after_sequence: u64,
 ) -> Result<Url, NodeTransportError> {
     if task_id.is_empty()
+        || task_id.len() > MAX_TASK_ID_BYTES
+        || !task_id.as_bytes()[0].is_ascii_alphanumeric()
         || !task_id
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
@@ -450,6 +459,78 @@ fn task_events_url(
         .query_pairs_mut()
         .append_pair("after_sequence", &after_sequence.to_string());
     Ok(endpoint)
+}
+
+fn validate_event_batch(
+    batch: &TaskEventBatch,
+    task_id: &str,
+    after_sequence: u64,
+) -> Result<(), NodeTransportError> {
+    if batch.stream_id != task_id {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The event batch stream does not match the requested task.".to_string(),
+        ));
+    }
+    if batch.ledger_event_refs.len() != batch.events.len() {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The event batch ledger references do not match its events.".to_string(),
+        ));
+    }
+    let mut previous_sequence = after_sequence;
+    for event in &batch.events {
+        let sequence = event.get("sequence").and_then(Value::as_u64).ok_or_else(|| {
+            NodeTransportError::EventSchemaInvalid(
+                "An event did not contain a numeric sequence.".to_string(),
+            )
+        })?;
+        if sequence <= previous_sequence {
+            return Err(NodeTransportError::EventSchemaInvalid(
+                "The event batch sequence is not strictly increasing.".to_string(),
+            ));
+        }
+        if event.get("taskId").and_then(Value::as_str) != Some(task_id) {
+            return Err(NodeTransportError::EventSchemaInvalid(
+                "An event belongs to a different task.".to_string(),
+            ));
+        }
+        for field in [
+            "eventId",
+            "schemaVersion",
+            "eventType",
+            "occurredAt",
+            "actor",
+            "clearanceContext",
+            "payloadHash",
+            "ledgerEventRef",
+        ] {
+            if event
+                .get(field)
+                .and_then(Value::as_str)
+                .map(str::is_empty)
+                .unwrap_or(true)
+            {
+                return Err(NodeTransportError::EventSchemaInvalid(format!(
+                    "An event did not contain a valid {field}."
+                )));
+            }
+        }
+        if !event
+            .get("payload")
+            .map(Value::is_object)
+            .unwrap_or(false)
+        {
+            return Err(NodeTransportError::EventSchemaInvalid(
+                "An event payload was not an object.".to_string(),
+            ));
+        }
+        previous_sequence = sequence;
+    }
+    if batch.next_sequence < previous_sequence {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The Node returned a cursor older than the event batch.".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 pub async fn fetch_task_events_profile(
@@ -503,20 +584,7 @@ pub async fn fetch_task_events_profile(
         )
         .into());
     }
-    for event in &batch.events {
-        if event.get("sequence").and_then(Value::as_u64).is_none() {
-            return Err(NodeTransportError::EventSchemaInvalid(
-                "An event did not contain a numeric sequence.".to_string(),
-            )
-            .into());
-        }
-    }
-    if batch.next_sequence < after_sequence {
-        return Err(NodeTransportError::EventSchemaInvalid(
-            "The Node returned a cursor older than the requested sequence.".to_string(),
-        )
-        .into());
-    }
+    validate_event_batch(&batch, &task_id, after_sequence).map_err(String::from)?;
     Ok(batch)
 }
 
@@ -627,6 +695,59 @@ mod tests {
         assert!(matches!(
             fragment,
             Err(NodeTransportError::InvalidEndpoint(_))
+        ));
+    }
+
+    #[test]
+    fn task_event_urls_reject_path_like_or_oversized_task_ids() {
+        let node = profile("http://127.0.0.1:9443", NodeTransport::Loopback, None);
+        assert!(matches!(
+            task_events_url(&node, "../secret", 0),
+            Err(NodeTransportError::InvalidTaskId(_))
+        ));
+        assert!(matches!(
+            task_events_url(&node, &"a".repeat(MAX_TASK_ID_BYTES + 1), 0),
+            Err(NodeTransportError::InvalidTaskId(_))
+        ));
+    }
+
+    #[test]
+    fn event_batches_require_task_identity_order_and_ledger_alignment() {
+        let event = serde_json::json!({
+            "eventId": "event-1",
+            "taskId": "task-1",
+            "sequence": 1,
+            "schemaVersion": "0.1",
+            "eventType": "task.accepted",
+            "occurredAt": "2026-09-06T00:00:00Z",
+            "actor": "node",
+            "clearanceContext": "restricted",
+            "payloadHash": "hash",
+            "ledgerEventRef": "ledger-1",
+            "payload": {}
+        });
+        let mut batch = TaskEventBatch {
+            stream_id: "task-1".to_string(),
+            node_identity: "node-1".to_string(),
+            protocol_version: "0.1".to_string(),
+            clearance_context: "restricted".to_string(),
+            events: vec![event],
+            next_sequence: 1,
+            has_more: false,
+            ledger_event_refs: vec!["ledger-1".to_string()],
+        };
+        assert!(validate_event_batch(&batch, "task-1", 0).is_ok());
+
+        batch.stream_id = "other-task".to_string();
+        assert!(matches!(
+            validate_event_batch(&batch, "task-1", 0),
+            Err(NodeTransportError::EventSchemaInvalid(_))
+        ));
+        batch.stream_id = "task-1".to_string();
+        batch.ledger_event_refs.clear();
+        assert!(matches!(
+            validate_event_batch(&batch, "task-1", 0),
+            Err(NodeTransportError::EventSchemaInvalid(_))
         ));
     }
 }
