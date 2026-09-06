@@ -256,6 +256,7 @@ def main() -> int:
     server = FixtureServer((args.bind, args.port), args)
     if args.cert_path:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(args.cert_path, args.key_path)
         server.socket = context.wrap_socket(server.socket, server_side=True)
 
