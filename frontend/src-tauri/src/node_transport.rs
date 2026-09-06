@@ -485,8 +485,13 @@ fn validate_event_batch(
             "The event batch ledger references do not match its events.".to_string(),
         ));
     }
+    if batch.has_more && batch.events.is_empty() {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The event batch cannot claim more events without advancing.".to_string(),
+        ));
+    }
     let mut previous_sequence = after_sequence;
-    for event in &batch.events {
+    for (index, event) in batch.events.iter().enumerate() {
         let sequence = event.get("sequence").and_then(Value::as_u64).ok_or_else(|| {
             NodeTransportError::EventSchemaInvalid(
                 "An event did not contain a numeric sequence.".to_string(),
@@ -530,6 +535,16 @@ fn validate_event_batch(
         {
             return Err(NodeTransportError::EventSchemaInvalid(
                 "An event payload was not an object.".to_string(),
+            ));
+        }
+        if batch.ledger_event_refs[index]
+            != event
+                .get("ledgerEventRef")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+        {
+            return Err(NodeTransportError::EventSchemaInvalid(
+                "An event ledger reference does not match the batch reference.".to_string(),
             ));
         }
         previous_sequence = sequence;
@@ -747,6 +762,13 @@ mod tests {
         };
         assert!(validate_event_batch(&batch, "task-1", 0).is_ok());
 
+        batch.ledger_event_refs[0] = "wrong-ledger".to_string();
+        assert!(matches!(
+            validate_event_batch(&batch, "task-1", 0),
+            Err(NodeTransportError::EventSchemaInvalid(_))
+        ));
+        batch.ledger_event_refs[0] = "ledger-1".to_string();
+
         batch.stream_id = "other-task".to_string();
         assert!(matches!(
             validate_event_batch(&batch, "task-1", 0),
@@ -754,6 +776,14 @@ mod tests {
         ));
         batch.stream_id = "task-1".to_string();
         batch.ledger_event_refs.clear();
+        assert!(matches!(
+            validate_event_batch(&batch, "task-1", 0),
+            Err(NodeTransportError::EventSchemaInvalid(_))
+        ));
+        batch.stream_id = "task-1".to_string();
+        batch.events.clear();
+        batch.ledger_event_refs.clear();
+        batch.has_more = true;
         assert!(matches!(
             validate_event_batch(&batch, "task-1", 0),
             Err(NodeTransportError::EventSchemaInvalid(_))
