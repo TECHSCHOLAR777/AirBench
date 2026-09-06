@@ -9,6 +9,7 @@ committed local ledger.
 from __future__ import annotations
 
 import hmac
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -25,6 +26,8 @@ from contracts import (
     Clearance,
     ContractValidationError,
     LedgerEventEnvelope,
+    NodeCommandEnvelope,
+    NodeCommandResult,
     Orchestrator,
     StorageFailure,
     TaskEnvelope,
@@ -144,21 +147,26 @@ class NodeApiService:
 
     def create_task(self, subject: str, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            principal_id = _text(payload, "principal_id", 256, default=subject)
+            command = self._command(subject, payload, "task.create", None)
+            existing = self._existing_command(command)
+            if existing is not None:
+                return self._replay_create(command, existing)
+            arguments = command.arguments
+            principal_id = _text(arguments, "principal_id", 256, default=subject)
             if principal_id != subject:
                 raise NodeApiError(403, "principal_mismatch", "The task principal does not match the authenticated subject.")
-            clearance = _clearance(payload.get("clearance"))
+            clearance = _clearance(arguments.get("clearance"))
             self._check_clearance(clearance)
-            request = _text(payload, "request", 65_536)
-            domain_pack_ref = _text(payload, "domain_pack_ref", 512)
-            risk_class = _text(payload, "risk_class", 128)
-            autonomy_ceiling = _text(payload, "autonomy_ceiling", 128)
-            allowed_evidence_scope = _text_list(payload, "allowed_evidence_scope", 100)
-            permitted_worker_capabilities = _text_list(payload, "permitted_worker_capabilities", 100)
-            permitted_tools = _text_list(payload, "permitted_tools", 100)
-            output_contract = _text(payload, "output_contract", 512, default="text")
-            verification_criteria = _text_list(payload, "verification_criteria", 100)
-            resource_budget = _int_map(payload.get("resource_budget", {}), "resource_budget")
+            request = _text(arguments, "request", 65_536)
+            domain_pack_ref = _text(arguments, "domain_pack_ref", 512)
+            risk_class = _text(arguments, "risk_class", 128)
+            autonomy_ceiling = _text(arguments, "autonomy_ceiling", 128)
+            allowed_evidence_scope = _text_list(arguments, "allowed_evidence_scope", 100)
+            permitted_worker_capabilities = _text_list(arguments, "permitted_worker_capabilities", 100)
+            permitted_tools = _text_list(arguments, "permitted_tools", 100)
+            output_contract = _text(arguments, "output_contract", 512, default="text")
+            verification_criteria = _text_list(arguments, "verification_criteria", 100)
+            resource_budget = _int_map(arguments.get("resource_budget", {}), "resource_budget")
             if self.config.require_orchestrator_authorization and self.orchestrator.authorization is None:
                 raise NodeApiError(503, "authorization_unavailable", "The local authorization service is not configured.")
 
@@ -176,6 +184,7 @@ class NodeApiService:
                     output_contract=output_contract,
                     verification_criteria=verification_criteria,
                     resource_budget=resource_budget,
+                    command_metadata=_command_metadata(command),
                 )
             except AuthorizationError as exc:
                 raise NodeApiError(403, "orchestrator_authorization_rejected", "The local authorization policy rejected the task.") from exc
@@ -188,44 +197,126 @@ class NodeApiService:
             created = next((event for event in self._ledger.events if event.task_id == task.task_id and event.event_type == "task.created"), None)
             if created is None:
                 raise NodeApiError(503, "task_commit_unreadable", "The committed task could not be read back from the ledger.")
-            return {"task": task.to_dict(), "snapshot": snapshot, "ledger_event_ref": created.event_id}
+            return {
+                "task": task.to_dict(),
+                "snapshot": snapshot,
+                "ledger_event_ref": created.event_id,
+                "command": _command_result(command, task.task_id, created, self._task_sequence(task.task_id, created.event_id), self.orchestrator.state(task.task_id), self.config),
+            }
 
-    def authorize(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def authorize(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            authorization_ref = _text(payload, "authorization_ref", 512)
+            command = self._command(subject, payload, "task.authorize", task_id)
+            self._visible_task(task_id)
+            existing = self._existing_command(command)
+            if existing is not None:
+                return _command_result(command, task_id, existing, self._task_sequence(task_id, existing.event_id), self.orchestrator.state(task_id), self.config)
+            self._check_expected_sequence(command, task_id)
+            authorization_ref = _text(command.arguments, "authorization_ref", 512)
             try:
-                result = self.orchestrator.authorize(self._visible_task(task_id).task_id, authorization_ref=authorization_ref)
+                result = self.orchestrator.authorize(self._visible_task(task_id).task_id, authorization_ref=authorization_ref, command_metadata=_command_metadata(command))
             except AuthorizationRejected as exc:
                 raise NodeApiError(400, "authorization_invalid", "The authorization reference is invalid.") from exc
             except TransitionRejected as exc:
                 raise NodeApiError(409, "transition_rejected", "The task cannot be authorized from its current state.") from exc
             except (StorageFailure, LedgerError) as exc:
                 raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the transition.") from exc
-            return _transition_response(result)
+            return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
 
-    def cancel(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def cancel(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            reason = _text(payload, "reason", 4_096)
+            command = self._command(subject, payload, "task.cancel", task_id)
+            self._visible_task(task_id)
+            existing = self._existing_command(command)
+            if existing is not None:
+                return _command_result(command, task_id, existing, self._task_sequence(task_id, existing.event_id), self.orchestrator.state(task_id), self.config)
+            self._check_expected_sequence(command, task_id)
+            reason = _text(command.arguments, "reason", 4_096)
             try:
-                result = self.orchestrator.cancel(self._visible_task(task_id).task_id, reason=reason)
+                result = self.orchestrator.cancel(self._visible_task(task_id).task_id, reason=reason, command_metadata=_command_metadata(command))
             except CancellationRequested as exc:
                 raise NodeApiError(400, "cancellation_invalid", "A cancellation reason is required.") from exc
             except TransitionRejected as exc:
                 raise NodeApiError(409, "transition_rejected", "The task cannot be stopped from its current state.") from exc
             except (StorageFailure, LedgerError) as exc:
                 raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the transition.") from exc
-            return _transition_response(result)
+            return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
 
-    def request_review(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def request_review(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            reason = _text(payload, "reason", 4_096)
+            command = self._command(subject, payload, "task.request_review", task_id)
+            self._visible_task(task_id)
+            existing = self._existing_command(command)
+            if existing is not None:
+                return _command_result(command, task_id, existing, self._task_sequence(task_id, existing.event_id), self.orchestrator.state(task_id), self.config)
+            self._check_expected_sequence(command, task_id)
+            reason = _text(command.arguments, "reason", 4_096)
             try:
-                result = self.orchestrator.request_review(self._visible_task(task_id).task_id, reason=reason)
+                result = self.orchestrator.request_review(self._visible_task(task_id).task_id, reason=reason, command_metadata=_command_metadata(command))
             except TransitionRejected as exc:
                 raise NodeApiError(409, "transition_rejected", "The task cannot request review from its current state.") from exc
             except (StorageFailure, LedgerError) as exc:
                 raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the transition.") from exc
-            return _transition_response(result)
+            return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
+
+    def _command(self, subject: str, payload: dict[str, Any], expected_type: str, route_task_id: str | None) -> NodeCommandEnvelope:
+        try:
+            command = NodeCommandEnvelope.from_dict(payload)
+        except ContractValidationError as exc:
+            raise NodeApiError(400, "command_contract_invalid", "The command envelope does not satisfy the Node contract.") from exc
+        if command.client_version != self.config.protocol_version:
+            raise NodeApiError(409, "protocol_mismatch", "The command protocol version is not supported by this Node.")
+        if command.actor != subject:
+            raise NodeApiError(403, "command_actor_mismatch", "The command actor does not match the authenticated subject.")
+        if command.command_type != expected_type:
+            raise NodeApiError(400, "command_type_mismatch", "The command type does not match this endpoint.")
+        if route_task_id is None:
+            if command.task_id is not None or command.expected_sequence is not None:
+                raise NodeApiError(400, "command_target_invalid", "Task creation commands cannot carry a task or expected sequence.")
+        elif command.task_id != route_task_id or command.expected_sequence is None:
+            raise NodeApiError(400, "command_target_invalid", "The command task and expected sequence are required and must match the route.")
+        return command
+
+    def _check_expected_sequence(self, command: NodeCommandEnvelope, task_id: str) -> None:
+        self._visible_task(task_id)
+        current = len(self._stream_events(self._visible_task(task_id)))
+        if command.expected_sequence != current:
+            raise NodeApiError(409, "stale_command", "The task changed after this command was prepared.")
+
+    def _existing_command(self, command: NodeCommandEnvelope) -> LedgerEventEnvelope | None:
+        fingerprint = _command_fingerprint(command)
+        for event in reversed(self._ledger.events):
+            metadata = event.payload.get("_command") if isinstance(event.payload, dict) else None
+            if not isinstance(metadata, dict) or metadata.get("idempotency_key") != command.idempotency_key:
+                continue
+            if metadata.get("fingerprint") != fingerprint:
+                raise NodeApiError(409, "idempotency_conflict", "The idempotency key was already used for different command content.")
+            return event
+        return None
+
+    def _replay_create(self, command: NodeCommandEnvelope, event: LedgerEventEnvelope) -> dict[str, Any]:
+        try:
+            task = TaskEnvelope.from_dict(event.payload["task"])
+        except (KeyError, ContractValidationError, TypeError) as exc:
+            raise NodeApiError(503, "task_contract_corrupt", "The idempotent task result could not be verified.") from exc
+        return {
+            "task": task.to_dict(),
+            "snapshot": self.snapshot(task.task_id),
+            "ledger_event_ref": event.event_id,
+            "command": _command_result(command, task.task_id, event, self._task_sequence(task.task_id, event.event_id), self.orchestrator.state(task.task_id), self.config),
+        }
+
+    def _event_by_id(self, event_id: str) -> LedgerEventEnvelope:
+        event = next((candidate for candidate in self._ledger.events if candidate.event_id == event_id), None)
+        if event is None:
+            raise NodeApiError(503, "event_unreadable", "The committed command event could not be read back.")
+        return event
+
+    def _task_sequence(self, task_id: str, event_id: str) -> int:
+        for sequence, event in enumerate(self._ledger.events, start=1):
+            if event.task_id == task_id and event.event_id == event_id:
+                return sum(1 for prior in self._ledger.events[:sequence] if prior.task_id == task_id)
+        raise NodeApiError(503, "event_unreadable", "The committed command sequence could not be read back.")
 
     def snapshot(self, task_id: str) -> dict[str, Any]:
         with self._lock:
@@ -603,32 +694,56 @@ def create_app(service: NodeApiService) -> FastAPI:
 
     @app.post("/api/v1/tasks/{task_id}/authorize", status_code=202)
     async def authorize_task(task_id: str, request: Request) -> dict[str, Any]:
-        auth(request)
-        return service.authorize(task_id, await json_body(request))
+        subject = auth(request)
+        return service.authorize(subject, task_id, await json_body(request))
 
     @app.post("/api/v1/tasks/{task_id}/cancel", status_code=202)
     async def cancel_task(task_id: str, request: Request) -> dict[str, Any]:
-        auth(request)
-        return service.cancel(task_id, await json_body(request))
+        subject = auth(request)
+        return service.cancel(subject, task_id, await json_body(request))
 
     @app.post("/api/v1/tasks/{task_id}/review", status_code=202)
     async def review_task(task_id: str, request: Request) -> dict[str, Any]:
-        auth(request)
-        return service.request_review(task_id, await json_body(request))
+        subject = auth(request)
+        return service.request_review(subject, task_id, await json_body(request))
 
     return app
 
 
-def _transition_response(result: Any) -> dict[str, Any]:
+def _command_fingerprint(command: NodeCommandEnvelope) -> str:
+    return hashlib.sha256(command.canonical_json().encode("utf-8")).hexdigest()
+
+
+def _command_metadata(command: NodeCommandEnvelope) -> dict[str, str]:
     return {
-        "outcome": "accepted",
-        "task_id": result.task_id,
-        "event_type": result.event_type,
-        "state": result.state,
-        "sequence": result.sequence,
-        "ledger_event_ref": result.event_id,
-        "idempotency_key": result.idempotency_key,
+        "command_id": command.command_id,
+        "actor": command.actor,
+        "idempotency_key": command.idempotency_key,
+        "fingerprint": _command_fingerprint(command),
     }
+
+
+def _command_result(
+    command: NodeCommandEnvelope,
+    task_id: str,
+    event: LedgerEventEnvelope,
+    sequence: int,
+    state: str,
+    config: NodeApiConfig,
+) -> dict[str, Any]:
+    return NodeCommandResult(
+        outcome="accepted",
+        command_id=command.command_id,
+        task_id=task_id,
+        idempotency_key=command.idempotency_key,
+        ledger_event_ref=event.event_id,
+        sequence=sequence,
+        state=state,
+        event_type=event.event_type,
+        node_identity=config.node_identity,
+        protocol_version=config.protocol_version,
+        clearance_context=config.clearance_context,
+    ).to_dict()
 
 
 def _validate_task_id(task_id: str) -> None:

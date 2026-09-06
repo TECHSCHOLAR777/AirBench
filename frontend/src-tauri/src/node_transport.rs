@@ -1,4 +1,5 @@
-use reqwest::Url;
+use reqwest::{Method, Url};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -98,6 +99,72 @@ pub struct TaskEventBatch {
     pub ledger_event_refs: Vec<String>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSnapshot {
+    pub task_id: String,
+    pub schema_version: String,
+    pub snapshot_id: String,
+    pub as_of_sequence: u64,
+    pub title: String,
+    pub request_summary: String,
+    pub status: String,
+    pub phase: String,
+    pub clearance_context: String,
+    pub input_manifest_ref: String,
+    pub evidence: Vec<Value>,
+    pub facts: Vec<Value>,
+    pub artifact_refs: Vec<String>,
+    pub unresolved_questions: Vec<String>,
+    pub node_connection_ref: String,
+    pub ledger_head_ref: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct NodeCommandEnvelope {
+    pub schema_version: String,
+    pub compatibility_id: String,
+    pub command_id: String,
+    pub task_id: Option<String>,
+    pub actor: String,
+    pub expected_sequence: Option<u64>,
+    pub idempotency_key: String,
+    pub client_version: String,
+    pub command_type: String,
+    pub arguments: Value,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct NodeCommandResult {
+    pub schema_version: String,
+    pub compatibility_id: String,
+    pub outcome: String,
+    pub command_id: String,
+    pub task_id: Option<String>,
+    pub idempotency_key: String,
+    pub ledger_event_ref: Option<String>,
+    pub sequence: Option<u64>,
+    pub state: Option<String>,
+    pub event_type: Option<String>,
+    pub node_identity: String,
+    pub protocol_version: String,
+    pub clearance_context: String,
+    pub code: Option<String>,
+    pub message: Option<String>,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct CreateTaskResponse {
+    pub task: Value,
+    pub snapshot: TaskSnapshot,
+    pub ledger_event_ref: String,
+    pub command: NodeCommandResult,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case", tag = "code", content = "message")]
 pub enum NodeTransportError {
@@ -116,7 +183,10 @@ pub enum NodeTransportError {
     CredentialUnavailable(String),
     InvalidTaskId(String),
     EventStreamFailed(String),
+    SnapshotFailed(String),
+    CommandFailed(String),
     EventSchemaInvalid(String),
+    CommandSchemaInvalid(String),
 }
 
 impl std::fmt::Display for NodeTransportError {
@@ -137,7 +207,10 @@ impl std::fmt::Display for NodeTransportError {
             | Self::CredentialUnavailable(message)
             | Self::InvalidTaskId(message)
             | Self::EventStreamFailed(message)
-            | Self::EventSchemaInvalid(message) => formatter.write_str(message),
+            | Self::SnapshotFailed(message)
+            | Self::CommandFailed(message)
+            | Self::EventSchemaInvalid(message)
+            | Self::CommandSchemaInvalid(message) => formatter.write_str(message),
         }
     }
 }
@@ -381,6 +454,204 @@ pub(crate) fn verify_certificate_pin(
         }
     }
     Ok(())
+}
+
+async fn request_json<T: DeserializeOwned>(
+    profile: &NodeProfile,
+    method: Method,
+    path: &str,
+    body: Option<&Value>,
+) -> Result<T, NodeTransportError> {
+    let url = node_url(profile, path)?;
+    let token = credential_token(profile)?;
+    let client = build_client(profile)?;
+    let mut request = client
+        .request(method, url)
+        .header("Accept", "application/json")
+        .bearer_auth(token);
+    if let Some(payload) = body {
+        request = request.json(payload);
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|error| NodeTransportError::RequestFailed(redact_request_error(&error)))?;
+    if !response.status().is_success() {
+        return Err(NodeTransportError::RequestFailed(format!(
+            "The approved Node request returned HTTP {}.",
+            response.status().as_u16()
+        )));
+    }
+    verify_certificate_pin(profile, &response)?;
+    response.json().await.map_err(|_| {
+        NodeTransportError::NonAirbenchResponse(
+            "The endpoint did not return the expected AirBench response schema.".to_string(),
+        )
+    })
+}
+
+fn task_snapshot_path(task_id: &str) -> Result<String, NodeTransportError> {
+    if task_id.is_empty()
+        || task_id.len() > MAX_TASK_ID_BYTES
+        || !task_id.as_bytes()[0].is_ascii_alphanumeric()
+        || !task_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+    {
+        return Err(NodeTransportError::InvalidTaskId(
+            "Task identifiers may contain only letters, numbers, period, underscore, colon, and hyphen.".to_string(),
+        ));
+    }
+    Ok(format!("/api/v1/tasks/{task_id}"))
+}
+
+fn command_path(command: &NodeCommandEnvelope) -> Result<String, NodeTransportError> {
+    let task_id = command.task_id.as_deref().ok_or_else(|| {
+        NodeTransportError::CommandSchemaInvalid(
+            "A task command must identify its task.".to_string(),
+        )
+    })?;
+    let base = task_snapshot_path(task_id)?;
+    let suffix = match command.command_type.as_str() {
+        "task.authorize" => "/authorize",
+        "task.cancel" => "/cancel",
+        "task.request_review" => "/review",
+        _ => {
+            return Err(NodeTransportError::CommandSchemaInvalid(
+                "The command type is not supported by the Node transport.".to_string(),
+            ))
+        }
+    };
+    Ok(format!("{base}{suffix}"))
+}
+
+fn validate_node_response_identity(
+    profile: &NodeProfile,
+    node_identity: &str,
+    protocol_version: &str,
+    clearance_context: &str,
+) -> Result<(), NodeTransportError> {
+    if node_identity != profile.node_identity {
+        return Err(NodeTransportError::IdentityMismatch(
+            "The Node response identity does not match the approved profile.".to_string(),
+        ));
+    }
+    if protocol_version != profile.protocol_version {
+        return Err(NodeTransportError::ProtocolMismatch(
+            "The Node response protocol is not compatible with this application.".to_string(),
+        ));
+    }
+    if clearance_context != profile.clearance_context {
+        return Err(NodeTransportError::ClearanceMismatch(
+            "The Node response clearance context does not match the approved profile.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub async fn fetch_task_snapshot_profile(
+    profile: NodeProfile,
+    task_id: String,
+) -> Result<TaskSnapshot, String> {
+    let path = task_snapshot_path(&task_id).map_err(String::from)?;
+    let snapshot: TaskSnapshot = request_json(&profile, Method::GET, &path, None)
+        .await
+        .map_err(|error| NodeTransportError::SnapshotFailed(error.to_string()).to_string())?;
+    if snapshot.task_id != task_id {
+        return Err(NodeTransportError::SnapshotFailed(
+            "The Node snapshot task identity does not match the request.".to_string(),
+        )
+        .into());
+    }
+    validate_node_response_identity(
+        &profile,
+        &snapshot.node_connection_ref,
+        &snapshot.schema_version,
+        &snapshot.clearance_context,
+    )
+    .map_err(String::from)?;
+    Ok(snapshot)
+}
+
+pub async fn create_task_profile(
+    profile: NodeProfile,
+    command: NodeCommandEnvelope,
+) -> Result<CreateTaskResponse, String> {
+    if command.command_type != "task.create" || command.task_id.is_some() || command.expected_sequence.is_some() {
+        return Err(NodeTransportError::CommandSchemaInvalid(
+            "The task creation command envelope is invalid.".to_string(),
+        )
+        .into());
+    }
+    let body = serde_json::to_value(&command).map_err(|_| {
+        NodeTransportError::CommandSchemaInvalid(
+            "The task creation command could not be serialized.".to_string(),
+        )
+    })?;
+    let response: CreateTaskResponse = request_json(&profile, Method::POST, "/api/v1/tasks", Some(&body))
+        .await
+        .map_err(|error| NodeTransportError::CommandFailed(error.to_string()).to_string())?;
+    validate_node_response_identity(
+        &profile,
+        &response.snapshot.node_connection_ref,
+        &response.snapshot.schema_version,
+        &response.snapshot.clearance_context,
+    )
+    .map_err(String::from)?;
+    validate_node_response_identity(
+        &profile,
+        &response.command.node_identity,
+        &response.command.protocol_version,
+        &response.command.clearance_context,
+    )
+    .map_err(String::from)?;
+    if response.command.task_id.as_deref() != Some(response.snapshot.task_id.as_str()) {
+        return Err(NodeTransportError::CommandSchemaInvalid(
+            "The create result task identity does not match its snapshot.".to_string(),
+        )
+        .into());
+    }
+    Ok(response)
+}
+
+pub async fn send_task_command_profile(
+    profile: NodeProfile,
+    command: NodeCommandEnvelope,
+) -> Result<NodeCommandResult, String> {
+    let path = command_path(&command).map_err(String::from)?;
+    if command.expected_sequence.is_none() {
+        return Err(NodeTransportError::CommandSchemaInvalid(
+            "A task command must include an expected sequence.".to_string(),
+        )
+        .into());
+    }
+    let task_id = command.task_id.clone().ok_or_else(|| {
+        NodeTransportError::CommandSchemaInvalid(
+            "A task command must identify its task.".to_string(),
+        )
+    })?;
+    let body = serde_json::to_value(&command).map_err(|_| {
+        NodeTransportError::CommandSchemaInvalid(
+            "The task command could not be serialized.".to_string(),
+        )
+    })?;
+    let result: NodeCommandResult = request_json(&profile, Method::POST, &path, Some(&body))
+        .await
+        .map_err(|error| NodeTransportError::CommandFailed(error.to_string()).to_string())?;
+    validate_node_response_identity(
+        &profile,
+        &result.node_identity,
+        &result.protocol_version,
+        &result.clearance_context,
+    )
+    .map_err(String::from)?;
+    if result.task_id.as_deref() != Some(task_id.as_str()) {
+        return Err(NodeTransportError::CommandSchemaInvalid(
+            "The command result task identity does not match the request.".to_string(),
+        )
+        .into());
+    }
+    Ok(result)
 }
 
 pub async fn connect_node_profile(profile: NodeProfile) -> Result<NodeConnectionResult, String> {
@@ -630,6 +901,36 @@ pub async fn fetch_task_events(
     fetch_task_events_profile(profile, task_id, after_sequence).await
 }
 
+#[tauri::command]
+pub async fn fetch_task_snapshot(
+    app: tauri::AppHandle,
+    profile_id: String,
+    task_id: String,
+) -> Result<TaskSnapshot, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    fetch_task_snapshot_profile(profile, task_id).await
+}
+
+#[tauri::command]
+pub async fn create_task(
+    app: tauri::AppHandle,
+    profile_id: String,
+    command: NodeCommandEnvelope,
+) -> Result<CreateTaskResponse, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    create_task_profile(profile, command).await
+}
+
+#[tauri::command]
+pub async fn send_task_command(
+    app: tauri::AppHandle,
+    profile_id: String,
+    command: NodeCommandEnvelope,
+) -> Result<NodeCommandResult, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    send_task_command_profile(profile, command).await
+}
+
 fn redact_request_error(error: &reqwest::Error) -> String {
     if error.is_timeout() {
         "The approved Node did not respond before the connection timeout.".to_string()
@@ -739,6 +1040,37 @@ mod tests {
         assert!(matches!(
             task_events_url(&node, &"a".repeat(MAX_TASK_ID_BYTES + 1), 0),
             Err(NodeTransportError::InvalidTaskId(_))
+        ));
+    }
+
+    #[test]
+    fn command_paths_are_allowlisted_and_task_scoped() {
+        let command = NodeCommandEnvelope {
+            schema_version: "1.0".to_string(),
+            compatibility_id: "airbench-core-contracts".to_string(),
+            command_id: "command.cancel.1".to_string(),
+            task_id: Some("task-1".to_string()),
+            actor: "principal.api".to_string(),
+            expected_sequence: Some(2),
+            idempotency_key: "idempotency.cancel.1".to_string(),
+            client_version: "0.1".to_string(),
+            command_type: "task.cancel".to_string(),
+            arguments: serde_json::json!({"reason": "operator stopped the task"}),
+        };
+        assert_eq!(command_path(&command).unwrap(), "/api/v1/tasks/task-1/cancel");
+
+        let mut unsafe_command = command.clone();
+        unsafe_command.task_id = Some("../secret".to_string());
+        assert!(matches!(
+            command_path(&unsafe_command),
+            Err(NodeTransportError::InvalidTaskId(_))
+        ));
+
+        let mut unsupported = command;
+        unsupported.command_type = "node.recheck".to_string();
+        assert!(matches!(
+            command_path(&unsupported),
+            Err(NodeTransportError::CommandSchemaInvalid(_))
         ));
     }
 

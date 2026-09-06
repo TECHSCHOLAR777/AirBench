@@ -42,7 +42,7 @@ class NodeApiTests(unittest.TestCase):
         return {"Authorization": f"Bearer {token}"}
 
     def task_body(self, **overrides):
-        body = {
+        arguments = {
             "principal_id": "principal.api",
             "clearance": "internal",
             "request": "Review the local inspection report",
@@ -56,8 +56,27 @@ class NodeApiTests(unittest.TestCase):
             "verification_criteria": ["source_check"],
             "resource_budget": {"max_concurrency": 1, "max_steps": 8},
         }
-        body.update(overrides)
-        return body
+        arguments.update(overrides)
+        return self.command(
+            command_id="command.create.1",
+            task_id=None,
+            expected_sequence=None,
+            idempotency_key="idempotency.create.1",
+            command_type="task.create",
+            arguments=arguments,
+        )
+
+    def command(self, *, command_id, task_id, expected_sequence, idempotency_key, command_type, arguments):
+        return {
+            "command_id": command_id,
+            "task_id": task_id,
+            "actor": "principal.api",
+            "expected_sequence": expected_sequence,
+            "idempotency_key": idempotency_key,
+            "client_version": "0.1",
+            "command_type": command_type,
+            "arguments": arguments,
+        }
 
     def create_task(self):
         response = self.request("POST", "/api/v1/tasks", headers=self.headers(), json=self.task_body())
@@ -105,16 +124,34 @@ class NodeApiTests(unittest.TestCase):
             "POST",
             f"/api/v1/tasks/{task_id}/authorize",
             headers=self.headers(),
-            json={"authorization_ref": "authorization.local"},
+            json=self.command(
+                command_id="command.authorize.1",
+                task_id=task_id,
+                expected_sequence=1,
+                idempotency_key="idempotency.authorize.1",
+                command_type="task.authorize",
+                arguments={"authorization_ref": "authorization.local"},
+            ),
         )
         self.assertEqual(authorize.status_code, 202, authorize.text)
         self.assertEqual(authorize.json()["event_type"], "task.authorized")
+        self.assertEqual(authorize.json()["outcome"], "accepted")
+        self.assertEqual(authorize.json()["node_identity"], "node.test.local")
+        self.assertEqual(authorize.json()["protocol_version"], "0.1")
+        self.assertEqual(authorize.json()["clearance_context"], "restricted")
 
         cancelled = self.request(
             "POST",
             f"/api/v1/tasks/{task_id}/cancel",
             headers=self.headers(),
-            json={"reason": "operator stopped the task"},
+            json=self.command(
+                command_id="command.cancel.1",
+                task_id=task_id,
+                expected_sequence=2,
+                idempotency_key="idempotency.cancel.1",
+                command_type="task.cancel",
+                arguments={"reason": "operator stopped the task"},
+            ),
         )
         self.assertEqual(cancelled.status_code, 202, cancelled.text)
         self.assertEqual(cancelled.json()["state"], "cancelled")
@@ -129,7 +166,14 @@ class NodeApiTests(unittest.TestCase):
             "POST",
             f"/api/v1/tasks/{task_id}/authorize",
             headers=self.headers(),
-            json={"authorization_ref": "authorization.local"},
+            json=self.command(
+                command_id="command.authorize.1",
+                task_id=task_id,
+                expected_sequence=1,
+                idempotency_key="idempotency.authorize.1",
+                command_type="task.authorize",
+                arguments={"authorization_ref": "authorization.local"},
+            ),
         )
         batch = self.request(
             "GET",
@@ -209,6 +253,83 @@ class NodeApiTests(unittest.TestCase):
             content=(f'{{"request":"{oversized}"}}').encode(),
         )
         self.assertEqual(response.status_code, 413)
+
+    def test_create_command_retry_replays_and_conflict_is_rejected(self):
+        first = self.request("POST", "/api/v1/tasks", headers=self.headers(), json=self.task_body())
+        self.assertEqual(first.status_code, 201, first.text)
+        second = self.request("POST", "/api/v1/tasks", headers=self.headers(), json=self.task_body())
+        self.assertEqual(second.status_code, 201, second.text)
+        self.assertEqual(second.json()["task"]["task_id"], first.json()["task"]["task_id"])
+        self.assertEqual(second.json()["ledger_event_ref"], first.json()["ledger_event_ref"])
+        self.assertEqual(self.ledger.events[0].payload["_command"]["actor"], "principal.api")
+        self.assertNotIn("request", self.ledger.events[0].payload["_command"])
+        self.assertEqual(len(self.ledger.events), 1)
+
+        conflict = self.request(
+            "POST",
+            "/api/v1/tasks",
+            headers=self.headers(),
+            json=self.task_body(request="A different request"),
+        )
+        self.assertEqual(conflict.status_code, 409, conflict.text)
+        self.assertEqual(conflict.json()["code"], "idempotency_conflict")
+        self.assertEqual(len(self.ledger.events), 1)
+
+    def test_transition_retry_replays_but_stale_new_command_is_rejected(self):
+        task, _ = self.create_task()
+        task_id = task["task_id"]
+        command = self.command(
+            command_id="command.authorize.1",
+            task_id=task_id,
+            expected_sequence=1,
+            idempotency_key="idempotency.authorize.1",
+            command_type="task.authorize",
+            arguments={"authorization_ref": "authorization.local"},
+        )
+        first = self.request("POST", f"/api/v1/tasks/{task_id}/authorize", headers=self.headers(), json=command)
+        retry = self.request("POST", f"/api/v1/tasks/{task_id}/authorize", headers=self.headers(), json=command)
+        self.assertEqual(first.status_code, 202, first.text)
+        self.assertEqual(retry.status_code, 202, retry.text)
+        self.assertEqual(retry.json(), first.json())
+        self.assertEqual(self.ledger.events[1].payload["_command"]["actor"], "principal.api")
+        self.assertEqual(len(self.ledger.events), 2)
+
+        stale = self.request(
+            "POST",
+            f"/api/v1/tasks/{task_id}/cancel",
+            headers=self.headers(),
+            json=self.command(
+                command_id="command.cancel.stale",
+                task_id=task_id,
+                expected_sequence=1,
+                idempotency_key="idempotency.cancel.stale",
+                command_type="task.cancel",
+                arguments={"reason": "operator stopped the task"},
+            ),
+        )
+        self.assertEqual(stale.status_code, 409, stale.text)
+        self.assertEqual(stale.json()["code"], "stale_command")
+        self.assertEqual(len(self.ledger.events), 2)
+
+    def test_command_actor_and_protocol_mismatch_fail_before_mutation(self):
+        actor_mismatch = self.request(
+            "POST",
+            "/api/v1/tasks",
+            headers=self.headers(),
+            json={**self.task_body(), "actor": "other.subject"},
+        )
+        self.assertEqual(actor_mismatch.status_code, 403, actor_mismatch.text)
+        self.assertEqual(actor_mismatch.json()["code"], "command_actor_mismatch")
+
+        protocol_mismatch = self.request(
+            "POST",
+            "/api/v1/tasks",
+            headers=self.headers(),
+            json={**self.task_body(), "client_version": "9.9"},
+        )
+        self.assertEqual(protocol_mismatch.status_code, 409, protocol_mismatch.text)
+        self.assertEqual(protocol_mismatch.json()["code"], "protocol_mismatch")
+        self.assertEqual(len(self.ledger.events), 0)
 
 
 if __name__ == "__main__":

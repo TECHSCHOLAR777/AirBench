@@ -1,6 +1,6 @@
 # FE-DEV-02 contract generation evidence
 
-Status: shared core-contract generation slice complete. The full issue remains open until the backend Node envelope and real command transport are authoritative.
+Status: shared core-contract and first live Node-transport slice complete. The full issue remains open until all Node-specific response contracts and packaged compatibility evidence are authoritative.
 
 ## Implemented
 
@@ -11,6 +11,8 @@ Status: shared core-contract generation slice complete. The full issue remains o
 - `npm run check:contracts` fails when the checked-in generated file is stale.
 - `tests/test_frontend_contract_generation.py` protects the generated-file drift boundary.
 - `TaskEventSynchronizer` now rejects inconsistent batches before projection, including wrong Node identity, protocol or clearance mismatch, malformed cursor progression, non-increasing sequences, event metadata mismatch, and ledger-reference misalignment.
+- Generated contracts now include `NodeCommandEnvelope` and `NodeCommandResult`, which are the authoritative Python command wire types used by the typed Rust and TypeScript bridges.
+- The Rust-owned transport now provides typed snapshot reads, task creation, and allowlisted authorize, cancel, and review commands. The webview does not call a Node URL directly.
 
 ## Evidence
 
@@ -35,21 +37,22 @@ Observed results for this slice:
 
 - Python contract generation check passed.
 - Backend Python suite passed.
-- Frontend suite passed with 35 tests.
+- Frontend suite passed with 38 tests.
 - TypeScript and Vite production build passed.
 - Static no-egress and Tauri policy checks passed.
+- `npm run validate:node` passed fixture-backed local and pinned internal-HTTPS handshake, typed snapshot, event replay, task creation, authorization command, and credential rejection. Run: `AirBenchNodeValidation-20260907-014303-a0dc49481b334313892e586dd1b43f7b`.
 
 ## Backend Node API slice now available
 
-The first Python Node API slice is implemented in `airbench/node_api.py` and documented in `docs/m10_1_node_api_evidence.md`. It provides authenticated handshake and health routes, task creation and lifecycle commands through the orchestrator, authoritative snapshots, task-local cursor event batches, evidence, route trace, and review projections. Its event batches use the Node clearance context required by the native transport while evidence and facts retain their individual clearance and taint.
+The first Python Node API slice is implemented in `airbench/node_api.py` and documented in `docs/m10_1_node_api_evidence.md`. It provides authenticated handshake and health routes, typed versioned task commands with expected-sequence and idempotency checks, task creation and lifecycle commands through the orchestrator, authoritative snapshots, task-local cursor event batches, evidence, route trace, and review projections. Its event batches use the Node clearance context required by the native transport while evidence and facts retain their individual clearance and taint.
 
 This is an integration-ready backend slice, not a production-complete Node. The frontend must still connect its live command and snapshot paths to the API and verify the packaged local and internal-HTTPS deployment.
 
 ## Remaining issue scope
 
-- Complete the authoritative versioned Node handshake, task snapshot, event batch, command, command-result, safe-preview, and download-receipt contracts in the backend.
-- Replace provisional presentation event adapters with a real Node transport using those contracts.
+- Complete the authoritative versioned Node snapshot, evidence, review, safe-preview, and download-receipt contracts in the backend and generated frontend view.
+- Exercise the new Rust-owned snapshot and command transport against the Python Node rather than only static fixtures.
 - Add protocol negotiation and compatibility refusal at the live Node boundary.
-- Prove command idempotency and ledger references against the Python Node rather than only synthetic fixtures.
+- Prove command idempotency and ledger references against the Python Node in a packaged local run.
 
-The frontend must not connect task creation or consequential commands against the provisional presentation types until those backend contracts exist.
+The frontend transport now uses the generated command contracts. It must not invent missing authoritative snapshot, evidence, review, preview, or download-receipt fields while those remaining backend contracts are being completed.

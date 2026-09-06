@@ -1,4 +1,9 @@
-import type { Clearance as CoreClearance, Taint as CoreTaint } from "./generated/core_contracts";
+import type {
+  Clearance as CoreClearance,
+  NodeCommandEnvelope,
+  NodeCommandResult,
+  Taint as CoreTaint,
+} from "./generated/core_contracts";
 
 export const FRONTEND_PROTOCOL_VERSION = "0.1" as const;
 
@@ -83,26 +88,9 @@ export type TaskEvent =
   | (TaskEventBase & { eventType: "ledger.written" | "ledger.verification_changed" | "node.connection_changed" | "node.sovereignty_changed"; payload: { summary: string } })
   | (TaskEventBase & { eventType: "unknown"; payload: { originalType: string; raw: unknown } });
 
-export interface CommandBase {
-  commandId: string;
-  taskId: string | null;
-  actor: string;
-  expectedSequence: number | null;
-  idempotencyKey: string;
-  clientVersion: string;
-}
-
-export type Command =
-  | (CommandBase & { commandType: "task.create"; arguments: { title: string; requestSummary: string; inputManifestRef: string } })
-  | (CommandBase & { commandType: "task.submit" | "task.pause" | "task.stop" | "task.resume"; arguments: Record<string, never> })
-  | (CommandBase & { commandType: "task.answer_question"; arguments: { questionId: string; answer: string } })
-  | (CommandBase & { commandType: "artifact.approve" | "artifact.return_for_changes"; arguments: { artifactId: string; reason?: string } })
-  | (CommandBase & { commandType: "node.recheck"; arguments: Record<string, never> });
-
-export type CommandResult =
-  | { outcome: "accepted"; commandId: string; ledgerEventRef: string }
-  | { outcome: "rejected"; commandId: string; code: string; message: string; ledgerEventRef: string | null }
-  | { outcome: "needs_review"; commandId: string; reason: string; ledgerEventRef: string };
+/** Node command types are generated from the authoritative Python contract. */
+export type Command = NodeCommandEnvelope;
+export type CommandResult = NodeCommandResult;
 
 export interface TaskProjection {
   taskId: string;
