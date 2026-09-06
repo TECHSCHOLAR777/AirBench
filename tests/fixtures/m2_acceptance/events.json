@@ -1,0 +1,35 @@
+[
+  {
+    "event_type": "task.created",
+    "task_id": "task.m24-fixture-001",
+    "actor_id": "orchestrator.m24",
+    "actor_type": "service",
+    "payload_contract": "TaskEnvelope",
+    "payload_version": "1.0",
+    "payload": {"state": "created"},
+    "clearance": "public",
+    "idempotency": "m24-task-created"
+  },
+  {
+    "event_type": "evidence.created",
+    "task_id": "task.m24-fixture-001",
+    "actor_id": "intake.m24",
+    "actor_type": "service",
+    "payload_contract": "UntrustedEvidence",
+    "payload_version": "1.0",
+    "payload": {"provenance": {"source_ref": "fixture:inspection-001", "confidence": 0.94, "clearance": "internal", "taint": "untrusted"}, "text": "fixture evidence"},
+    "clearance": "internal",
+    "idempotency": "m24-evidence-created"
+  },
+  {
+    "event_type": "artifact.staged",
+    "task_id": "task.m24-fixture-001",
+    "actor_id": "renderer.m24",
+    "actor_type": "service",
+    "payload_contract": "Artifact",
+    "payload_version": "1.0",
+    "payload": {"artifact_id": "artifact.m24-001", "content_hash": "fixture-content-hash"},
+    "clearance": "restricted",
+    "idempotency": "m24-artifact-staged"
+  }
+]
