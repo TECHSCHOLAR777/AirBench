@@ -206,7 +206,8 @@ class FileIntakeTests(unittest.TestCase):
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w") as archive:
             archive.writestr("[Content_Types].xml", b"x")
-            archive.writestr("[Content_Types].xml", b"x")
+            with self.assertWarns(UserWarning):
+                archive.writestr("[Content_Types].xml", b"x")
         with self.assertRaises(IntakeError) as caught:
             intake.intake(IntakeRequest("task.office-invalid", "src:duplicate", "duplicate.docx", output.getvalue(), IntakeMode.query_upload, Clearance.internal))
         self.assertEqual(caught.exception.code, "office_archive_duplicate")
