@@ -65,6 +65,8 @@ The snapshot may omit content the user is not cleared to see, but it must includ
 
 The desktop receives connection profiles only from the native Tauri boundary. A profile carries a stable ID, display label, transport kind, expected Node identity, protocol version, clearance context, certificate policy reference, and operating-system credential reference. The React layer does not accept an arbitrary URL, secret, certificate, or profile JSON from a user. The native catalog rejects invalid or unapproved entries before returning them. The initial implementation uses an administrator-provisioned application configuration file; signed policy verification and host ACL evidence remain release gates.
 
+The webview receives only the stable `profile_id` when it invokes connection, event, intake, preview, or artifact-download commands. Rust resolves the full approved profile from the native catalog for each call. Endpoint URLs, certificate pins, credential references, and other transport policy material do not cross the IPC boundary.
+
 ## 4. Event envelope
 
 The minimum event envelope is:
@@ -201,6 +203,8 @@ An artifact reference contains:
 - provenance and ledger references.
 
 Preview content is data. The client accepts only typed preview formats such as sanitized text, image, PDF page, table data, slide image, or code text. It does not accept executable HTML or script-bearing document content as a trusted UI surface.
+
+The File Intake Layer is the only file interpretation boundary. The desktop picker returns a native selection token and display metadata. Rust streams that selection to the Node query-upload switch, and the UI renders the returned manifest and safe preview. The UI does not inspect bytes, infer page count, run OCR, or create a second parse path. A preview must retain source hash, source region, confidence, clearance, taint, and ledger reference. Download is a separate Node-authorized command and is denied unless the returned permission and integrity checks succeed.
 
 ## 10. Clearance and redaction
 

@@ -1,5 +1,5 @@
 use crate::node_transport::{
-    build_client, credential_token, node_url, verify_certificate_pin, NodeProfile,
+    approved_profile_by_id, build_client, credential_token, node_url, verify_certificate_pin, NodeProfile,
     NodeTransportError,
 };
 use rfd::FileDialog;
@@ -178,10 +178,12 @@ pub async fn upload_query_file_from_path(
 
 #[tauri::command]
 pub async fn upload_selected_query_file(
-    profile: NodeProfile,
+    app: tauri::AppHandle,
+    profile_id: String,
     selection_id: String,
     state: State<'_, IntakeState>,
 ) -> Result<IntakeManifest, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
     let selected = state
         .selected
         .lock()
@@ -194,8 +196,7 @@ pub async fn upload_selected_query_file(
     upload_query_file_from_path(profile, selected.path).await
 }
 
-#[tauri::command]
-pub async fn fetch_safe_preview(
+pub async fn fetch_safe_preview_from_profile(
     profile: NodeProfile,
     preview_ref: String,
 ) -> Result<SafePreview, String> {
@@ -223,6 +224,16 @@ pub async fn fetch_safe_preview(
         .json::<SafePreview>()
         .await
         .map_err(|_| "The Node did not return a safe preview schema.".to_string())
+}
+
+#[tauri::command]
+pub async fn fetch_safe_preview(
+    app: tauri::AppHandle,
+    profile_id: String,
+    preview_ref: String,
+) -> Result<SafePreview, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    fetch_safe_preview_from_profile(profile, preview_ref).await
 }
 
 pub async fn download_artifact_to_path(
@@ -286,10 +297,12 @@ pub async fn download_artifact_to_path(
 
 #[tauri::command]
 pub async fn download_artifact(
-    profile: NodeProfile,
+    app: tauri::AppHandle,
+    profile_id: String,
     artifact_id: String,
     suggested_name: String,
 ) -> Result<DownloadReceipt, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
     let safe_name: String = suggested_name
         .chars()
         .filter(|character| character.is_ascii_alphanumeric() || ".-_".contains(*character))

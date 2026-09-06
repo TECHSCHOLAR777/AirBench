@@ -1,6 +1,6 @@
 import { invoke } from "@airbench/tauri-invoke";
-import { toNativeNodeProfile } from "./nodeBridge";
-import { assertApprovedNodeProfile, type ApprovedNodeProfile } from "./nodeConnection";
+import { toNativeNodeProfileReference } from "./nodeBridge";
+import { type ApprovedNodeProfile, type ApprovedNodeProfileReference } from "./nodeConnection";
 
 export interface IntakeManifest {
   intake_id: string;
@@ -39,8 +39,9 @@ export interface DownloadReceipt {
   byte_size: number;
 }
 
-function approvedProfilePayload(profile: ApprovedNodeProfile) {
-  return toNativeNodeProfile(assertApprovedNodeProfile(profile));
+function approvedProfilePayload(profile: ApprovedNodeProfileReference | ApprovedNodeProfile) {
+  if (!profile.approvedByPolicy || !profile.profileId.trim()) throw new Error("The approved Node profile is incomplete or not approved by policy.");
+  return toNativeNodeProfileReference(profile);
 }
 
 /**
@@ -48,11 +49,11 @@ function approvedProfilePayload(profile: ApprovedNodeProfile) {
  * webview never receives or parses the selected file bytes.
  */
 export function uploadSelectedQueryFile(
-  profile: ApprovedNodeProfile,
+  profile: ApprovedNodeProfileReference | ApprovedNodeProfile,
   selectionId: string,
 ): Promise<IntakeManifest> {
   return invoke<IntakeManifest>("upload_selected_query_file", {
-    profile: approvedProfilePayload(profile),
+    profileId: approvedProfilePayload(profile).profile_id,
     selection_id: selectionId,
   });
 }
@@ -62,11 +63,11 @@ export function uploadSelectedQueryFile(
  * are intentionally not part of this frontend contract.
  */
 export function fetchSafePreview(
-  profile: ApprovedNodeProfile,
+  profile: ApprovedNodeProfileReference | ApprovedNodeProfile,
   previewRef: string,
 ): Promise<SafePreview> {
   return invoke<SafePreview>("fetch_safe_preview", {
-    profile: approvedProfilePayload(profile),
+    profileId: approvedProfilePayload(profile).profile_id,
     preview_ref: previewRef,
   });
 }
@@ -75,12 +76,12 @@ export function fetchSafePreview(
  * Requests a native save dialog and a Node-authorized artifact download.
  */
 export function downloadArtifact(
-  profile: ApprovedNodeProfile,
+  profile: ApprovedNodeProfileReference | ApprovedNodeProfile,
   artifactId: string,
   suggestedName: string,
 ): Promise<DownloadReceipt> {
   return invoke<DownloadReceipt>("download_artifact", {
-    profile: approvedProfilePayload(profile),
+    profileId: approvedProfilePayload(profile).profile_id,
     artifact_id: artifactId,
     suggested_name: suggestedName,
   });
