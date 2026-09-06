@@ -138,7 +138,10 @@ def _normalize(value: Any, expected: Any) -> Any:
     if origin is dict and isinstance(value, dict) and len(get_args(expected)) == 2:
         return {k: _normalize(v, get_args(expected)[1]) for k, v in value.items()}
     if isinstance(expected, type) and issubclass(expected, Enum) and isinstance(value, str):
-        return expected(value)
+        try:
+            return expected(value)
+        except ValueError:
+            return value
     return value
 
 
@@ -166,31 +169,94 @@ class UntrustedEvidence(Contract):
 @dataclass(frozen=True)
 class TaskEnvelope(Contract):
     task_id: str; principal_id: str; clearance: Clearance; request: str; domain_pack_ref: str; risk_class: str; autonomy_ceiling: str; allowed_evidence_scope: tuple[str, ...]; permitted_worker_capabilities: tuple[str, ...]; permitted_tools: tuple[str, ...]; output_contract: str; verification_criteria: tuple[str, ...]; resource_budget: dict[str, int]; state: str = "created"; parent_task_id: str | None = None; created_at: str = field(default_factory=_now)
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.state not in {"created", "authorized", "planned", "executing", "awaiting_check", "awaiting_review", "rendering", "deliverable_verified", "complete", "needs_review", "blocked", "failed", "cancelled"}:
+            issues.append(ValidationIssue("state", "enum", "invalid task state"))
+        if not self.request.strip():
+            issues.append(ValidationIssue("request", "required", "request must not be empty"))
+        if isinstance(self.resource_budget, dict) and any(type(value) is not int or value < 0 for value in self.resource_budget.values()):
+            issues.append(ValidationIssue("resource_budget", "resource", "budget values must be non-negative integers"))
+        return issues
 
 
 @dataclass(frozen=True)
 class TeamPlan(Contract):
     team_id: str; task_id: str; assignments: tuple[str, ...]; dependency_graph: dict[str, tuple[str, ...]]; concurrency_ceiling: int; required_verification: bool; completion_criteria: tuple[str, ...]; plan_version_hash: str; policy_version_hash: str; status: ContractStatus = ContractStatus.proposed
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.concurrency_ceiling < 1:
+            issues.append(ValidationIssue("concurrency_ceiling", "range", "must be at least 1"))
+        if not self.required_verification:
+            issues.append(ValidationIssue("required_verification", "safety", "independent verification is mandatory"))
+        if not self.assignments:
+            issues.append(ValidationIssue("assignments", "required", "team must contain at least one assignment"))
+        if not self.completion_criteria:
+            issues.append(ValidationIssue("completion_criteria", "required", "completion criteria are required"))
+        return issues
 
 
 @dataclass(frozen=True)
 class WorkerAssignment(Contract):
     assignment_id: str; team_id: str; task_id: str; worker_id: str; role: str; stage: str; input_schema: str; output_schema: str; evidence_refs: tuple[str, ...]; allowed_tools: tuple[str, ...]; clearance: Clearance; taint: Taint; capability_requirement: str; deadline: str; idempotency_key: str; status: ContractStatus = ContractStatus.queued
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        try:
+            parsed = datetime.fromisoformat(self.deadline.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                issues.append(ValidationIssue("deadline", "timezone", "deadline must include timezone"))
+        except (AttributeError, ValueError):
+            issues.append(ValidationIssue("deadline", "timestamp", "deadline must be RFC3339"))
+        if not self.idempotency_key.strip():
+            issues.append(ValidationIssue("idempotency_key", "required", "idempotency key is required"))
+        return issues
 
 
 @dataclass(frozen=True)
 class WorkPacket(Contract):
     packet_id: str; task_id: str; team_id: str; source_worker_id: str; destination_stage: str; fact_refs: tuple[str, ...]; evidence_refs: tuple[str, ...]; artifact_refs: tuple[str, ...]; checks: dict[str, bool]; unresolved_questions: tuple[str, ...]; proposed_next_result: str; clearance: Clearance; taint: Taint; packet_hash: str
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if not self.fact_refs and not self.evidence_refs:
+            issues.append(ValidationIssue("evidence_refs", "provenance", "work packet must carry fact or evidence references"))
+        if any(type(value) is not bool for value in self.checks.values()):
+            issues.append(ValidationIssue("checks", "type", "check results must be boolean"))
+        if self.taint == Taint.clean and (self.fact_refs or self.evidence_refs):
+            issues.append(ValidationIssue("taint", "provenance", "packet carrying worker evidence cannot silently become clean"))
+        return issues
 
 
 @dataclass(frozen=True)
 class WorkerResult(Contract):
     result_id: str; assignment_id: str; task_id: str; status: ContractStatus; output: Any = None; packet_ref: str | None = None; failure_code: str | None = None; retryable: bool = False; completed_at: str = field(default_factory=_now)
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.status == ContractStatus.verified:
+            issues.append(ValidationIssue("status", "authority", "workers cannot mark results verified"))
+        if self.status == ContractStatus.failed and not self.failure_code:
+            issues.append(ValidationIssue("failure_code", "required", "failed results require a failure code"))
+        if self.status in {ContractStatus.accepted, ContractStatus.proposed, ContractStatus.needs_review} and self.output is None and not self.packet_ref:
+            issues.append(ValidationIssue("output", "required", "result requires output or packet reference"))
+        if isinstance(self.output, dict) and any(key in self.output for key in ("complete", "completion", "authority_decision")):
+            issues.append(ValidationIssue("output", "authority", "worker results cannot mark completion or grant authority"))
+        return issues
 
 
 @dataclass(frozen=True)
 class CompletionRecord(Contract):
     completion_id: str; task_id: str; final_state: str; required_evidence_refs: tuple[str, ...]; verification_refs: tuple[str, ...]; artifact_hashes: tuple[str, ...]; human_review_ref: str | None; policy_version_hash: str; pack_version_hash: str; model_identities: tuple[str, ...]; hardware_identity: str; completed_at: str = field(default_factory=_now)
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.final_state not in {"complete", "needs_review", "blocked", "failed", "cancelled"}:
+            issues.append(ValidationIssue("final_state", "enum", "invalid completion state"))
+        if self.final_state == "complete":
+            if not self.required_evidence_refs:
+                issues.append(ValidationIssue("required_evidence_refs", "completion_gate", "completion requires evidence"))
+            if not self.verification_refs:
+                issues.append(ValidationIssue("verification_refs", "completion_gate", "completion requires verification"))
+            if not self.human_review_ref:
+                issues.append(ValidationIssue("human_review_ref", "completion_gate", "completion requires human review reference"))
+        return issues
 
 
 @dataclass(frozen=True)
@@ -230,5 +296,5 @@ class LedgerEventEnvelope(Contract):
         issues = super()._validate(hints)
         if self.sequence < 0: issues.append(ValidationIssue("sequence", "range", "must be non-negative"))
         if not self.immutable: issues.append(ValidationIssue("immutable", "ledger", "ledger events are immutable"))
-        if len(self.event_hash) != 64: issues.append(ValidationIssue("event_hash", "hash", "must be a SHA-256 hex digest"))
+        if not re.fullmatch(r"[0-9a-f]{64}", self.event_hash): issues.append(ValidationIssue("event_hash", "hash", "must be a SHA-256 hex digest"))
         return issues
