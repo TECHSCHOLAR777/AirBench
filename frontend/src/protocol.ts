@@ -1,8 +1,12 @@
+import type { Clearance as CoreClearance, Taint as CoreTaint } from "./generated/core_contracts";
+
 export const FRONTEND_PROTOCOL_VERSION = "0.1" as const;
 
 export type TaskStatus = "accepted" | "planning" | "running" | "needs_review" | "completed" | "blocked" | "failed" | "stopped";
-export type Clearance = "public" | "internal" | "restricted" | "highly_restricted";
-export type Taint = "untrusted" | "screened" | "trusted";
+/** Wire clearance values are generated from contracts.models. */
+export type Clearance = CoreClearance;
+/** Wire taint values are generated from contracts.models. */
+export type Taint = CoreTaint;
 export type ProjectionHealth = "current" | "replaying" | "resynchronizing" | "blocked";
 
 export interface ProvenanceRef {

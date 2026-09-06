@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
-    "build": "tsc -b && vite build && npm run create:manifest",
+    "generate:contracts": "python ../scripts/generate_frontend_contracts.py",
+    "check:contracts": "python ../scripts/generate_frontend_contracts.py --check",
+    "build": "npm run generate:contracts && tsc -b && vite build && npm run create:manifest",
     "preview": "vite preview --host 127.0.0.1",
     "create:manifest": "node scripts/create-resource-manifest.mjs",
     "validate:node": "powershell -NoProfile -ExecutionPolicy Bypass -File validation/validate-node-transport.ps1",
