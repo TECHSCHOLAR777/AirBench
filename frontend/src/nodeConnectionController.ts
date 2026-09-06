@@ -1,7 +1,7 @@
 import { connectApprovedNode, type NativeNodeConnectionResult } from "./nodeBridge";
 import {
   blockedConnection,
-  type ApprovedNodeProfile,
+  type ApprovedNodeProfileReference,
   type NodeConnectionState,
   validateApprovedProfile,
 } from "./nodeConnection";
@@ -20,7 +20,7 @@ export interface NodeConnectionView {
 }
 
 export interface NodeConnector {
-  (profile: ApprovedNodeProfile): Promise<NativeNodeConnectionResult>;
+  (profile: ApprovedNodeProfileReference): Promise<NativeNodeConnectionResult>;
 }
 
 const initialConnection: NodeConnectionView = {
@@ -41,7 +41,7 @@ const initialConnection: NodeConnectionView = {
  */
 export class NodeConnectionController {
   private view: NodeConnectionView = initialConnection;
-  private approvedProfile: ApprovedNodeProfile | null = null;
+  private approvedProfile: ApprovedNodeProfileReference | null = null;
 
   constructor(private readonly connector: NodeConnector = connectApprovedNode) {}
 
@@ -49,7 +49,7 @@ export class NodeConnectionController {
     return { ...this.view, failure: this.view.failure ? { ...this.view.failure } : null };
   }
 
-  async connect(profile: ApprovedNodeProfile): Promise<NodeConnectionView> {
+  async connect(profile: ApprovedNodeProfileReference): Promise<NodeConnectionView> {
     const validation = validateApprovedProfile(profile);
     if (!validation.valid) {
       const blocked = blockedConnection(profile, validation);

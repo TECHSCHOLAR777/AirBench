@@ -5,6 +5,7 @@ describe("AirBench desktop shell", () => {
     await expect(browser.$("h1")).toHaveText("What should AirBench complete?");
     await expect(browser.$('[data-testid="task-composer"]')).toBeDisplayed();
     await expect(browser.$('[data-testid="start-task"]')).toBeDisabled();
+    await expect(browser.$('[data-testid="app-version"]')).toHaveText(expect.stringContaining("AirBench 0.1.0"));
   });
 
   it("uses IPC mocking for native file selection", async () => {

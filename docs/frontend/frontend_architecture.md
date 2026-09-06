@@ -76,6 +76,8 @@ The webview must not:
 - write authoritative task status to local storage;
 - use a model response as an instruction to change UI authority.
 
+Approved profile discovery is native-owned. The current development slice reads the administrator-provisioned `approved-node-profiles.json` from the Tauri application configuration directory, validates every profile before exposing it to the webview, and never accepts an endpoint form in React. Host ACL provisioning and signed policy verification remain release work for FE-DEV-03 and FE-VAL-2; a writable profile file is not sufficient evidence of production approval.
+
 ### 3.3 AirBench Node
 
 The Python Node remains the authority for:
@@ -114,6 +116,8 @@ Tauri app on user workstation
 The UI must not connect directly to the model-serving tier in either shape. The Node is the single application boundary.
 
 ## 5. Security posture
+
+On Windows, the packaged WebView2 window is started with background networking, component update, domain reliability, sync, crash reporting, and breakpad features disabled, and its proxy is a non-listening loopback endpoint. Tauri's default disabled WebView2 feature set is retained. These settings reduce incidental browser-runtime traffic but are not the sovereignty boundary. The release profile must still apply an OS firewall or equivalent allowlist that permits only the approved AirBench Node transport, and FE-VAL-5 must capture the resulting deny and allow evidence.
 
 - Ship a static bundle with all fonts, icons, styles, preview workers, and runtime assets local to the installer.
 - Bundle WebView2 for the supported Windows deployment profile and prove startup with the network disabled.

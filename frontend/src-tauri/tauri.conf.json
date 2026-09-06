@@ -19,7 +19,10 @@
         "minWidth": 1080,
         "minHeight": 700,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "dataDirectory": "airbench-webview2",
+        "proxyUrl": "http://127.0.0.1:9",
+        "additionalBrowserArgs": "--disable-background-networking --disable-component-update --disable-domain-reliability --disable-sync --disable-crash-reporter --disable-breakpad --proxy-server=127.0.0.1:9 --proxy-bypass-list=127.0.0.1;localhost;[::1] --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
       }
     ],
     "security": {

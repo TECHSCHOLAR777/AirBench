@@ -83,8 +83,10 @@ describe("sequence-numbered task projection", () => {
     const unknown = event(5, "unknown", { originalType: "future.event", raw: { value: "data" } });
     const result = applyEvent(projectionFromSnapshot(snapshot), unknown);
     expect(result.kind).toBe("unknown");
-    expect(result.projection.lastAppliedSequence).toBe(5);
+    expect(result.projection.lastAppliedSequence).toBe(4);
     expect(result.projection.diagnostics[0]?.code).toBe("unknown_event");
+    expect(result.projection.health).toBe("blocked");
+    expect(result.projection.activity).toHaveLength(0);
   });
 
   it("requests replay and blocks consequential commands while a gap is open", () => {
@@ -214,6 +216,21 @@ describe("sequence-numbered task projection", () => {
     expect(result.state.status).toBe("blocked");
     expect(result.state.error?.code).toBe("event_protocol_invalid");
     expect(result.projection.health).toBe("blocked");
+    expect(maySendConsequentialCommand(result.projection, result.state.status)).toBe(false);
+  });
+
+  it("blocks when a synchronized batch contains an unknown event schema", async () => {
+    const synchronizer = new TaskEventSynchronizer(async () => batch([
+      event(5, "unknown", { originalType: "future.event", raw: { value: "data" } }),
+    ], 5));
+    synchronizer.loadSnapshot(snapshot);
+
+    const result = await synchronizer.synchronizeOnce();
+
+    expect(result.kind).toBe("blocked");
+    expect(result.state.status).toBe("blocked");
+    expect(result.state.error?.code).toBe("unknown_event_schema");
+    expect(result.projection.lastAppliedSequence).toBe(4);
     expect(maySendConsequentialCommand(result.projection, result.state.status)).toBe(false);
   });
 

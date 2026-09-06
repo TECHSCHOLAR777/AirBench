@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const distRoot = fileURLToPath(new URL("../dist/", import.meta.url));
 const manifestName = "resource-manifest.json";
+const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 
 async function walk(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -31,8 +32,10 @@ files.sort((left, right) => left.path.localeCompare(right.path));
 const manifest = {
   manifestVersion: "1",
   application: "AirBench",
-  applicationVersion: "0.1.0",
+  applicationVersion: packageJson.version,
   generatedBy: "frontend/scripts/create-resource-manifest.mjs",
+  assetCount: files.length,
+  totalBytes: files.reduce((total, file) => total + file.bytes, 0),
   files,
 };
 await writeFile(join(distRoot, manifestName), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");

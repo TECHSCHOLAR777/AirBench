@@ -152,7 +152,7 @@ export function projectionFromSnapshot(snapshot: TaskSnapshot): TaskProjection {
 
 export function applyEvent(projection: TaskProjection, event: TaskEvent): ProjectionResult {
   if (event.taskId !== projection.taskId) {
-    return { kind: "unknown", projection: withDiagnostic(projection, "task_mismatch", `Event belongs to ${event.taskId}`, event.sequence) };
+    return { kind: "unknown", projection: withDiagnostic({ ...projection, health: "blocked" }, "task_mismatch", `Event belongs to ${event.taskId}`, event.sequence) };
   }
   if (event.sequence <= projection.lastAppliedSequence) return { kind: "duplicate", projection };
   if (event.sequence > projection.lastAppliedSequence + 1) {
@@ -163,6 +163,9 @@ export function applyEvent(projection: TaskProjection, event: TaskEvent): Projec
       receivedSequence: event.sequence,
     };
   }
+  if (event.eventType === "unknown") {
+    return { kind: "unknown", projection: withDiagnostic({ ...projection, health: "blocked" }, "unknown_event", event.payload.originalType, event.sequence) };
+  }
 
   const next: TaskProjection = {
     ...projection,
@@ -171,9 +174,6 @@ export function applyEvent(projection: TaskProjection, event: TaskEvent): Projec
     health: "current",
   };
 
-  if (event.eventType === "unknown") {
-    return { kind: "unknown", projection: withDiagnostic(next, "unknown_event", event.payload.originalType, event.sequence) };
-  }
   if (event.eventType === "task.accepted" || event.eventType === "plan.created" || event.eventType === "plan.revised" || event.eventType === "task.paused" || event.eventType === "task.resumed" || event.eventType === "task.blocked" || event.eventType === "task.failed" || event.eventType === "task.stopped" || event.eventType === "task.completed") {
     next.status = event.payload.status;
     next.phase = event.payload.phase;

@@ -170,7 +170,9 @@ export class TaskEventSynchronizer {
 
         const outcomes = this.store.applyBatch(batch);
         const gap = outcomes.find((outcome): outcome is Extract<EventStoreOutcome, { kind: "replay_required" }> => outcome.kind === "replay_required");
+        const unknown = outcomes.find((outcome): outcome is Extract<EventStoreOutcome, { kind: "unknown" }> => outcome.kind === "unknown");
         const after = this.store.current();
+        if (unknown) return this.blocked("unknown_event_schema", "The Node returned an event schema this client cannot safely interpret.");
         if (gap) {
           this.setState({ status: "replaying", lastAppliedSequence: after.lastAppliedSequence });
           continue;

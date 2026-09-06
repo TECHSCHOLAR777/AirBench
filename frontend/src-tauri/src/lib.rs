@@ -14,6 +14,7 @@ pub fn run() {
     builder
         .manage(intake::IntakeState::default())
         .invoke_handler(tauri::generate_handler![
+            node_transport::list_approved_node_profiles,
             node_transport::connect_node,
             node_transport::fetch_task_events,
             intake::pick_query_file,

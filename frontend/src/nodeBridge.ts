@@ -1,5 +1,5 @@
 import { invoke } from "@airbench/tauri-invoke";
-import { assertApprovedNodeProfile, type ApprovedNodeProfile } from "./nodeConnection";
+import type { ApprovedNodeProfile, ApprovedNodeProfileReference } from "./nodeConnection";
 import type { Clearance } from "./protocol";
 
 export interface NativeNodeConnectionResult {
@@ -28,11 +28,15 @@ export function toNativeNodeProfile(profile: ApprovedNodeProfile) {
   };
 }
 
+export function toNativeNodeProfileReference(profile: ApprovedNodeProfileReference) {
+  return { profile_id: profile.profileId };
+}
+
 /**
  * The webview has no network client. This is the only connection entry point,
  * and it crosses into the Rust-owned Tauri command boundary.
  */
-export async function connectApprovedNode(profile: ApprovedNodeProfile): Promise<NativeNodeConnectionResult> {
-  const approvedProfile = assertApprovedNodeProfile(profile);
-  return invoke<NativeNodeConnectionResult>("connect_node", { profile: toNativeNodeProfile(approvedProfile) });
+export async function connectApprovedNode(profile: ApprovedNodeProfileReference | ApprovedNodeProfile): Promise<NativeNodeConnectionResult> {
+  if (!profile.approvedByPolicy || !profile.profileId.trim()) throw new Error("The approved Node profile is incomplete or not approved by policy.");
+  return invoke<NativeNodeConnectionResult>("connect_node", { profileId: profile.profileId });
 }
