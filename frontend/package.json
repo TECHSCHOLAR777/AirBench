@@ -8,11 +8,13 @@
     "build": "tsc -b && vite build && npm run create:manifest",
     "preview": "vite preview --host 127.0.0.1",
     "create:manifest": "node scripts/create-resource-manifest.mjs",
+    "validate:node": "powershell -NoProfile -ExecutionPolicy Bypass -File validation/validate-node-transport.ps1",
     "validate:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-offline-installer.ps1",
     "test": "vitest run",
     "test:watch": "vitest",
     "check:egress": "node scripts/check-no-egress.mjs",
     "check:tauri-config": "node scripts/check-tauri-config.mjs",
+    "check:runtime-egress": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-runtime-egress.ps1",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

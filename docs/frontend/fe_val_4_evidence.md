@@ -1,0 +1,33 @@
+# FE-VAL-4 evidence record
+
+Status: File Intake and safe-preview fixture validation in progress. No complete packaged desktop pass is claimed yet.
+
+## Implemented boundary
+
+- Native file selection is owned by the Tauri Rust shell. The webview receives a selection token and metadata, not a file path it can substitute later.
+- The Rust shell streams the selected bytes to the approved Node `query_upload` endpoint. It does not parse PDF, image, OCR, Office, or drawing content.
+- The Node returns the intake manifest with source hash, revision, parser metadata, page and OCR or vision state, clearance, taint, preview reference, artifact reference, and ledger reference.
+- Preview is a typed Node response containing safe text plus source-region, confidence, clearance, taint, and ledger references. The UI does not render arbitrary HTML or document script.
+- Artifact download is Node-authorized. Rust verifies the response hash and ledger header before saving through a native save dialog.
+
+## Synthetic fixture evidence
+
+Command from `frontend/`:
+
+```text
+npm run validate:node
+```
+
+The validation runner creates a synthetic scanned PDF containing instruction-bearing text, uploads it through the fixture File Intake endpoint, compares the returned source hash with the selected file, checks that taint remains `untrusted`, displays a safe text preview contract, verifies the downloaded artifact hash and ledger reference, rejects a denied artifact download, and rejects an unsupported `.exe` file.
+
+Run: `AirBenchNodeValidation-20260906-093801-1789648d61b9499e8a9cedb30ecd49fb`
+
+The fixture parses only the multipart envelope needed to receive the bytes. It does not interpret document instructions or execute content. It is not the production File Intake Layer.
+
+## Remaining acceptance evidence
+
+- packaged Tauri native-picker run under WebDriver;
+- real Python File Intake Layer and artifact service contracts;
+- corrupted, oversized, interrupted, and clearance-mismatch cases;
+- malicious preview-link and macro-bearing artifact tests;
+- screenshot and ledger packet from the approved internal Node environment.

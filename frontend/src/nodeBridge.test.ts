@@ -11,6 +11,8 @@ const profile: ApprovedNodeProfile = {
   protocolVersion: "0.1",
   clearanceContext: "restricted",
   certificatePinSha256: "sha256:approved-pin",
+  trustedCaPem: null,
+  credentialRef: "fixture-user",
   approvedByPolicy: true,
 };
 
@@ -24,6 +26,8 @@ describe("Rust-owned Node bridge", () => {
       protocol_version: "0.1",
       clearance_context: "restricted",
       certificate_pin_sha256: "sha256:approved-pin",
+      trusted_ca_pem: null,
+      credential_ref: "fixture-user",
       approved_by_policy: true,
     });
   });

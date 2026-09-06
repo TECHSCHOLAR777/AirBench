@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { maySendConsequentialCommand, TaskEventStore } from "./eventStore";
+import { maySendConsequentialCommand, CommandDeduplicator, TaskEventStore } from "./eventStore";
 import { applyEvent, projectionFromSnapshot, type TaskEvent, type TaskSnapshot } from "./protocol";
 
 const snapshot: TaskSnapshot = {
@@ -94,5 +94,31 @@ describe("sequence-numbered task projection", () => {
     expect(projection.status).toBe("completed");
     expect(projection.health).toBe("current");
     expect(maySendConsequentialCommand(projection)).toBe(true);
+  });
+
+  it("applies a cursor batch until a gap and prevents duplicate command reservation", () => {
+    const store = new TaskEventStore();
+    store.loadSnapshot(snapshot);
+    const results = store.applyBatch({
+      stream_id: "task-1",
+      node_identity: "node-1",
+      protocol_version: "0.1",
+      clearance_context: "restricted",
+      events: [
+        event(5, "worker.started", { role: "planner", label: "Plan", status: "running" }),
+        event(7, "task.completed", { phase: "complete", status: "completed" }),
+      ],
+      next_sequence: 7,
+      has_more: false,
+      ledger_event_refs: ["ledger-5", "ledger-7"],
+    });
+    expect(results.map((result) => result.kind)).toEqual(["applied", "replay_required"]);
+    expect(store.requestForGap()).toEqual({ taskId: "task-1", fromSequence: 6 });
+
+    const deduplicator = new CommandDeduplicator();
+    expect(deduplicator.tryReserve("idem-1")).toBe(true);
+    expect(deduplicator.tryReserve("idem-1")).toBe(false);
+    deduplicator.release("idem-1");
+    expect(deduplicator.tryReserve("idem-1")).toBe(true);
   });
 });

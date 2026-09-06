@@ -1,18 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ApprovedNodeProfile } from "./nodeConnection";
+import type { TaskEvent } from "./protocol";
 
-export interface NativeNodeConnectionResult {
-  state: "connected";
-  profile_id: string;
+export interface TaskEventBatch {
+  stream_id: string;
   node_identity: string;
   protocol_version: string;
   clearance_context: string;
-  authenticated_subject: string;
-  sovereignty: "verified";
-  ledger_event_ref: string;
+  events: TaskEvent[];
+  next_sequence: number;
+  has_more: boolean;
+  ledger_event_refs: string[];
 }
 
-export function toNativeNodeProfile(profile: ApprovedNodeProfile) {
+export function toNativeEventProfile(profile: ApprovedNodeProfile) {
   return {
     profile_id: profile.profileId,
     endpoint: profile.endpoint,
@@ -27,10 +28,11 @@ export function toNativeNodeProfile(profile: ApprovedNodeProfile) {
   };
 }
 
-/**
- * The webview has no network client. This is the only connection entry point,
- * and it crosses into the Rust-owned Tauri command boundary.
- */
-export async function connectApprovedNode(profile: ApprovedNodeProfile): Promise<NativeNodeConnectionResult> {
-  return invoke<NativeNodeConnectionResult>("connect_node", { profile: toNativeNodeProfile(profile) });
+/** Fetches a replayable cursor range through the Rust-owned Node transport. */
+export function fetchTaskEventBatch(profile: ApprovedNodeProfile, taskId: string, afterSequence: number): Promise<TaskEventBatch> {
+  return invoke<TaskEventBatch>("fetch_task_events", {
+    profile: toNativeEventProfile(profile),
+    taskId,
+    afterSequence,
+  });
 }
