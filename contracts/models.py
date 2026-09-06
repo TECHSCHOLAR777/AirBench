@@ -487,8 +487,10 @@ class RoutingDecision(Contract):
     decision_id: str; request_id: str; eligible_targets: tuple[str, ...]; selected_target: str | None; policy_version_hash: str; decision_source: str; rule_or_threshold: str; qualification_certificate: str; session_affinity: str; fallback_target: str | None; resource_admission: str; status: ContractStatus; reason: str
     def _validate(self, hints):
         issues = super()._validate(hints)
-        if not self.eligible_targets:
-            issues.append(ValidationIssue("eligible_targets", "required", "routing requires an eligible target set"))
+        if not self.eligible_targets and self.status == ContractStatus.accepted:
+            issues.append(ValidationIssue("eligible_targets", "required", "accepted routing requires an eligible target set"))
+        if not self.reason.strip():
+            issues.append(ValidationIssue("reason", "required", "routing must explain its outcome"))
         if self.status == ContractStatus.accepted and (not self.selected_target or not self.qualification_certificate or self.resource_admission != "admitted"):
             issues.append(ValidationIssue("selected_target", "admission", "accepted routing requires target, qualification, and admitted resources"))
         if self.resource_admission not in {"admitted", "queued", "rejected", "needs_review"}:

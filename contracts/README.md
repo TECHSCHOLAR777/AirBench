@@ -53,4 +53,16 @@ M3.3 adds typed `PlanProposal`/`PlanStep` validation for tools, evidence, budget
 
 M3.5 adds the restart walking-skeleton acceptance test. It runs fake model, retrieval, tool, verification, and artifact adapters through the complete pipeline, closes and reopens the durable control plane after every transition, replays the final trace, and proves tool/artifact side effects are not repeated.
 
+## M5.3 backend and routing boundary
+
+`backend.py` defines the provider-neutral model adapter contract. It carries
+typed messages, governed media references, tools, structured-output requests,
+streaming and cancellation signals, normalized usage, typed failures, and
+response provenance. `FakeBackend` is the deterministic offline adapter for
+contract tests. `router.py` applies signed registry eligibility before backend
+health/readiness and injected M5.2 resource admission. `Orchestrator.execute_model_call()`
+records the routing decision and invokes the selected adapter through the
+existing timeout, retry, and task-state machinery. Queued or rejected routes
+never call a backend.
+
 The compatibility rules are in `compatibility_policy.md`; the machine-readable registry and event/state catalogs are YAML and require no network or runtime service.
