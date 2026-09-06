@@ -245,6 +245,17 @@ fn validate_safe_preview(
     validate_node_reference(&preview.ledger_event_ref, "ledger event")
 }
 
+fn validate_preview_source_hash(
+    preview: &SafePreview,
+    expected_source_hash: &str,
+) -> Result<(), String> {
+    validate_sha256(expected_source_hash, "expected source hash")?;
+    if preview.source_hash != expected_source_hash {
+        return Err("The Node preview source hash does not match the intake manifest.".to_string());
+    }
+    Ok(())
+}
+
 fn validate_artifact_preview(
     preview: &ArtifactPreview,
     requested_artifact_id: &str,
@@ -400,8 +411,10 @@ pub async fn upload_selected_query_file(
 pub async fn fetch_safe_preview_from_profile(
     profile: NodeProfile,
     preview_ref: String,
+    expected_source_hash: String,
 ) -> Result<SafePreview, String> {
     validate_node_reference(&preview_ref, "preview")?;
+    validate_sha256(&expected_source_hash, "expected source hash")?;
     let token = credential_token(&profile).map_err(String::from)?;
     let response = build_client(&profile)
         .map_err(String::from)?
@@ -426,6 +439,7 @@ pub async fn fetch_safe_preview_from_profile(
         .await
         .map_err(|_| "The Node did not return a safe preview schema.".to_string())?;
     validate_safe_preview(&preview, &preview_ref, &profile.clearance_context)?;
+    validate_preview_source_hash(&preview, &expected_source_hash)?;
     Ok(preview)
 }
 
@@ -434,9 +448,10 @@ pub async fn fetch_safe_preview(
     app: tauri::AppHandle,
     profile_id: String,
     preview_ref: String,
+    expected_source_hash: String,
 ) -> Result<SafePreview, String> {
     let profile = approved_profile_by_id(&app, &profile_id)?;
-    fetch_safe_preview_from_profile(profile, preview_ref).await
+    fetch_safe_preview_from_profile(profile, preview_ref, expected_source_hash).await
 }
 
 pub async fn fetch_artifact_preview_from_profile(
@@ -576,7 +591,8 @@ fn _keep_error_type_linked(_: NodeTransportError) {}
 mod tests {
     use super::{
         validate_artifact_preview, validate_intake_manifest, validate_node_reference,
-        validate_safe_preview, ArtifactPreview, ArtifactPreviewBlock, IntakeManifest, SafePreview,
+        validate_preview_source_hash, validate_safe_preview, ArtifactPreview, ArtifactPreviewBlock,
+        IntakeManifest, SafePreview,
     };
 
     fn valid_manifest() -> IntakeManifest {
@@ -690,5 +706,24 @@ mod tests {
         assert!(validate_safe_preview(&preview, "preview-1", "restricted").is_err());
         preview.clearance = "restricted".to_string();
         assert!(validate_safe_preview(&preview, "preview-1", "restricted").is_ok());
+    }
+
+    #[test]
+    fn safe_preview_source_hash_must_match_intake_manifest() {
+        let preview = SafePreview {
+            preview_ref: "preview-1".to_string(),
+            preview_kind: "text".to_string(),
+            text: "preview".to_string(),
+            source_hash: format!("sha256:{}", "b".repeat(64)),
+            source_region: "page:1".to_string(),
+            confidence: 1.0,
+            clearance: "restricted".to_string(),
+            taint: "untrusted".to_string(),
+            ledger_event_ref: "ledger-preview-1".to_string(),
+        };
+        assert!(validate_preview_source_hash(&preview, &preview.source_hash).is_ok());
+        assert!(
+            validate_preview_source_hash(&preview, &format!("sha256:{}", "a".repeat(64))).is_err()
+        );
     }
 }
