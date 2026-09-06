@@ -43,7 +43,7 @@ python -m pytest -q
 python -m compileall -q airbench contracts tests
 ```
 
-Observed result: all tests pass. The full suite currently contains 65 passing tests.
+Observed result: all tests pass. The full suite currently contains 76 passing tests.
 
 ## Files
 
