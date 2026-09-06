@@ -38,4 +38,11 @@ describe("Rust-owned event transport", () => {
     expect(() => fetchTaskEventBatch({ ...profile, approvedByPolicy: false }, "task-1", 0)).toThrowError(/approved by policy/);
     expect(invokeMock).not.toHaveBeenCalled();
   });
+
+  it("rejects unsafe task identifiers and cursors before IPC", () => {
+    expect(() => fetchTaskEventBatch(profile, "../secret", 0)).toThrowError(/task identifier/);
+    expect(() => fetchTaskEventBatch(profile, "task-1", -1)).toThrowError(/event cursor/);
+    expect(() => fetchTaskEventBatch(profile, "task-1", Number.MAX_SAFE_INTEGER + 1)).toThrowError(/event cursor/);
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
 });

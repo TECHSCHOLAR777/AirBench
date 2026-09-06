@@ -24,6 +24,7 @@ const connected: NativeNodeConnectionResult = {
   protocol_version: "0.1",
   clearance_context: "restricted",
   authenticated_subject: "operator-1",
+  domain_pack_ref: "fixture-pack.v0",
   sovereignty: "verified" as const,
   ledger_event_ref: "ledger-connect-1",
 };
@@ -56,6 +57,7 @@ describe("NodeConnectionController", () => {
       protocolVersion: "0.1",
       clearanceContext: "restricted",
       authenticatedSubject: "operator-1",
+      domainPackRef: "fixture-pack.v0",
       sovereignty: "verified",
       ledgerEventRef: "ledger-connect-1",
     });
