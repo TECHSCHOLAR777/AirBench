@@ -14,6 +14,9 @@ events:
   - routing.decided
   - model.responded
   - model.failed
+  - retrieval.requested
+  - world_model.requested
+  - verification.requested
   - tool.requested
   - tool.authorized
   - tool.result

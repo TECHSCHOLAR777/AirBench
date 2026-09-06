@@ -30,4 +30,8 @@ M2.4 adds offline-only `verify_signed_export()` and `verify_projection_export()`
 
 M3.1 adds `Orchestrator`, the only state-mutating control-plane API. It creates and authorizes bounded tasks, validates plans and replans, enforces explicit transition preconditions, records a checkpoint after each committed SQLite transition, and runs capped steps with deterministic retry keys. Worker/model callbacks return proposals only; they cannot call a transition or mark completion. Timeout exhaustion becomes a ledger-backed failure, and a transition or checkpoint write failure stops the task.
 
+M3.2 adds `AuthorizationService` for local principal resolution, clearance ceilings, evidence/tool/risk/resource bounds, and required signed pack/policy references.
+
+M3.3 adds typed `PlanProposal`/`PlanStep` validation for tools, evidence, budgets, dependency cycles, supported execution kinds, and completion criteria. M3.4 extends the executor to retrieval/world-model/verification kinds, generic typed step failures, cancellation, review requests, and dependency circuit breakers. All state changes remain orchestrator-owned and ledger-backed.
+
 The compatibility rules are in `compatibility_policy.md`; the machine-readable registry and event/state catalogs are YAML and require no network or runtime service.
