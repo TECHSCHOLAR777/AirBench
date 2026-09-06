@@ -19,6 +19,7 @@ Start with `architecture_design.md`. It explains the whole system and points to 
 - `agent_development_workflow.md` - the issue-first workflow, document map, parallel work rules, and completion evidence required from coding agents.
 - `serving_and_routing.md` - hosting the models and sending each task to the right one.
 - `verification_framework.md` - checking that an answer is valid by the field's rules.
+- `m8_1_verification_evidence.md` - implementation evidence and limits for the deterministic M8.1 runner.
 - `consistency_engine.md` - keeping decisions consistent and flagging unjustified deviations.
 - `autonomy_governor.md` - deciding how much to do alone, by harm, reversibility, and confidence.
 - `model_qualification_framework.md` - clearing a model for a specific job before it runs.
