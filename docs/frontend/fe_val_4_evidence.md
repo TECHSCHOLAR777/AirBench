@@ -21,15 +21,15 @@ Command from `frontend/`:
 npm run validate:node
 ```
 
-The validation runner creates a synthetic scanned PDF containing instruction-bearing text, uploads it through the fixture File Intake endpoint, compares the returned source hash with the selected file, checks that source and artifact preview taint remain `untrusted`, displays both safe preview contracts, verifies the downloaded artifact hash and ledger reference, rejects a denied artifact download, and rejects an unsupported `.exe` file.
+The validation runner creates a synthetic scanned PDF containing instruction-bearing text, uploads it through the fixture File Intake endpoint, compares the returned source hash with the selected file, checks that source and artifact preview taint remain `untrusted`, displays both safe preview contracts, verifies the downloaded artifact hash and ledger reference, rejects a denied artifact download, rejects interrupted uploads, rejects truncated artifact responses, rejects oversized files before network transfer, and rejects an unsupported `.exe` file.
 
-Latest fixture run: `AirBenchNodeValidation-20260906-234714-0e8c87ef764145f69938514a7b4ab5a8`. The run passed local and pinned internal HTTPS handshakes, event replay, query upload, source-hash comparison, source and artifact preview validation, artifact hash verification, denied download, clearance mismatch rejection, malformed-preview rejection, source-hash mismatch rejection, unsafe-preview-reference rejection, and unsupported-document rejection.
+Latest fixture run: `AirBenchNodeValidation-20260907-000611-1771bd0d55b5493baa5f3dcfbfc4a940`. The run passed local and pinned internal HTTPS handshakes, event replay, query upload, source-hash comparison, source and artifact preview validation, artifact hash verification, denied download, interrupted-upload rejection, truncated-download rejection, pre-transfer oversized-file rejection, clearance mismatch rejection, malformed-preview rejection, source-hash mismatch rejection, unsafe-preview-reference rejection, and unsupported-document rejection.
 
 The intake boundary now also compares every returned manifest and preview clearance with the approved Node profile. A `secret` response from a `restricted` profile fails before preview or download. The preview request is bound to the manifest source hash, so a mismatched source hash fails closed. The live clearance-mismatch, malformed-preview, hash-mismatch, and unsafe-reference cases are included in the validation runner.
 
 Run: `AirBenchNodeValidation-20260906-173337-4902af3ae5ef4d5aa4239c8e5211d9d3`
 
-The run passed local and pinned internal HTTPS connection handshakes, event replay, query-upload intake, source-hash comparison, untrusted taint preservation, safe preview metadata, artifact hash verification, denied artifact download, and unsupported-document rejection. The fixture produced redacted JSONL logs under the run directory and retained the limitation that it is not a packaged desktop or production Python Node proof.
+The latest fixture run also passes the interrupted-upload, truncated-download, and pre-transfer oversized-file checks. The fixture produces redacted JSONL logs under the run directory and retains the limitation that it is not a packaged desktop or production Python Node proof.
 
 The fixture parses only the multipart envelope needed to receive the bytes. It does not interpret document instructions or execute content. It is not the production File Intake Layer.
 
@@ -42,6 +42,6 @@ Latest external WebDriver run: `npm run test:desktop` with `AIRBENCH_WDIO_DRIVER
 - packaged Tauri native-picker run under WebDriver;
 - packaged artifact download UI and allowed or denied download assertions;
 - real Python File Intake Layer and artifact service contracts;
-- corrupted, oversized, interrupted, and clearance-mismatch cases;
+- corrupted and clearance-mismatch cases against the production Node and Python intake path;
 - malicious preview-link and macro-bearing artifact tests;
 - screenshot and ledger packet from the approved internal Node environment.

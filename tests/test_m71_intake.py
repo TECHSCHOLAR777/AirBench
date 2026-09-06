@@ -6,6 +6,9 @@ import unittest
 import zipfile
 from pathlib import Path
 
+from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
 from airbench.intake import (
     FileIntakeLayer,
     IntakeError,
@@ -90,6 +93,28 @@ class FileIntakeTests(unittest.TestCase):
             "xl/worksheets/sheet1.xml": sheet,
         })
 
+    @staticmethod
+    def pdf_fixture(*, with_text: bool = False):
+        output = io.BytesIO()
+        writer = PdfWriter()
+        page = writer.add_blank_page(width=612, height=792)
+        writer.add_blank_page(width=612, height=792)
+        if with_text:
+            font = DictionaryObject({
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject("/Helvetica"),
+            })
+            font_ref = writer._add_object(font)
+            page[NameObject("/Resources")] = DictionaryObject({
+                NameObject("/Font"): DictionaryObject({NameObject("/F1"): font_ref}),
+            })
+            stream = DecodedStreamObject()
+            stream.set_data(b"BT /F1 12 Tf 72 720 Td (Inspection finding) Tj ET")
+            page[NameObject("/Contents")] = writer._add_object(stream)
+        writer.write(output)
+        return output.getvalue()
+
     def test_bulk_and_query_upload_share_parser_and_stable_revision(self):
         first_ledger = EventLedger()
         task_created(first_ledger, "task.intake")
@@ -142,15 +167,38 @@ class FileIntakeTests(unittest.TestCase):
     def test_pdf_manifest_has_stable_page_identity_and_no_instruction_authority(self):
         ledger = EventLedger()
         task_created(ledger, "task.pdf")
-        pdf = b"%PDF-1.7\n/Type /Page\n/Type /Page\n"
+        pdf = self.pdf_fixture()
         manifest = FileIntakeLayer(ledger).intake(IntakeRequest("task.pdf", "bulk:pdf", "scan.pdf", pdf, IntakeMode.bulk_ingest, Clearance.internal))
         self.assertEqual(manifest.media_type, "application/pdf")
         self.assertEqual(manifest.page_count, 2)
-        self.assertEqual(manifest.pages[0].extraction_method, "pdf_metadata_only")
+        self.assertEqual(manifest.pages[0].extraction_method, "pdf_text")
         self.assertEqual(manifest.pages[0].render_status, "deferred")
         self.assertEqual(manifest.pages[0].text, "")
         self.assertEqual(manifest.taint.value, "untrusted")
         self.assertTrue(manifest.ledger_event_ref)
+
+    def test_digital_pdf_text_is_extracted_with_page_provenance(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.pdf-text")
+        manifest = FileIntakeLayer(ledger).query_upload(
+            task_id="task.pdf-text", source_ref="upload:pdf-text", file_name="report.pdf",
+            content=self.pdf_fixture(with_text=True), clearance=Clearance.restricted,
+        )
+        self.assertIn("Inspection finding", manifest.pages[0].text)
+        self.assertEqual(manifest.pages[0].source_region, "page:1")
+        self.assertEqual(manifest.pages[0].confidence, 1.0)
+        self.assertEqual(manifest.pages[1].confidence, 0.0)
+
+    def test_malformed_pdf_fails_before_ledger_evidence(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.pdf-invalid")
+        with self.assertRaises(IntakeError) as caught:
+            FileIntakeLayer(ledger).query_upload(
+                task_id="task.pdf-invalid", source_ref="upload:invalid", file_name="invalid.pdf",
+                content=b"%PDF-1.7\nnot-a-real-pdf", clearance=Clearance.internal,
+            )
+        self.assertEqual(caught.exception.code, "malformed_pdf")
+        self.assertEqual(len(ledger.events), 1)
 
     def test_docx_xml_text_is_bounded_and_keeps_untrusted_provenance(self):
         ledger = EventLedger()
