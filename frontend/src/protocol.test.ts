@@ -219,6 +219,38 @@ describe("sequence-numbered task projection", () => {
     expect(maySendConsequentialCommand(result.projection, result.state.status)).toBe(false);
   });
 
+  it("fails closed when event ledger references do not align with events", async () => {
+    const synchronizer = new TaskEventSynchronizer(async () => ({
+      ...batch([event(5, "worker.started", { role: "planner", label: "Plan", status: "running" })], 5),
+      ledger_event_refs: ["ledger-not-event-5"],
+    }));
+    synchronizer.loadSnapshot(snapshot);
+
+    const result = await synchronizer.synchronizeOnce();
+
+    expect(result.kind).toBe("blocked");
+    expect(result.state.error?.code).toBe("event_protocol_invalid");
+    expect(result.projection.lastAppliedSequence).toBe(4);
+  });
+
+  it("fails closed for identity, clearance, and cursor inconsistencies", async () => {
+    const cases: TaskEventBatch[] = [
+      { ...batch([], 4), node_identity: "other-node" },
+      { ...batch([], 4), clearance_context: "secret" },
+      { ...batch([event(5, "worker.started", { role: "planner", label: "Plan", status: "running" })], 4) },
+      { ...batch([], 4, true) },
+    ];
+
+    for (const invalidBatch of cases) {
+      const synchronizer = new TaskEventSynchronizer(async () => invalidBatch);
+      synchronizer.loadSnapshot(snapshot);
+      const result = await synchronizer.synchronizeOnce();
+      expect(result.kind).toBe("blocked");
+      expect(result.state.error?.code).toBe("event_protocol_invalid");
+      expect(result.projection.lastAppliedSequence).toBe(4);
+    }
+  });
+
   it("blocks when a synchronized batch contains an unknown event schema", async () => {
     const synchronizer = new TaskEventSynchronizer(async () => batch([
       event(5, "unknown", { originalType: "future.event", raw: { value: "data" } }),

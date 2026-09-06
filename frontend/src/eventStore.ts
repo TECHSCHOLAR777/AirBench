@@ -1,4 +1,4 @@
-import { applyEvent, projectionFromSnapshot, type TaskEvent, type TaskProjection, type TaskSnapshot } from "./protocol";
+import { applyEvent, FRONTEND_PROTOCOL_VERSION, projectionFromSnapshot, type TaskEvent, type TaskProjection, type TaskSnapshot } from "./protocol";
 import type { TaskEventBatch } from "./eventTransport";
 
 export type EventStoreOutcome =
@@ -240,7 +240,52 @@ export class TaskEventSynchronizer {
 
   private validateBatch(batch: TaskEventBatch, taskId: string, afterSequence: number): void {
     if (batch.stream_id !== taskId) throw new EventSyncProtocolError("The Node returned an event batch for a different task.");
-    if (batch.next_sequence < afterSequence) throw new EventSyncProtocolError("The Node returned an older event cursor.");
+    const projection = this.store.current();
+    if (typeof batch.node_identity !== "string" || !batch.node_identity.trim()) {
+      throw new EventSyncProtocolError("The Node returned an empty identity in the event batch.");
+    }
+    if (batch.node_identity !== projection.nodeConnectionRef) {
+      throw new EventSyncProtocolError("The Node returned events from a different Node identity.");
+    }
+    if (batch.protocol_version !== FRONTEND_PROTOCOL_VERSION) {
+      throw new EventSyncProtocolError("The Node event protocol version is not supported by this client.");
+    }
+    if (batch.clearance_context !== projection.clearanceContext) {
+      throw new EventSyncProtocolError("The Node event clearance context does not match the task.");
+    }
+    if (!Array.isArray(batch.events) || !Array.isArray(batch.ledger_event_refs) || typeof batch.has_more !== "boolean") {
+      throw new EventSyncProtocolError("The Node returned an invalid event batch shape.");
+    }
+    if (batch.ledger_event_refs.length !== batch.events.length) {
+      throw new EventSyncProtocolError("The Node event batch is not aligned with its ledger references.");
+    }
+    if (!Number.isSafeInteger(batch.next_sequence) || batch.next_sequence < afterSequence) {
+      throw new EventSyncProtocolError("The Node returned an older or invalid event cursor.");
+    }
+    let previousSequence = afterSequence;
+    for (const [index, event] of batch.events.entries()) {
+      if (event.taskId !== taskId) throw new EventSyncProtocolError("The Node returned an event for a different task.");
+      if (!Number.isSafeInteger(event.sequence) || event.sequence <= previousSequence) {
+        throw new EventSyncProtocolError("The Node event sequence is not strictly increasing.");
+      }
+      if (event.schemaVersion !== batch.protocol_version || event.clearanceContext !== batch.clearance_context) {
+        throw new EventSyncProtocolError("The Node event metadata does not match the event batch.");
+      }
+      if (event.ledgerEventRef !== batch.ledger_event_refs[index]) {
+        throw new EventSyncProtocolError("The Node event ledger reference does not match the batch reference.");
+      }
+      previousSequence = event.sequence;
+    }
+    if (batch.has_more && batch.events.length === 0) {
+      throw new EventSyncProtocolError("The Node marked an empty event batch as having more events.");
+    }
+    const expectedCursor = batch.events.length === 0 ? afterSequence : previousSequence;
+    if (!batch.has_more && batch.next_sequence !== expectedCursor) {
+      throw new EventSyncProtocolError("The Node final event cursor does not match the returned events.");
+    }
+    if (batch.has_more && batch.next_sequence < previousSequence) {
+      throw new EventSyncProtocolError("The Node event cursor precedes the returned events.");
+    }
   }
 
   private blocked(code: string, message: string): EventSyncResult {

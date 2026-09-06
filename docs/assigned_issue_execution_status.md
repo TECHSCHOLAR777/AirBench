@@ -35,7 +35,7 @@ The first-release frontend assignment snapshot covered #64 to #69 and #73 to #85
 | #68 | FE-VAL-5 no-egress proof | Static review autonomous, packet gate blocked | Needs packaged runtime and approved internal transport for network capture. |
 | #69 | FE-VAL-6 desktop WebDriver | Serial integration | Requires #64 through #68 executable fixtures and packaged evidence. |
 | #73 | FE-DEV-01 secure Tauri shell | Foundation | Can progress independently until packaged offline proof is required. |
-| #74 | FE-DEV-02 typed protocol and projection | Contract serialization | Core Python contract generation is implemented. Node-specific envelopes and live command transport remain. |
+| #74 | FE-DEV-02 typed protocol and projection | Contract serialization | Core Python contract generation and fail-closed event-batch consistency are implemented. Node-specific envelopes and live command transport remain. |
 | #75 | FE-DEV-03 trusted Node profiles | Serial critical path | Depends on the authoritative Node handshake and policy contract. |
 | #76 to #80 | FE-DEV-04 through FE-DEV-08 first task path | Serial critical path | Requires Node command, task, intake, evidence, artifact, and approval contracts in order. |
 | #81 to #83 | FE-DEV-09 through FE-DEV-11 records and administration | Parallel after core Node contracts | Must not invent authoritative task or audit data. |
@@ -64,5 +64,6 @@ There is no delegated subagent runtime available in this environment. Parallel r
 - `airbench/intake.py` now uses the declared `pypdf` adapter for bounded digital-PDF text extraction, with page and total text limits and fail-closed malformed/encrypted handling. The parser remains the one shared boundary for bulk and query upload.
 - The same parser now validates image structure and dimensions with Pillow without decoding pixels or claiming OCR; malformed image inputs fail before ledger evidence.
 - FE-VAL-4 fixture run `AirBenchNodeValidation-20260907-000611-1771bd0d55b5493baa5f3dcfbfc4a940` also covers interrupted upload, truncated artifact response, and oversized-file rejection before network transfer.
+- FE-DEV-02 now rejects inconsistent event batches before projection, including identity, protocol, clearance, cursor, sequence, metadata, and ledger-reference mismatches; frontend tests pass 35/35.
 
 The latest local evidence is a passing full Python suite and compile check, 33 passing frontend tests, 13 passing Rust tests, a passing frontend build, generated-contract check, static no-egress check, live Node fixture validation, and 5/5 external WebDriver tests. The default embedded WebDriver provider remains blocked by a direct-eval HTTP 404; the external `tauri-driver` path passes. The local branch must still be pushed after the next main-branch refresh.
