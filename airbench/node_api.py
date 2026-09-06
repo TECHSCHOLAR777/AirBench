@@ -78,6 +78,7 @@ class NodeApiConfig:
     protocol_version: str
     clearance_context: Clearance | str
     authenticated_subject: str
+    domain_pack_ref: str
     bearer_token: str = field(repr=False)
     handshake_ledger_event_ref: str
     sovereignty_evidence_ref: str
@@ -89,7 +90,7 @@ class NodeApiConfig:
         except ValueError as exc:
             raise ValueError("clearance_context is invalid") from exc
         object.__setattr__(self, "clearance_context", clearance)
-        for name in ("node_identity", "protocol_version", "authenticated_subject", "bearer_token", "handshake_ledger_event_ref", "sovereignty_evidence_ref"):
+        for name in ("node_identity", "protocol_version", "authenticated_subject", "domain_pack_ref", "bearer_token", "handshake_ledger_event_ref", "sovereignty_evidence_ref"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} is required")
@@ -120,6 +121,7 @@ class NodeApiService:
             "protocol_version": self.config.protocol_version,
             "clearance_context": self.config.clearance_context.value,
             "authenticated_subject": self.config.authenticated_subject,
+            "domain_pack_ref": self.config.domain_pack_ref,
             "ledger_event_ref": self.config.handshake_ledger_event_ref,
         }
 
@@ -158,14 +160,22 @@ class NodeApiService:
             clearance = _clearance(arguments.get("clearance"))
             self._check_clearance(clearance)
             request = _text(arguments, "request", 65_536)
-            domain_pack_ref = _text(arguments, "domain_pack_ref", 512)
+            requested_domain_pack_ref = _optional_text(arguments, "domain_pack_ref", 512)
+            if requested_domain_pack_ref is not None and requested_domain_pack_ref != self.config.domain_pack_ref:
+                raise NodeApiError(409, "domain_pack_mismatch", "The task domain pack must be selected by the approved Node.")
+            domain_pack_ref = self.config.domain_pack_ref
             risk_class = _text(arguments, "risk_class", 128)
             autonomy_ceiling = _text(arguments, "autonomy_ceiling", 128)
+            title = _text(arguments, "title", 256, default=_title(request))
+            project_ref = _optional_text(arguments, "project_ref", 256)
+            priority = _text(arguments, "priority", 64, default="normal")
+            deadline = _optional_text(arguments, "deadline", 64)
             allowed_evidence_scope = _text_list(arguments, "allowed_evidence_scope", 100)
             permitted_worker_capabilities = _text_list(arguments, "permitted_worker_capabilities", 100)
             permitted_tools = _text_list(arguments, "permitted_tools", 100)
             output_contract = _text(arguments, "output_contract", 512, default="text")
             verification_criteria = _text_list(arguments, "verification_criteria", 100)
+            input_manifest_refs = _text_list(arguments, "input_manifest_refs", 100)
             resource_budget = _int_map(arguments.get("resource_budget", {}), "resource_budget")
             if self.config.require_orchestrator_authorization and self.orchestrator.authorization is None:
                 raise NodeApiError(503, "authorization_unavailable", "The local authorization service is not configured.")
@@ -184,6 +194,11 @@ class NodeApiService:
                     output_contract=output_contract,
                     verification_criteria=verification_criteria,
                     resource_budget=resource_budget,
+                    title=title,
+                    project_ref=project_ref,
+                    priority=priority,
+                    deadline=deadline,
+                    input_manifest_refs=input_manifest_refs,
                     command_metadata=_command_metadata(command),
                 )
             except AuthorizationError as exc:
@@ -760,6 +775,15 @@ def _clearance(value: Any) -> Clearance:
 
 def _text(payload: dict[str, Any], name: str, maximum: int, *, default: str | None = None) -> str:
     value = payload.get(name, default)
+    if not isinstance(value, str) or not value.strip() or len(value) > maximum:
+        raise NodeApiError(400, "field_invalid", f"The field {name} is invalid.")
+    return value.strip()
+
+
+def _optional_text(payload: dict[str, Any], name: str, maximum: int) -> str | None:
+    value = payload.get(name)
+    if value is None:
+        return None
     if not isinstance(value, str) or not value.strip() or len(value) > maximum:
         raise NodeApiError(400, "field_invalid", f"The field {name} is invalid.")
     return value.strip()

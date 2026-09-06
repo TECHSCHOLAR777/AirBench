@@ -1,7 +1,7 @@
 import { invoke } from "@airbench/tauri-invoke";
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 import type { TaskSnapshot } from "./protocol";
-import type { NodeCommandEnvelope, NodeCommandResult } from "./generated/core_contracts";
+import type { NodeCommandEnvelope, NodeCommandResult, TaskEnvelope } from "./generated/core_contracts";
 
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const COMMAND_ID = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
@@ -9,7 +9,7 @@ const COMMAND_ID = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 export type TaskCommandType = "task.authorize" | "task.cancel" | "task.request_review";
 
 export interface CreateTaskResponse {
-  task: unknown;
+  task: TaskEnvelope;
   snapshot: TaskSnapshot;
   ledger_event_ref: string;
   command: NodeCommandResult;

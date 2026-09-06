@@ -315,13 +315,21 @@ class UntrustedEvidence(Contract):
 
 @dataclass(frozen=True)
 class TaskEnvelope(Contract):
-    task_id: str; principal_id: str; clearance: Clearance; request: str; domain_pack_ref: str; risk_class: str; autonomy_ceiling: str; allowed_evidence_scope: tuple[str, ...]; permitted_worker_capabilities: tuple[str, ...]; permitted_tools: tuple[str, ...]; output_contract: str; verification_criteria: tuple[str, ...]; resource_budget: dict[str, int]; state: str = "created"; parent_task_id: str | None = None; created_at: str = field(default_factory=_now)
+    task_id: str; principal_id: str; clearance: Clearance; request: str; domain_pack_ref: str; risk_class: str; autonomy_ceiling: str; allowed_evidence_scope: tuple[str, ...]; permitted_worker_capabilities: tuple[str, ...]; permitted_tools: tuple[str, ...]; output_contract: str; verification_criteria: tuple[str, ...]; resource_budget: dict[str, int]; title: str = ""; project_ref: str | None = None; priority: str = "normal"; deadline: str | None = None; input_manifest_refs: tuple[str, ...] = (); state: str = "created"; parent_task_id: str | None = None; created_at: str = field(default_factory=_now)
     def _validate(self, hints):
         issues = super()._validate(hints)
         if self.state not in {"created", "authorized", "planned", "executing", "awaiting_check", "awaiting_review", "rendering", "deliverable_verified", "complete", "needs_review", "blocked", "failed", "cancelled"}:
             issues.append(ValidationIssue("state", "enum", "invalid task state"))
         if not self.request.strip():
             issues.append(ValidationIssue("request", "required", "request must not be empty"))
+        if len(self.title) > 256:
+            issues.append(ValidationIssue("title", "length", "title must not exceed 256 characters"))
+        if self.project_ref is not None and len(self.project_ref) > 256:
+            issues.append(ValidationIssue("project_ref", "length", "project reference must not exceed 256 characters"))
+        if not self.priority.strip() or len(self.priority) > 64:
+            issues.append(ValidationIssue("priority", "required", "priority must be 1..64 characters"))
+        if self.deadline is not None and len(self.deadline) > 64:
+            issues.append(ValidationIssue("deadline", "length", "deadline must not exceed 64 characters"))
         if isinstance(self.resource_budget, dict) and any(type(value) is not int or value < 0 for value in self.resource_budget.values()):
             issues.append(ValidationIssue("resource_budget", "resource", "budget values must be non-negative integers"))
         return issues

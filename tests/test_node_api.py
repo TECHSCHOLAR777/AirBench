@@ -18,6 +18,7 @@ class NodeApiTests(unittest.TestCase):
                 protocol_version="0.1",
                 clearance_context=Clearance.restricted,
                 authenticated_subject="principal.api",
+                domain_pack_ref="pack.refinery.v0",
                 bearer_token="test-token",
                 handshake_ledger_event_ref="ledger.handshake.test",
                 sovereignty_evidence_ref="evidence.sovereignty.test",
@@ -109,6 +110,7 @@ class NodeApiTests(unittest.TestCase):
                 "protocol_version": "0.1",
                 "clearance_context": "restricted",
                 "authenticated_subject": "principal.api",
+                "domain_pack_ref": "pack.refinery.v0",
                 "ledger_event_ref": "ledger.handshake.test",
             },
         )
@@ -158,6 +160,27 @@ class NodeApiTests(unittest.TestCase):
         self.assertEqual([event.event_type for event in self.ledger.events], [
             "task.created", "task.authorized", "task.cancelled",
         ])
+
+    def test_create_preserves_bounded_user_manifest_fields(self):
+        response = self.request(
+            "POST",
+            "/api/v1/tasks",
+            headers=self.headers(),
+            json=self.task_body(
+                title="Inspection approval note",
+                project_ref="project.unit-4",
+                priority="high",
+                deadline="2026-10-01T12:00:00Z",
+                input_manifest_refs=["intake.report-001"],
+            ),
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        task = response.json()["task"]
+        self.assertEqual(task["title"], "Inspection approval note")
+        self.assertEqual(task["project_ref"], "project.unit-4")
+        self.assertEqual(task["priority"], "high")
+        self.assertEqual(task["deadline"], "2026-10-01T12:00:00Z")
+        self.assertEqual(task["input_manifest_refs"], ["intake.report-001"])
 
     def test_event_batch_uses_task_local_cursor_and_preserves_ledger_reference(self):
         task, _ = self.create_task()

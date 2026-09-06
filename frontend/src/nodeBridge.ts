@@ -9,6 +9,7 @@ export interface NativeNodeConnectionResult {
   protocol_version: string;
   clearance_context: Clearance;
   authenticated_subject: string;
+  domain_pack_ref: string;
   sovereignty: "verified";
   ledger_event_ref: string;
 }
