@@ -18,6 +18,7 @@ Start with `architecture_design.md`. It explains the whole system and points to 
 - `backend_development_plan.md` - the Python implementation baseline, M1-M10 dependency graph, and backend-complete definition.
 - `agent_development_workflow.md` - the issue-first workflow, document map, parallel work rules, and completion evidence required from coding agents.
 - `serving_and_routing.md` - hosting the models and sending each task to the right one.
+- `backend_adapter_contract.md` - the provider-neutral Python model backend seam and fake adapter.
 - `verification_framework.md` - checking that an answer is valid by the field's rules.
 - `m8_1_verification_evidence.md` - implementation evidence and limits for the deterministic M8.1 runner.
 - `m6_2_tool_gateway_evidence.md` - implementation evidence and limits for the typed Tool Gateway.

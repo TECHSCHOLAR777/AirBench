@@ -15,11 +15,16 @@ from .recovery import RecoveryManager, RecoveryPoint, RetryRecord, SideEffectUnc
 from .verification import verify_projection_export, verify_signed_export
 from .orchestrator import (AuthorizationRejected, OrchestrationError, Orchestrator,
                             CircuitOpen, CancellationRequested, PlanRejected, RetryExhausted, StepResult, StepTimeout,
-                            TransitionResult)
+                            TransitionResult, ModelCallExecution)
 from .authorization import AuthorizationDecision, AuthorizationError, AuthorizationService, PrincipalRecord, SignedReference, sign_reference
 from .planning import PlanProposal, PlanStep, PlanValidationError, PlanValidator
 from .model_registry import ModelRegistry, ModelTarget, RegistryError
 from .admission import AdmissionController, AdmissionDecision, AdmissionError, AdmissionRequest, HardwareMeasurement
+from .backend import (BackendAdapter, BackendCallError, BackendCapabilities, BackendChunk, BackendContent,
+                      BackendErrorCode, BackendFailure, BackendHealth, BackendMessage, BackendOutputSpec,
+                      BackendReadiness, BackendRequest, BackendResponse, BackendTool, BackendToolCall,
+                      BackendUsage, CancellationToken, FakeBackend, ResponseProvenance)
+from .router import ModelRouter, ResourceAdmission, RouteResult, RoutingError, RoutingRejected
 
 __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "stable_id",
            "TaskEnvelope", "TeamPlan", "WorkerAssignment", "WorkPacket", "WorkerResult",
@@ -37,3 +42,9 @@ __all__ += ["AuthorizationRejected", "OrchestrationError", "Orchestrator", "Plan
             "PrincipalRecord", "SignedReference", "PlanProposal", "PlanStep", "PlanValidationError", "PlanValidator"]
 __all__ += ["sign_reference"]
 __all__ += ["ModelRegistry", "ModelTarget", "RegistryError", "AdmissionController", "AdmissionDecision", "AdmissionError", "AdmissionRequest", "HardwareMeasurement"]
+__all__ += ["BackendAdapter", "BackendCallError", "BackendCapabilities", "BackendChunk", "BackendContent",
+            "BackendErrorCode", "BackendFailure", "BackendHealth", "BackendMessage", "BackendOutputSpec",
+            "BackendReadiness", "BackendRequest", "BackendResponse", "BackendTool", "BackendToolCall",
+            "BackendUsage", "CancellationToken", "FakeBackend", "ResponseProvenance"]
+__all__ += ["ModelRouter", "ResourceAdmission", "RouteResult", "RoutingError", "RoutingRejected"]
+__all__ += ["ModelCallExecution"]
