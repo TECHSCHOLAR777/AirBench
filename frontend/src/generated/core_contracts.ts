@@ -89,6 +89,7 @@ export const LEDGER_EVENT_TYPES = [
   "task.checkpoint.committed",
   "task.created",
   "task.failed",
+  "task.plan.approved",
   "task.plan.committed",
   "team.created",
   "team.resource_plan.admitted",
@@ -155,6 +156,32 @@ export interface TeamPlan extends ContractEnvelope {
   plan_version_hash: string;
   policy_version_hash: string;
   status?: ContractStatus;
+}
+
+export interface TaskPlanReview extends ContractEnvelope {
+  task_id: string;
+  node_identity: string;
+  protocol_version: string;
+  clearance_context: Clearance;
+  plan_state: string;
+  task_sequence: number;
+  team_id: string | null;
+  assignments: Array<string>;
+  dependency_graph: Record<string, Array<string>>;
+  concurrency_ceiling: number;
+  execution_mode: string;
+  worker_capabilities: Record<string, string>;
+  hardware_profile_ref: string | null;
+  hardware_reason: string;
+  required_verification: boolean;
+  completion_criteria: Array<string>;
+  required_authority: string;
+  authority_reason: string;
+  plan_version_hash: string | null;
+  policy_version_hash: string | null;
+  ledger_event_ref: string | null;
+  failure_code?: string | null;
+  failure_reason?: string | null;
 }
 
 export interface WorkerAssignment extends ContractEnvelope {

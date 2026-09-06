@@ -124,6 +124,7 @@ Examples:
 
 - `task.create`
 - `task.submit`
+- `task.approve_plan`
 - `task.pause`
 - `task.stop`
 - `task.resume`
@@ -134,6 +135,12 @@ Examples:
 - `node.recheck`
 
 The Node returns an accepted, rejected, or needs-review result. The UI waits for the corresponding event before changing authoritative status.
+
+## 5.1 Plan review projection
+
+The Node exposes a typed `TaskPlanReview` projection for the plan review surface. It contains the committed team assignments, dependency graph, verification criteria, capability lanes, hardware profile reference, execution mode, hardware reason, authority requirement, plan and policy hashes, task-local sequence, and ledger reference. The projection can be `not_ready`, `ready`, `queued`, `needs_review`, `blocked`, or `rejected`.
+
+The UI never infers parallelism from the number of displayed workers. It shows parallel, pipelined, or serial virtual-team mode only when the Node supplies a valid hardware admission record. Missing or invalid hardware admission is shown as a blocked review state. `task.approve_plan` carries the last server sequence and an idempotency key; the UI displays the accepted command but waits for the authoritative plan-approval event before changing task state.
 
 ## 6. Event application
 

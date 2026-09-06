@@ -29,8 +29,11 @@ from contracts import (
     NodeCommandEnvelope,
     NodeCommandResult,
     Orchestrator,
+    PlanRejected,
     StorageFailure,
     TaskEnvelope,
+    TaskPlanReview,
+    TeamPlan,
     TransitionRejected,
     CancellationRequested,
 )
@@ -238,6 +241,34 @@ class NodeApiService:
                 raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the transition.") from exc
             return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
 
+    def approve_plan(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            command = self._command(subject, payload, "task.approve_plan", task_id)
+            self._visible_task(task_id)
+            existing = self._existing_command(command)
+            if existing is not None:
+                return _command_result(command, task_id, existing, self._task_sequence(task_id, existing.event_id), self.orchestrator.state(task_id), self.config)
+            self._check_expected_sequence(command, task_id)
+            review = self.plan(task_id)
+            if review["plan_state"] != "ready":
+                raise NodeApiError(409, "plan_not_approvable", "The Node has not produced an approvable plan and hardware admission.")
+            approval_ref = _text(command.arguments, "approval_ref", 512)
+            try:
+                result = self.orchestrator.approve_plan(
+                    self._visible_task(task_id).task_id,
+                    approval_ref=approval_ref,
+                    command_metadata=_command_metadata(command),
+                )
+            except AuthorizationRejected as exc:
+                raise NodeApiError(400, "approval_invalid", "The plan approval reference is invalid.") from exc
+            except PlanRejected as exc:
+                raise NodeApiError(409, "plan_not_approvable", "The committed plan cannot be approved in its current state.") from exc
+            except TransitionRejected as exc:
+                raise NodeApiError(409, "transition_rejected", "The plan cannot be approved from its current task state.") from exc
+            except (StorageFailure, LedgerError) as exc:
+                raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the plan approval.") from exc
+            return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
+
     def cancel(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
             command = self._command(subject, payload, "task.cancel", task_id)
@@ -369,6 +400,115 @@ class NodeApiService:
                 "nodeConnectionRef": self.config.node_identity,
                 "ledgerHeadRef": latest_ref,
             }
+
+    def plan(self, task_id: str) -> dict[str, Any]:
+        with self._lock:
+            task = self._visible_task(task_id)
+            events = self._stream_events(task)
+            plan_event = next((event for event in reversed(events) if event.event_type == "task.plan.committed"), None)
+            resource_event = next((event for event in reversed(events) if event.event_type in {
+                "team.resource_plan.admitted", "team.resource_plan.queued", "team.resource_plan.degraded_needs_review", "team.resource_plan.rejected"
+            }), None)
+            authority = "operator_approval" if task.autonomy_ceiling == "review_required" else "policy_permitted"
+            authority_reason = (
+                "An authorized operator must approve this plan before execution."
+                if authority == "operator_approval" else
+                "The current autonomy policy permits execution after the Node plan is admitted."
+            )
+            if plan_event is None:
+                return TaskPlanReview(
+                    task_id=task.task_id,
+                    node_identity=self.config.node_identity,
+                    protocol_version=self.config.protocol_version,
+                    clearance_context=self.config.clearance_context,
+                    plan_state="not_ready",
+                    task_sequence=len(events),
+                    team_id=None,
+                    assignments=(),
+                    dependency_graph={},
+                    concurrency_ceiling=0,
+                    execution_mode="not_selected",
+                    worker_capabilities={},
+                    hardware_profile_ref=None,
+                    hardware_reason="The Node has accepted the task but has not committed a plan yet.",
+                    required_verification=True,
+                    completion_criteria=task.verification_criteria,
+                    required_authority=authority,
+                    authority_reason=authority_reason,
+                    plan_version_hash=None,
+                    policy_version_hash=None,
+                    ledger_event_ref=None,
+                    failure_code="plan_not_ready",
+                    failure_reason="The orchestration engine has not committed a validated plan.",
+                ).to_dict()
+
+            raw_plan = plan_event.payload.get("plan")
+            try:
+                plan = TeamPlan.from_dict(raw_plan) if isinstance(raw_plan, dict) else None
+            except ContractValidationError as exc:
+                raise NodeApiError(503, "plan_contract_corrupt", "The committed plan could not be verified.") from exc
+            if plan is None:
+                raise NodeApiError(503, "plan_contract_corrupt", "The committed plan does not contain its typed contract.")
+
+            resource = _resource_plan_values(resource_event.payload if resource_event else None)
+            admission = resource.get("admission")
+            mode = resource.get("execution_mode")
+            failure_code: str | None = None
+            failure_reason: str | None = None
+            if resource_event is None:
+                plan_state = "needs_review"
+                mode = "not_selected"
+                hardware_reason = "Hardware admission evidence is missing, so execution mode cannot be shown safely."
+                failure_code = "hardware_admission_missing"
+                failure_reason = hardware_reason
+            elif admission in {"rejected", "stopped"}:
+                plan_state = "rejected"
+                hardware_reason = resource.get("reason") or "The hardware admission policy rejected this plan."
+                failure_code = "hardware_admission_rejected"
+                failure_reason = hardware_reason
+            elif admission == "queued":
+                plan_state = "queued"
+                hardware_reason = resource.get("reason") or "The plan is waiting for an available hardware reservation."
+            elif admission == "degraded_needs_review":
+                plan_state = "needs_review"
+                hardware_reason = resource.get("reason") or "The Node admitted a degraded execution mode that requires review."
+                failure_code = "degraded_hardware_mode"
+                failure_reason = hardware_reason
+            elif admission == "admitted" and mode in {"parallel", "pipelined", "serial_virtual_team"}:
+                plan_state = "ready"
+                hardware_reason = resource.get("reason") or "Hardware admission was committed by the Node."
+            else:
+                plan_state = "needs_review"
+                mode = "not_selected"
+                hardware_reason = "The hardware admission record is incomplete, so execution cannot be approved safely."
+                failure_code = "hardware_admission_invalid"
+                failure_reason = hardware_reason
+
+            return TaskPlanReview(
+                task_id=task.task_id,
+                node_identity=self.config.node_identity,
+                protocol_version=self.config.protocol_version,
+                clearance_context=self.config.clearance_context,
+                plan_state=plan_state,
+                task_sequence=len(events),
+                team_id=plan.team_id,
+                assignments=plan.assignments,
+                dependency_graph=plan.dependency_graph,
+                concurrency_ceiling=resource.get("concurrency_ceiling", plan.concurrency_ceiling),
+                execution_mode=mode,
+                worker_capabilities=resource.get("worker_capabilities", {}),
+                hardware_profile_ref=resource.get("hardware_profile_ref"),
+                hardware_reason=hardware_reason,
+                required_verification=plan.required_verification,
+                completion_criteria=plan.completion_criteria,
+                required_authority=authority,
+                authority_reason=authority_reason,
+                plan_version_hash=plan.plan_version_hash,
+                policy_version_hash=plan.policy_version_hash,
+                ledger_event_ref=plan_event.event_id,
+                failure_code=failure_code,
+                failure_reason=failure_reason,
+            ).to_dict()
 
     def event_batch(self, task_id: str, after_sequence: int) -> dict[str, Any]:
         if after_sequence < 0:
@@ -505,6 +645,8 @@ class NodeApiService:
             return "task.accepted", {"phase": "accepted", "status": "accepted", "summary": _event_summary(event)}
         if event.event_type == "task.plan.committed":
             return "plan.created", {"phase": "planning", "status": "planning", "summary": _event_summary(event)}
+        if event.event_type == "task.plan.approved":
+            return "plan.approved", {"phase": "planning", "status": "planning", "summary": _event_summary(event)}
         if event.event_type in {"model.requested", "worker.started"}:
             return "worker.started", {"role": _role(p, "worker"), "label": _label(p, event.event_type), "status": "running"}
         if event.event_type in {"model.responded", "worker.completed"}:
@@ -687,6 +829,11 @@ def create_app(service: NodeApiService) -> FastAPI:
         auth(request)
         return service.snapshot(task_id)
 
+    @app.get("/api/v1/tasks/{task_id}/plan")
+    async def task_plan(task_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.plan(task_id)
+
     @app.get("/api/v1/tasks/{task_id}/events")
     async def task_events(task_id: str, request: Request, after_sequence: int = 0) -> dict[str, Any]:
         auth(request)
@@ -711,6 +858,11 @@ def create_app(service: NodeApiService) -> FastAPI:
     async def authorize_task(task_id: str, request: Request) -> dict[str, Any]:
         subject = auth(request)
         return service.authorize(subject, task_id, await json_body(request))
+
+    @app.post("/api/v1/tasks/{task_id}/approve", status_code=202)
+    async def approve_task_plan(task_id: str, request: Request) -> dict[str, Any]:
+        subject = auth(request)
+        return service.approve_plan(subject, task_id, await json_body(request))
 
     @app.post("/api/v1/tasks/{task_id}/cancel", status_code=202)
     async def cancel_task(task_id: str, request: Request) -> dict[str, Any]:
@@ -892,6 +1044,37 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, (list, tuple)):
         return []
     return [_bounded_text(item, 512) for item in value if isinstance(item, str) and item.strip()]
+
+
+def _resource_plan_values(payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    nested = payload.get("resource_plan")
+    source = nested if isinstance(nested, dict) else payload
+    values: dict[str, Any] = {}
+    admission = source.get("admission")
+    if isinstance(admission, str):
+        values["admission"] = _bounded_text(admission, 64)
+    mode = source.get("execution_mode")
+    if isinstance(mode, str):
+        values["execution_mode"] = _bounded_text(mode, 64)
+    profile_ref = source.get("hardware_profile_ref")
+    if isinstance(profile_ref, str) and profile_ref.strip():
+        values["hardware_profile_ref"] = _bounded_text(profile_ref, 256)
+    reason = source.get("reason")
+    if isinstance(reason, str) and reason.strip():
+        values["reason"] = _bounded_text(reason, 4_096)
+    ceiling = source.get("concurrency_ceiling")
+    if type(ceiling) is int and ceiling >= 0:
+        values["concurrency_ceiling"] = ceiling
+    capabilities = source.get("worker_capabilities")
+    if isinstance(capabilities, dict):
+        values["worker_capabilities"] = {
+            _bounded_text(str(worker), 256): _bounded_text(value, 256)
+            for worker, value in list(capabilities.items())[:100]
+            if isinstance(worker, str) and isinstance(value, str) and worker.strip() and value.strip()
+        }
+    return values
 
 
 def _safe_value(value: Any, depth: int = 0) -> Any:

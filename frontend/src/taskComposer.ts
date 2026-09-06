@@ -67,11 +67,40 @@ export function buildCreateTaskCommand(input: TaskComposerInput, commandId: stri
       risk_class: "operator_requested",
       autonomy_ceiling: "review_required",
       allowed_evidence_scope: [],
-      permitted_worker_capabilities: ["general"] ,
+      permitted_worker_capabilities: ["general"],
       permitted_tools: [],
       verification_criteria: [],
       resource_budget: { max_concurrency: 1, max_steps: 32 },
       input_manifest_refs: [...input.inputManifestRefs],
     },
+  };
+}
+
+export function buildApprovePlanCommand(
+  actor: string,
+  taskId: string,
+  expectedSequence: number,
+  approvalRef: string,
+  commandId: string,
+  idempotencyKey: string,
+): NodeCommandEnvelope {
+  const normalizedActor = required(actor, "The authenticated subject", 256);
+  const normalizedTaskId = required(taskId, "The task identifier", 128);
+  const normalizedApprovalRef = required(approvalRef, "The plan approval reference", 512);
+  if (!Number.isSafeInteger(expectedSequence) || expectedSequence < 0) {
+    throw new Error("The plan task sequence is invalid.");
+  }
+  if (!commandId.trim() || !idempotencyKey.trim()) throw new Error("The plan approval command identity is incomplete.");
+  return {
+    schema_version: "1.0",
+    compatibility_id: "airbench-core-contracts",
+    command_id: commandId,
+    task_id: normalizedTaskId,
+    actor: normalizedActor,
+    expected_sequence: expectedSequence,
+    idempotency_key: idempotencyKey,
+    client_version: "0.1",
+    command_type: "task.approve_plan",
+    arguments: { approval_ref: normalizedApprovalRef },
   };
 }

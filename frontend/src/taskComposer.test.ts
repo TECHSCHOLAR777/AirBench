@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCreateTaskCommand } from "./taskComposer";
+import { buildApprovePlanCommand, buildCreateTaskCommand } from "./taskComposer";
 
 const base = {
   actor: "operator-1" as const,
@@ -30,5 +30,17 @@ describe("task composer command", () => {
     expect(() => buildCreateTaskCommand({ ...base, request: "" }, "command.create.1", "idempotency.create.1")).toThrow(/desired outcome/);
     expect(() => buildCreateTaskCommand({ ...base, title: "x".repeat(257) }, "command.create.1", "idempotency.create.1")).toThrow(/task title/);
     expect(() => buildCreateTaskCommand({ ...base, domainPackRef: "" }, "command.create.1", "idempotency.create.1")).toThrow(/domain pack/);
+  });
+
+  it("builds an idempotent approval command against the server sequence", () => {
+    const command = buildApprovePlanCommand("operator-1", "task.review-1", 7, "operator.confirmed.plan-review", "command.approve.1", "idempotency.approve.1");
+    expect(command).toMatchObject({
+      command_type: "task.approve_plan",
+      task_id: "task.review-1",
+      expected_sequence: 7,
+      idempotency_key: "idempotency.approve.1",
+      arguments: { approval_ref: "operator.confirmed.plan-review" },
+    });
+    expect(() => buildApprovePlanCommand("operator-1", "task.review-1", 6.5, "operator.confirmed.plan-review", "command.approve.1", "idempotency.approve.1")).toThrow(/sequence/);
   });
 });

@@ -87,6 +87,14 @@ function Invoke-SnapshotProbe([string]$profilePath, [string]$taskId = "task-fixt
   return [pscustomobject]@{ code = $code; payload = $payload }
 }
 
+function Invoke-PlanProbe([string]$profilePath, [string]$taskId = "task-fixture") {
+  $output = & $cargo run --quiet --manifest-path (Join-Path $tauriRoot "Cargo.toml") --example node_transport_probe -- $profilePath plan $taskId 2>&1
+  $code = $LASTEXITCODE
+  $line = ($output | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+  $payload = if ($line) { $line | ConvertFrom-Json } else { [pscustomobject]@{ error = ($output -join " ") } }
+  return [pscustomobject]@{ code = $code; payload = $payload }
+}
+
 function Invoke-CommandProbe([string]$profilePath, [string]$mode, [string]$commandPath) {
   $output = & $cargo run --quiet --manifest-path (Join-Path $tauriRoot "Cargo.toml") --example node_transport_probe -- $profilePath $mode $commandPath 2>&1
   $code = $LASTEXITCODE
@@ -226,6 +234,8 @@ try {
   Assert-Success $results.local_success "local success"
   $results.snapshot = Invoke-SnapshotProbe $localProfile
   if ($results.snapshot.code -ne 0 -or $results.snapshot.payload.taskId -ne "task-fixture" -or $results.snapshot.payload.nodeConnectionRef -ne "fixture-node-01") { throw "The typed task snapshot probe failed: $($results.snapshot.payload | ConvertTo-Json -Compress)" }
+  $results.plan = Invoke-PlanProbe $localProfile
+  if ($results.plan.code -ne 0 -or $results.plan.payload.task_id -ne "task-fixture" -or $results.plan.payload.plan_state -ne "ready" -or $results.plan.payload.execution_mode -ne "parallel") { throw "The typed plan review probe failed: $($results.plan.payload | ConvertTo-Json -Compress)" }
   $createCommandPath = Join-Path $runRoot "create-command.json"
   Write-Command $createCommandPath "command.create.1" $null $null "idempotency.create.1" "task.create" @{ request = "Synthetic fixture task" }
   $results.create_command = Invoke-CommandProbe $localProfile "create" $createCommandPath
@@ -234,6 +244,10 @@ try {
   Write-Command $authorizeCommandPath "command.authorize.1" "task-fixture" 5 "idempotency.authorize.1" "task.authorize" @{ authorization_ref = "fixture-authorization" }
   $results.authorize_command = Invoke-CommandProbe $localProfile "command" $authorizeCommandPath
   if ($results.authorize_command.code -ne 0 -or $results.authorize_command.payload.outcome -ne "accepted" -or $results.authorize_command.payload.node_identity -ne "fixture-node-01") { throw "The typed authorize command probe failed: $($results.authorize_command.payload | ConvertTo-Json -Compress)" }
+  $approveCommandPath = Join-Path $runRoot "approve-plan-command.json"
+  Write-Command $approveCommandPath "command.approve-plan.1" "task-fixture" 5 "idempotency.approve-plan.1" "task.approve_plan" @{ approval_ref = "fixture-operator-approval" }
+  $results.approve_plan_command = Invoke-CommandProbe $localProfile "command" $approveCommandPath
+  if ($results.approve_plan_command.code -ne 0 -or $results.approve_plan_command.payload.outcome -ne "accepted" -or $results.approve_plan_command.payload.event_type -ne "task.plan.approved") { throw "The typed plan approval command probe failed: $($results.approve_plan_command.payload | ConvertTo-Json -Compress)" }
   $results.events_initial = Invoke-EventProbe $localProfile 0
   if ($results.events_initial.code -ne 0 -or $results.events_initial.payload.events.Count -ne 5) { throw "Initial event batch was not complete." }
   $initialSequences = @($results.events_initial.payload.events | ForEach-Object sequence)

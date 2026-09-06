@@ -1,6 +1,7 @@
 use airbench_desktop_lib::node_transport::{
     connect_node_profile, create_task_profile, fetch_task_events_profile,
-    fetch_task_snapshot_profile, send_task_command_profile, NodeCommandEnvelope, NodeProfile,
+    fetch_task_plan_profile, fetch_task_snapshot_profile, send_task_command_profile,
+    NodeCommandEnvelope, NodeProfile,
 };
 use std::{env, fs};
 
@@ -23,6 +24,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             fetch_task_snapshot_profile(profile, task_id)
                 .await
                 .map(|snapshot| serde_json::to_value(snapshot).expect("serialize task snapshot"))
+        }
+        "plan" => {
+            let task_id = args.next().ok_or("expected a task id")?;
+            fetch_task_plan_profile(profile, task_id)
+                .await
+                .map(|plan| serde_json::to_value(plan).expect("serialize task plan"))
         }
         "create" => {
             let command_path = args.next().ok_or("expected a command JSON path")?;

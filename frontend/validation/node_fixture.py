@@ -59,6 +59,44 @@ def fixture_snapshot(server: "FixtureServer") -> dict[str, object]:
     }
 
 
+def fixture_plan_review(server: "FixtureServer") -> dict[str, object]:
+    return {
+        "schema_version": "1.0",
+        "compatibility_id": "airbench-core-contracts",
+        "task_id": "task-fixture",
+        "node_identity": server.node_identity,
+        "protocol_version": server.protocol_version,
+        "clearance_context": server.clearance_context,
+        "plan_state": "ready",
+        "task_sequence": len(fixture_events()),
+        "team_id": "team-fixture",
+        "assignments": ["assignment-intake", "assignment-review", "assignment-verifier"],
+        "dependency_graph": {
+            "intake": [],
+            "review": ["intake"],
+            "verify": ["review"],
+        },
+        "concurrency_ceiling": 2,
+        "execution_mode": "parallel",
+        "worker_capabilities": {
+            "worker-intake": "vision",
+            "worker-review": "reasoning",
+            "worker-verifier": "verification",
+        },
+        "hardware_profile_ref": "hardware.fixture.midrange",
+        "hardware_reason": "Two independent workers fit the measured local GPU budget; verification remains reserved.",
+        "required_verification": True,
+        "completion_criteria": ["source_check", "approval_note_review"],
+        "required_authority": "operator_approval",
+        "authority_reason": "An authorized operator must approve this plan before execution.",
+        "plan_version_hash": "plan-fixture-v1",
+        "policy_version_hash": "policy-fixture-v1",
+        "ledger_event_ref": "ledger-plan-fixture",
+        "failure_code": None,
+        "failure_reason": None,
+    }
+
+
 def command_result(server: "FixtureServer", command: dict[str, object], event_type: str, state: str, sequence: int) -> dict[str, object]:
     return {
         "schema_version": "1.0",
@@ -121,6 +159,10 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/v1/tasks/task-fixture":
             self._json(200, fixture_snapshot(self.server))  # type: ignore[arg-type]
+            return
+
+        if parsed.path == "/api/v1/tasks/task-fixture/plan":
+            self._json(200, fixture_plan_review(self.server))  # type: ignore[arg-type]
             return
 
         if parsed.path.startswith("/api/v1/intake/") and parsed.path.endswith("/preview"):
@@ -213,6 +255,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
         if self.path == "/api/v1/tasks" or self.path in {
             "/api/v1/tasks/task-fixture/authorize",
+            "/api/v1/tasks/task-fixture/approve",
             "/api/v1/tasks/task-fixture/cancel",
             "/api/v1/tasks/task-fixture/review",
         }:
@@ -239,6 +282,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 return
             command_result_by_path = {
                 "/api/v1/tasks/task-fixture/authorize": ("task.authorized", "authorized"),
+                "/api/v1/tasks/task-fixture/approve": ("task.plan.approved", "planned"),
                 "/api/v1/tasks/task-fixture/cancel": ("task.cancelled", "cancelled"),
                 "/api/v1/tasks/task-fixture/review": ("human.review.required", "awaiting_review"),
             }

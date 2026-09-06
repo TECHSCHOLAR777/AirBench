@@ -18,11 +18,13 @@ All endpoints require a bearer credential. The bearer token is compared locally 
 | GET | `/api/v1/health` | Verifies the local ledger chain and reports local readiness. |
 | POST | `/api/v1/tasks` | Validates a versioned `NodeCommandEnvelope` for task creation and delegates creation to `Orchestrator.create_task`. |
 | GET | `/api/v1/tasks/{task_id}` | Returns a clearance-filtered authoritative task snapshot. |
+| GET | `/api/v1/tasks/{task_id}/plan` | Returns the committed `TaskPlanReview` projection, including hardware admission and the task-local sequence required for approval. Missing plan or hardware admission is explicit and cannot be treated as ready. |
 | GET | `/api/v1/tasks/{task_id}/events?after_sequence=N` | Returns a bounded replay batch with a task-local cursor, Node context, camelCase event envelopes, and immutable ledger references. |
 | GET | `/api/v1/tasks/{task_id}/evidence` | Returns clearance-filtered evidence and fact projections with source, confidence, clearance, taint, and ledger references. |
 | GET | `/api/v1/tasks/{task_id}/route-trace` | Returns bounded routing and model lifecycle evidence without exposing arbitrary event payloads. |
 | GET | `/api/v1/tasks/{task_id}/review` | Projects pending and recorded human review state. |
 | POST | `/api/v1/tasks/{task_id}/authorize` | Validates a task-authorize command, checks the expected task-local sequence, and delegates the transition to the orchestrator. |
+| POST | `/api/v1/tasks/{task_id}/approve` | Validates an idempotent plan-approval command and delegates `task.plan.approved` only when the Node has a ready committed plan and hardware admission. |
 | POST | `/api/v1/tasks/{task_id}/cancel` | Validates a task-cancel command, checks the expected task-local sequence, and delegates the transition to the orchestrator. |
 | POST | `/api/v1/tasks/{task_id}/review` | Validates a task-review command, checks the expected task-local sequence, and delegates the transition to the orchestrator. |
 
