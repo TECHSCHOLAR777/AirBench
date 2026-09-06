@@ -24,7 +24,18 @@ npm run test:desktop:multiremote
 
 The test binary is deliberately built with the `wdio` feature and is never the production release binary.
 
-The clean embedded Windows run passed all four shell checks. This includes IPC mocking, which initially failed because the WDIO guest plugin could not redefine the WebView2 Tauri core property. The external `tauri-driver` 2.0.6 run with Microsoft Edge WebDriver 152.0.4191.66 also passed all four checks. The retained WDIO log contains the frontend marker emitted through the Tauri log path. The external multiremote run passed its two-instance addressability assertion. The WDIO service still emits non-fatal cleanup warnings when it tries to restore mocks after the WebDriver session has already been deleted, so those warnings remain part of the harness evidence and should be removed or accepted explicitly before a release gate.
+After rebuilding the webdriver binary with `npm run build:webdriver` and `npm run tauri:build:webdriver`, the external `tauri-driver` run with Microsoft Edge WebDriver 152.0.4191.66 passed all four shell checks. The retained WDIO log contains the frontend marker emitted through the Tauri log path. The multiremote run passed its two-instance addressability assertion. The WDIO service still emits non-fatal cleanup warnings when it tries to restore mocks after the WebDriver session has already been deleted, so those warnings remain part of the harness evidence and should be removed or accepted explicitly before a release gate.
+
+The standalone desktop command is not yet a self-building release gate. Running it against a stale production binary or without a reachable driver can fail before the application is exercised. The reproducible current-host sequence is:
+
+```text
+npm run build:webdriver
+npm run tauri:build:webdriver
+$env:AIRBENCH_WDIO_DRIVER = "external"
+$env:TAURI_DRIVER_PATH = "$env:USERPROFILE\.cargo\bin\tauri-driver.exe"
+npm run test:desktop
+npm run test:desktop:multiremote
+```
 
 ## Remaining acceptance evidence
 
