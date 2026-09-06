@@ -1,0 +1,35 @@
+{
+  "name": "airbench-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420",
+    "build": "tsc -b && vite build && npm run create:manifest",
+    "preview": "vite preview --host 127.0.0.1",
+    "create:manifest": "node scripts/create-resource-manifest.mjs",
+    "validate:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-offline-installer.ps1",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:egress": "node scripts/check-no-egress.mjs",
+    "check:tauri-config": "node scripts/check-tauri-config.mjs",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.4"
+  }
+}

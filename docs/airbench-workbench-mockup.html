@@ -1,0 +1,481 @@
+﻿<div id="airbench-workbench-mockup">
+  <style>
+    #airbench-workbench-mockup {
+      --ab-ink: #152238;
+      --ab-ink-soft: #516174;
+      --ab-paper: #f4f7fa;
+      --ab-surface: #ffffff;
+      --ab-line: #dbe3eb;
+      --ab-line-soft: #edf1f5;
+      --ab-teal: #176c67;
+      --ab-teal-soft: #e2f2ef;
+      --ab-blue: #2e5f8c;
+      --ab-blue-soft: #e6eef7;
+      --ab-amber: #a96819;
+      --ab-amber-soft: #fbf0dc;
+      --ab-red: #b54a46;
+      --ab-red-soft: #f9e8e7;
+      --ab-shadow: 0 18px 60px rgba(21, 34, 56, 0.14);
+      color: var(--ab-ink);
+      font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 1180px;
+      margin: 0 auto;
+    }
+
+    #airbench-workbench-mockup * { box-sizing: border-box; }
+
+    #airbench-workbench-mockup .ab-window {
+      display: grid;
+      grid-template-columns: 224px minmax(0, 1fr);
+      min-height: 760px;
+      overflow: hidden;
+      border: 1px solid #c9d4df;
+      border-radius: 18px;
+      background: var(--ab-paper);
+      box-shadow: var(--ab-shadow);
+    }
+
+    #airbench-workbench-mockup .ab-sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      padding: 22px 14px 16px;
+      color: #dce8f3;
+      background: #142238;
+    }
+
+    #airbench-workbench-mockup .ab-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 10px;
+      color: #ffffff;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    #airbench-workbench-mockup .ab-brand-mark {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      border: 1px solid rgba(215, 241, 236, 0.45);
+      border-radius: 9px;
+      color: #c8f1e8;
+      background: rgba(30, 116, 105, 0.45);
+      font-weight: 700;
+    }
+
+    #airbench-workbench-mockup .ab-nav-group { display: grid; gap: 4px; }
+    #airbench-workbench-mockup .ab-nav-label {
+      padding: 0 12px 5px;
+      color: #8da2b8;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    #airbench-workbench-mockup .ab-nav-button,
+    #airbench-workbench-mockup .ab-screen-button {
+      appearance: none;
+      border: 0;
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+    }
+
+    #airbench-workbench-mockup .ab-nav-button {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 9px;
+      color: #b8c8d8;
+      background: transparent;
+    }
+
+    #airbench-workbench-mockup .ab-nav-button:hover,
+    #airbench-workbench-mockup .ab-nav-button[aria-current="page"] {
+      color: #ffffff;
+      background: rgba(104, 179, 168, 0.18);
+    }
+
+    #airbench-workbench-mockup .ab-nav-symbol { width: 18px; color: #90cfc4; text-align: center; }
+
+    #airbench-workbench-mockup .ab-sidebar-spacer { flex: 1; }
+    #airbench-workbench-mockup .ab-node-chip {
+      display: grid;
+      gap: 2px;
+      padding: 12px;
+      border: 1px solid rgba(178, 213, 221, 0.2);
+      border-radius: 11px;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    #airbench-workbench-mockup .ab-node-chip-title { color: #ffffff; font-size: 12px; font-weight: 600; }
+    #airbench-workbench-mockup .ab-node-chip-meta { color: #9db0c2; font-size: 11px; }
+    #airbench-workbench-mockup .ab-node-status { color: #8ee0c8; }
+
+    #airbench-workbench-mockup .ab-main { min-width: 0; background: var(--ab-paper); }
+    #airbench-workbench-mockup .ab-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--ab-line);
+      background: rgba(255, 255, 255, 0.84);
+    }
+
+    #airbench-workbench-mockup .ab-breadcrumb { color: var(--ab-ink-soft); font-size: 12px; }
+    #airbench-workbench-mockup .ab-breadcrumb strong { color: var(--ab-ink); font-weight: 600; }
+
+    #airbench-workbench-mockup .ab-security {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 9px;
+      border: 1px solid #b9ddd4;
+      border-radius: 999px;
+      color: #25645f;
+      background: var(--ab-teal-soft);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    #airbench-workbench-mockup .ab-security-dot { width: 7px; height: 7px; border-radius: 50%; background: #29957f; }
+    #airbench-workbench-mockup .ab-content { padding: 28px; }
+    #airbench-workbench-mockup .ab-page-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 22px;
+    }
+
+    #airbench-workbench-mockup h1,
+    #airbench-workbench-mockup h2,
+    #airbench-workbench-mockup h3,
+    #airbench-workbench-mockup p { margin: 0; }
+    #airbench-workbench-mockup h1 { font-size: 25px; letter-spacing: -0.035em; line-height: 1.15; }
+    #airbench-workbench-mockup h2 { font-size: 16px; letter-spacing: -0.02em; }
+    #airbench-workbench-mockup h3 { font-size: 13px; }
+    #airbench-workbench-mockup .ab-eyebrow { margin-bottom: 7px; color: var(--ab-teal); font-size: 11px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase; }
+    #airbench-workbench-mockup .ab-subtitle { margin-top: 7px; color: var(--ab-ink-soft); }
+
+    #airbench-workbench-mockup .ab-view-switcher {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-bottom: 24px;
+      padding: 0 0 9px;
+      border-bottom: 1px solid var(--ab-line);
+    }
+
+    #airbench-workbench-mockup .ab-screen-button {
+      padding: 5px 2px;
+      margin-right: 14px;
+      border-radius: 0;
+      color: var(--ab-ink-soft);
+      background: transparent;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    #airbench-workbench-mockup .ab-screen-button[aria-selected="true"] {
+      color: var(--ab-teal);
+      box-shadow: inset 0 -2px 0 var(--ab-teal);
+    }
+
+    #airbench-workbench-mockup .ab-grid { display: grid; gap: 16px; }
+    #airbench-workbench-mockup .ab-grid-two { grid-template-columns: minmax(0, 1.5fr) minmax(220px, 0.8fr); }
+    #airbench-workbench-mockup .ab-grid-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    #airbench-workbench-mockup .ab-surface {
+      border: 1px solid var(--ab-line);
+      border-radius: 13px;
+      background: var(--ab-surface);
+    }
+
+    #airbench-workbench-mockup .ab-panel { padding: 17px; }
+    #airbench-workbench-mockup .ab-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    #airbench-workbench-mockup .ab-muted { color: var(--ab-ink-soft); font-size: 12px; }
+    #airbench-workbench-mockup .ab-small { color: var(--ab-ink-soft); font-size: 11px; }
+
+    #airbench-workbench-mockup .ab-composer {
+      display: grid;
+      gap: 13px;
+      padding: 18px;
+      border: 1px solid var(--ab-line);
+      border-radius: 10px;
+      background: var(--ab-surface);
+    }
+
+    #airbench-workbench-mockup .ab-textarea {
+      width: 100%;
+      min-height: 78px;
+      resize: vertical;
+      border: 0;
+      outline: 0;
+      color: var(--ab-ink);
+      background: transparent;
+      font: inherit;
+      font-size: 16px;
+    }
+
+    #airbench-workbench-mockup .ab-textarea::placeholder { color: #7890a2; }
+    #airbench-workbench-mockup .ab-composer-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    #airbench-workbench-mockup .ab-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    #airbench-workbench-mockup .ab-action {
+      appearance: none;
+      padding: 8px 11px;
+      border: 1px solid var(--ab-line);
+      border-radius: 8px;
+      color: var(--ab-ink-soft);
+      background: #ffffff;
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    #airbench-workbench-mockup .ab-action:hover { border-color: #9bb5c5; color: var(--ab-ink); }
+    #airbench-workbench-mockup .ab-action-primary { border-color: var(--ab-teal); color: #ffffff; background: var(--ab-teal); }
+    #airbench-workbench-mockup .ab-action-primary:hover { color: #ffffff; background: #115a56; }
+    #airbench-workbench-mockup .ab-action-danger { border-color: #e2b6b3; color: var(--ab-red); background: var(--ab-red-soft); }
+
+    #airbench-workbench-mockup .ab-home-stack { display: grid; gap: 16px; max-width: 820px; }
+    #airbench-workbench-mockup .ab-home-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--ab-ink-soft); font-size: 12px; }
+    #airbench-workbench-mockup .ab-home-meta strong { color: var(--ab-ink); font-weight: 600; }
+    #airbench-workbench-mockup .ab-review-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 15px; padding-top: 13px; border-top: 1px solid var(--ab-line-soft); }
+    #airbench-workbench-mockup .ab-review-line strong { color: var(--ab-amber); font-size: 12px; }
+    #airbench-workbench-mockup .ab-audit-summary { margin-bottom: 16px; color: var(--ab-ink-soft); font-size: 12px; }
+    #airbench-workbench-mockup .ab-audit-summary strong { color: var(--ab-teal); font-weight: 700; }
+
+    #airbench-workbench-mockup .ab-task-list { display: grid; gap: 2px; }
+    #airbench-workbench-mockup .ab-task-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--ab-line-soft);
+    }
+    #airbench-workbench-mockup .ab-task-row:last-child { border-bottom: 0; }
+    #airbench-workbench-mockup .ab-task-title { font-weight: 600; }
+    #airbench-workbench-mockup .ab-task-meta { margin-top: 3px; color: var(--ab-ink-soft); font-size: 11px; }
+    #airbench-workbench-mockup .ab-status { align-self: start; padding: 4px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; }
+    #airbench-workbench-mockup .ab-status-done { color: #25645f; background: var(--ab-teal-soft); }
+    #airbench-workbench-mockup .ab-status-review { color: #8a5b13; background: var(--ab-amber-soft); }
+    #airbench-workbench-mockup .ab-status-running { color: #27547c; background: var(--ab-blue-soft); }
+
+    #airbench-workbench-mockup .ab-readiness { display: grid; gap: 13px; }
+    #airbench-workbench-mockup .ab-readiness-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; }
+    #airbench-workbench-mockup .ab-readiness-value { color: var(--ab-teal); font-size: 12px; font-weight: 700; }
+    #airbench-workbench-mockup .ab-meter { height: 6px; margin-top: 6px; overflow: hidden; border-radius: 999px; background: #e6edf1; }
+    #airbench-workbench-mockup .ab-meter-fill { height: 100%; border-radius: inherit; background: var(--ab-teal); }
+    #airbench-workbench-mockup .ab-note { padding: 11px; border-left: 3px solid var(--ab-teal); color: var(--ab-ink-soft); background: #f1f8f6; font-size: 12px; }
+
+    #airbench-workbench-mockup .ab-task-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+    #airbench-workbench-mockup .ab-task-badge { padding: 5px 8px; border-radius: 7px; color: var(--ab-blue); background: var(--ab-blue-soft); font-size: 11px; font-weight: 700; }
+    #airbench-workbench-mockup .ab-task-badge-green { color: var(--ab-teal); background: var(--ab-teal-soft); }
+
+    #airbench-workbench-mockup .ab-timeline { display: grid; gap: 0; }
+    #airbench-workbench-mockup .ab-timeline-row { display: grid; grid-template-columns: 124px 22px 1fr auto; gap: 10px; align-items: start; min-height: 65px; }
+    #airbench-workbench-mockup .ab-timeline-label { padding-top: 3px; color: var(--ab-ink-soft); font-size: 12px; font-weight: 600; }
+    #airbench-workbench-mockup .ab-timeline-track { position: relative; display: flex; justify-content: center; height: 65px; }
+    #airbench-workbench-mockup .ab-timeline-track::before { position: absolute; top: 0; bottom: 0; width: 1px; background: #cbd8e2; content: ""; }
+    #airbench-workbench-mockup .ab-timeline-dot { z-index: 1; width: 11px; height: 11px; margin-top: 5px; border: 3px solid #ffffff; border-radius: 50%; background: var(--ab-teal); box-shadow: 0 0 0 1px #73bcb0; }
+    #airbench-workbench-mockup .ab-timeline-dot-blue { background: var(--ab-blue); box-shadow: 0 0 0 1px #83a5c3; }
+    #airbench-workbench-mockup .ab-timeline-dot-amber { background: var(--ab-amber); box-shadow: 0 0 0 1px #d9b070; }
+    #airbench-workbench-mockup .ab-timeline-card { padding: 2px 0 13px; }
+    #airbench-workbench-mockup .ab-timeline-card strong { font-size: 12px; }
+    #airbench-workbench-mockup .ab-timeline-card p { margin-top: 4px; color: var(--ab-ink-soft); font-size: 11px; }
+    #airbench-workbench-mockup .ab-timeline-time { padding-top: 3px; color: #7a8d9e; font-size: 10px; white-space: nowrap; }
+
+    #airbench-workbench-mockup .ab-evidence-list { display: grid; gap: 8px; }
+    #airbench-workbench-mockup .ab-evidence { display: grid; grid-template-columns: 28px 1fr auto; gap: 9px; align-items: start; padding: 10px; border: 1px solid var(--ab-line-soft); border-radius: 9px; background: #fbfcfd; }
+    #airbench-workbench-mockup .ab-evidence-icon { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 7px; color: var(--ab-blue); background: var(--ab-blue-soft); font-size: 11px; font-weight: 700; }
+    #airbench-workbench-mockup .ab-evidence strong { font-size: 11px; }
+    #airbench-workbench-mockup .ab-evidence p { margin-top: 2px; color: var(--ab-ink-soft); font-size: 10px; }
+    #airbench-workbench-mockup .ab-confidence { color: var(--ab-teal); font-size: 10px; font-weight: 700; }
+
+    #airbench-workbench-mockup .ab-document { display: grid; grid-template-columns: 178px minmax(0, 1fr); min-height: 470px; overflow: hidden; }
+    #airbench-workbench-mockup .ab-document-nav { padding: 15px; border-right: 1px solid var(--ab-line); background: #f8fafc; }
+    #airbench-workbench-mockup .ab-document-nav h3 { margin-bottom: 11px; }
+    #airbench-workbench-mockup .ab-outline-item { display: block; width: 100%; padding: 7px 8px; border: 0; border-radius: 6px; color: var(--ab-ink-soft); background: transparent; font: inherit; font-size: 11px; text-align: left; }
+    #airbench-workbench-mockup .ab-outline-item-active { color: var(--ab-teal); background: var(--ab-teal-soft); font-weight: 700; }
+    #airbench-workbench-mockup .ab-paper-preview { padding: 28px 34px; background: #ffffff; }
+    #airbench-workbench-mockup .ab-paper-page { max-width: 530px; min-height: 390px; margin: 0 auto; padding: 29px 36px; border: 1px solid #e1e6eb; background: #ffffff; box-shadow: 0 7px 20px rgba(21, 34, 56, 0.07); }
+    #airbench-workbench-mockup .ab-paper-page h2 { margin-bottom: 16px; font-size: 18px; }
+    #airbench-workbench-mockup .ab-paper-rule { width: 100%; height: 1px; margin: 13px 0; background: #d6dee6; }
+    #airbench-workbench-mockup .ab-paper-line { height: 7px; margin: 8px 0; border-radius: 3px; background: #e6ebf0; }
+    #airbench-workbench-mockup .ab-paper-line-short { width: 63%; }
+    #airbench-workbench-mockup .ab-paper-highlight { margin: 14px 0; padding: 9px 11px; border-left: 3px solid var(--ab-teal); color: #39565b; background: #eef8f5; font-size: 11px; }
+
+    #airbench-workbench-mockup .ab-audit-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    #airbench-workbench-mockup .ab-audit-table th { padding: 8px; color: var(--ab-ink-soft); font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-align: left; text-transform: uppercase; }
+    #airbench-workbench-mockup .ab-audit-table td { padding: 11px 8px; border-top: 1px solid var(--ab-line-soft); vertical-align: top; }
+    #airbench-workbench-mockup .ab-audit-table strong { font-size: 11px; }
+    #airbench-workbench-mockup .ab-event-id { color: var(--ab-ink-soft); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; }
+    #airbench-workbench-mockup .ab-hash { color: var(--ab-blue); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; }
+
+    #airbench-workbench-mockup .ab-node-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(220px, 0.75fr); gap: 16px; }
+    #airbench-workbench-mockup .ab-node-hero { padding: 18px; border: 1px solid #b9ddd4; border-radius: 13px; background: linear-gradient(135deg, #ffffff 0%, #eef9f6 100%); }
+    #airbench-workbench-mockup .ab-node-hero-status { display: flex; align-items: center; gap: 9px; margin: 15px 0 19px; color: var(--ab-teal); font-size: 21px; font-weight: 600; letter-spacing: -0.03em; }
+    #airbench-workbench-mockup .ab-node-hero-status span { width: 10px; height: 10px; border-radius: 50%; background: #2f9d83; box-shadow: 0 0 0 5px #d8f0e9; }
+    #airbench-workbench-mockup .ab-spec-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+    #airbench-workbench-mockup .ab-spec { padding: 11px; border: 1px solid var(--ab-line); border-radius: 9px; background: #ffffff; }
+    #airbench-workbench-mockup .ab-spec-label { color: var(--ab-ink-soft); font-size: 10px; }
+    #airbench-workbench-mockup .ab-spec-value { margin-top: 3px; font-size: 12px; font-weight: 700; }
+    #airbench-workbench-mockup .ab-model-list { display: grid; gap: 10px; }
+    #airbench-workbench-mockup .ab-model { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--ab-line-soft); }
+    #airbench-workbench-mockup .ab-model:last-child { border-bottom: 0; }
+    #airbench-workbench-mockup .ab-model-name { font-size: 11px; font-weight: 700; }
+    #airbench-workbench-mockup .ab-model-meta { margin-top: 3px; color: var(--ab-ink-soft); font-size: 10px; }
+    #airbench-workbench-mockup .ab-model-ready { color: var(--ab-teal); font-size: 10px; font-weight: 700; }
+
+    #airbench-workbench-mockup .ab-hidden { display: none; }
+    #airbench-workbench-mockup .ab-focus:focus-visible,
+    #airbench-workbench-mockup button:focus-visible,
+    #airbench-workbench-mockup textarea:focus-visible { outline: 3px solid rgba(46, 95, 140, 0.35); outline-offset: 2px; }
+
+    @media (max-width: 860px) {
+      #airbench-workbench-mockup .ab-window { grid-template-columns: 76px minmax(0, 1fr); }
+      #airbench-workbench-mockup .ab-brand { justify-content: center; padding: 0; }
+      #airbench-workbench-mockup .ab-brand span,
+      #airbench-workbench-mockup .ab-nav-label,
+      #airbench-workbench-mockup .ab-nav-button span:not(.ab-nav-symbol),
+      #airbench-workbench-mockup .ab-node-chip { display: none; }
+      #airbench-workbench-mockup .ab-nav-button { justify-content: center; }
+      #airbench-workbench-mockup .ab-content { padding: 20px; }
+      #airbench-workbench-mockup .ab-grid-two,
+      #airbench-workbench-mockup .ab-node-layout { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 650px) {
+      #airbench-workbench-mockup .ab-window { display: block; }
+      #airbench-workbench-mockup .ab-sidebar { display: none; }
+      #airbench-workbench-mockup .ab-topbar { padding: 13px 16px; }
+      #airbench-workbench-mockup .ab-content { padding: 16px; }
+      #airbench-workbench-mockup .ab-page-head { display: block; }
+      #airbench-workbench-mockup .ab-grid-three { grid-template-columns: 1fr; }
+      #airbench-workbench-mockup .ab-document { grid-template-columns: 1fr; }
+      #airbench-workbench-mockup .ab-document-nav { display: none; }
+      #airbench-workbench-mockup .ab-paper-preview { padding: 18px; }
+      #airbench-workbench-mockup .ab-paper-page { padding: 22px; }
+    }
+  </style>
+
+  <div class="ab-window">
+    <aside class="ab-sidebar" aria-label="AirBench application navigation">
+      <div class="ab-brand"><span class="ab-brand-mark">A</span><span>AirBench</span></div>
+
+      <div class="ab-nav-group">
+        <div class="ab-nav-label">Workbench</div>
+        <button class="ab-nav-button" aria-current="page" type="button"><span class="ab-nav-symbol">H</span><span>Home</span></button>
+        <button class="ab-nav-button" type="button"><span class="ab-nav-symbol">T</span><span>Tasks</span></button>
+        <button class="ab-nav-button" type="button"><span class="ab-nav-symbol">R</span><span>Review</span></button>
+      </div>
+
+      <div class="ab-nav-group">
+        <div class="ab-nav-label">Records</div>
+        <button class="ab-nav-button" type="button"><span class="ab-nav-symbol">A</span><span>Artifacts</span></button>
+        <button class="ab-nav-button" type="button"><span class="ab-nav-symbol">H</span><span>History</span></button>
+        <button class="ab-nav-button" type="button"><span class="ab-nav-symbol">L</span><span>Audit</span></button>
+      </div>
+
+      <div class="ab-nav-group">
+        <div class="ab-nav-label">Administration</div>
+        <button class="ab-nav-button" type="button"><span class="ab-nav-symbol">N</span><span>Node and settings</span></button>
+      </div>
+
+      <div class="ab-sidebar-spacer"></div>
+      <div class="ab-node-chip">
+        <div class="ab-node-chip-title"><span class="ab-node-status">*</span> Node connected</div>
+        <div class="ab-node-chip-meta">AB-NODE-01 / 127.0.0.1</div>
+        <div class="ab-node-chip-meta">Last verified 09:42</div>
+      </div>
+    </aside>
+
+    <main class="ab-main">
+      <header class="ab-topbar">
+        <div class="ab-breadcrumb"><strong>AirBench</strong> <span> / </span> Work</div>
+        <div class="ab-security"><span class="ab-security-dot"></span> Internal node connected</div>
+      </header>
+
+      <div class="ab-content">
+        <div class="ab-view-switcher" role="tablist" aria-label="Prototype views">
+          <button class="ab-screen-button" role="tab" aria-selected="true" aria-controls="ab-screen-home" type="button" data-screen="home">Home</button>
+          <button class="ab-screen-button" role="tab" aria-selected="false" aria-controls="ab-screen-live" type="button" data-screen="live">Task workspace</button>
+          <button class="ab-screen-button" role="tab" aria-selected="false" aria-controls="ab-screen-review" type="button" data-screen="review">Review</button>
+          <button class="ab-screen-button" role="tab" aria-selected="false" aria-controls="ab-screen-audit" type="button" data-screen="audit">Audit</button>
+          <button class="ab-screen-button" role="tab" aria-selected="false" aria-controls="ab-screen-node" type="button" data-screen="node">Node</button>
+        </div>
+
+        <section id="ab-screen-home" role="tabpanel" aria-labelledby="home" data-panel="home">
+          <div class="ab-page-head">
+            <div><div class="ab-eyebrow">Work</div><h1>What should AirBench complete?</h1><p class="ab-subtitle">Describe the outcome. Add files if they are part of the work.</p></div>
+            <button class="ab-action" type="button">Ctrl K&nbsp; Commands</button>
+          </div>
+          <div class="ab-home-stack">
+            <div class="ab-composer">
+              <textarea class="ab-textarea" aria-label="Task request" placeholder="For example: prepare an approval note from the scanned inspection report..."></textarea>
+              <div class="ab-composer-foot"><div class="ab-actions"><button class="ab-action" type="button">+ Attach files</button><button class="ab-action" type="button">Choose project</button></div><button class="ab-action ab-action-primary" type="button">Start task&nbsp; Enter</button></div>
+              <div class="ab-home-meta"><strong>AB-NODE-01 connected</strong><span>Files stay on the connected node</span><span>External network denied</span></div>
+            </div>
+            <div class="ab-surface ab-panel">
+              <div class="ab-panel-head"><h2>Continue work</h2><button class="ab-action" type="button">View all</button></div>
+              <div class="ab-task-list">
+                <div class="ab-task-row"><div><div class="ab-task-title">Inspection report to approval note</div><div class="ab-task-meta">Inspection / Unit 4 / 4 sources / 12 min ago</div></div><span class="ab-status ab-status-review">Needs review</span></div>
+                <div class="ab-task-row"><div><div class="ab-task-title">Validate pump sizing workbook</div><div class="ab-task-meta">Engineering / Utilities / 8 checks / Yesterday</div></div><span class="ab-status ab-status-done">Completed</span></div>
+                <div class="ab-task-row"><div><div class="ab-task-title">Prepare vendor comparison brief</div><div class="ab-task-meta">Procurement / FY26 / 6 sources / Yesterday</div></div><span class="ab-status ab-status-running">Running</span></div>
+              </div>
+              <div class="ab-review-line"><strong>1 deliverable needs your review</strong><button class="ab-action" type="button">Open review</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="ab-screen-live" class="ab-hidden" role="tabpanel" aria-labelledby="live" data-panel="live">
+          <div class="ab-page-head"><div><div class="ab-eyebrow">Task in progress</div><h1>Inspection report to approval note</h1><p class="ab-subtitle">The team is extracting findings, checking evidence, and drafting the deliverable.</p></div><div class="ab-actions"><button class="ab-action" type="button">Pause</button><button class="ab-action ab-action-danger" type="button">Stop task</button></div></div>
+          <div class="ab-task-summary" style="margin-bottom:16px"><span class="ab-task-badge ab-task-badge-green">Running</span><span class="ab-muted">Parallel team, 3 roles, 12 min elapsed. Approval is required before release.</span></div>
+          <div class="ab-grid ab-grid-two">
+            <div class="ab-surface ab-panel"><div class="ab-panel-head"><h2>Activity</h2><span class="ab-muted">Current task</span></div><div class="ab-timeline"><div class="ab-timeline-row"><div class="ab-timeline-label">Plan</div><div class="ab-timeline-track"><span class="ab-timeline-dot"></span></div><div class="ab-timeline-card"><strong>Plan accepted</strong><p>AirBench will read the report, check evidence, and draft the note.</p></div><div class="ab-timeline-time">09:31</div></div><div class="ab-timeline-row"><div class="ab-timeline-label">Files</div><div class="ab-timeline-track"><span class="ab-timeline-dot"></span></div><div class="ab-timeline-card"><strong>Inspection report prepared</strong><p>18 pages, 6 images, and 4 tables are ready for review.</p></div><div class="ab-timeline-time">09:34</div></div><div class="ab-timeline-row"><div class="ab-timeline-label">Reading</div><div class="ab-timeline-track"><span class="ab-timeline-dot-blue"></span></div><div class="ab-timeline-card"><strong>Checking inspection images</strong><p>Two pages need a confidence check before drafting.</p></div><div class="ab-timeline-time">Now</div></div><div class="ab-timeline-row"><div class="ab-timeline-label">Next</div><div class="ab-timeline-track"><span class="ab-timeline-dot-amber"></span></div><div class="ab-timeline-card"><strong>Verification will follow</strong><p>The approval note will not be released until its evidence is checked.</p></div><div class="ab-timeline-time">Queued</div></div></div></div>
+            <div class="ab-surface ab-panel"><div class="ab-panel-head"><h2>Sources</h2><button class="ab-action" type="button">Open all</button></div><div class="ab-evidence-list"><div class="ab-evidence"><div class="ab-evidence-icon">PDF</div><div><strong>Inspection_Report_Unit4.pdf</strong><p>Pages 1-18 / intake manifest</p></div><span class="ab-confidence">Ready</span></div><div class="ab-evidence"><div class="ab-evidence-icon">IMG</div><div><strong>Corrosion finding, page 7</strong><p>Vision extract / source region linked</p></div><span class="ab-confidence">0.91</span></div><div class="ab-evidence"><div class="ab-evidence-icon">TXT</div><div><strong>Maintenance SOP 4.2</strong><p>Knowledge base / clearance matched</p></div><span class="ab-confidence">0.96</span></div></div><div class="ab-note" style="margin-top:15px">Every finding stays linked to its source, confidence, clearance, and ledger event.</div></div>
+          </div>
+        </section>
+
+        <section id="ab-screen-review" class="ab-hidden" role="tabpanel" aria-labelledby="review" data-panel="review">
+          <div class="ab-page-head"><div><div class="ab-eyebrow">Human review gate</div><h1>Approval note draft</h1><p class="ab-subtitle">Review the evidence and the generated document before it is released.</p></div><div class="ab-actions"><button class="ab-action" type="button">Download draft</button><button class="ab-action ab-action-danger" type="button">Send back</button><button class="ab-action ab-action-primary" type="button">Approve deliverable</button></div></div>
+          <div class="ab-document ab-surface"><aside class="ab-document-nav"><h3>Document outline</h3><button class="ab-outline-item ab-outline-item-active" type="button">Executive summary</button><button class="ab-outline-item" type="button">Inspection findings</button><button class="ab-outline-item" type="button">Risk and action</button><button class="ab-outline-item" type="button">Recommendation</button><button class="ab-outline-item" type="button">Evidence register</button><hr style="border:0;border-top:1px solid var(--ab-line);margin:15px 0"><div class="ab-small">4 source links</div><div class="ab-small">2 items require attention</div></aside><div class="ab-paper-preview"><div class="ab-paper-page"><h2>Approval Note: Unit 4 Inspection</h2><div class="ab-small">Draft / Generated 06 Sep 2026 / Review required</div><div class="ab-paper-rule"></div><div class="ab-paper-line"></div><div class="ab-paper-line ab-paper-line-short"></div><div class="ab-paper-highlight"><strong>Evidence-linked finding:</strong> localized corrosion was identified on the inspected section. The supporting image and page reference are attached for review.</div><div class="ab-paper-line"></div><div class="ab-paper-line"></div><div class="ab-paper-line ab-paper-line-short"></div><div class="ab-paper-rule"></div><div class="ab-small">Sources: Inspection_Report_Unit4.pdf, Maintenance SOP 4.2 / Values calculated by AirBench verification layer</div></div></div></div>
+        </section>
+
+        <section id="ab-screen-audit" class="ab-hidden" role="tabpanel" aria-labelledby="audit" data-panel="audit">
+          <div class="ab-page-head"><div><div class="ab-eyebrow">Accountability record</div><h1>Audit ledger</h1><p class="ab-subtitle">A replayable record of model calls, tools, decisions, evidence, and approvals.</p></div><div class="ab-actions"><button class="ab-action" type="button">Export ledger</button><button class="ab-action" type="button">Verify chain</button></div></div>
+          <div class="ab-audit-summary"><strong>Verified chain</strong> / 42 events / 17 evidence links / append-only signed record</div>
+          <div class="ab-surface ab-panel"><div class="ab-panel-head"><h2>Recent events</h2><span class="ab-muted">Open an event for details</span></div><table class="ab-audit-table"><thead><tr><th>Time</th><th>Event</th><th>Actor</th><th>Reference</th><th>Hash</th></tr></thead><tbody><tr><td>09:42:18</td><td><strong>Human approval requested</strong><br><span class="ab-small">deliverable.review</span></td><td>Rishi Garg</td><td class="ab-event-id">evt_01H9...82</td><td class="ab-hash">b7c1...94a</td></tr><tr><td>09:41:52</td><td><strong>Verification completed</strong><br><span class="ab-small">evidence.numeric_check</span></td><td>AirBench</td><td class="ab-event-id">evt_01H9...77</td><td class="ab-hash">92af...1d0</td></tr><tr><td>09:40:10</td><td><strong>Vision capability used</strong><br><span class="ab-small">technical detail available</span></td><td>Router</td><td class="ab-event-id">evt_01H9...64</td><td class="ab-hash">5ee0...77c</td></tr></tbody></table></div>
+        </section>
+
+        <section id="ab-screen-node" class="ab-hidden" role="tabpanel" aria-labelledby="node" data-panel="node">
+          <div class="ab-page-head"><div><div class="ab-eyebrow">Infrastructure boundary</div><h1>AirBench Node</h1><p class="ab-subtitle">The application is connected to a sovereign execution node. Model backends are not exposed to the user interface.</p></div><button class="ab-action" type="button">Connection settings</button></div>
+          <div class="ab-node-layout"><div class="ab-node-hero"><div class="ab-small">Connection profile / Local secure node</div><div class="ab-node-hero-status"><span></span> Verified and ready</div><div class="ab-spec-grid"><div class="ab-spec"><div class="ab-spec-label">Endpoint</div><div class="ab-spec-value">127.0.0.1:8443</div></div><div class="ab-spec"><div class="ab-spec-label">Transport</div><div class="ab-spec-value">mTLS / pinned</div></div><div class="ab-spec"><div class="ab-spec-label">Network policy</div><div class="ab-spec-value">External deny</div></div><div class="ab-spec"><div class="ab-spec-label">Ledger</div><div class="ab-spec-value">Signed and active</div></div></div><div class="ab-note" style="margin-top:15px">The node owns orchestration, routing, tools, verification, provenance, and audit state. This app only presents state and requests user actions.</div></div><div class="ab-surface ab-panel"><div class="ab-panel-head"><h2>Qualified model roster</h2><span class="ab-status ab-status-done">4 ready</span></div><div class="ab-model-list"><div class="ab-model"><div><div class="ab-model-name">Gemma 4 31B Q4_0</div><div class="ab-model-meta">Reasoning / drafting / planning</div></div><span class="ab-model-ready">Ready</span></div><div class="ab-model"><div><div class="ab-model-name">Gemma 4 26B-A4B Q4_0</div><div class="ab-model-meta">Fast general lane</div></div><span class="ab-model-ready">Ready</span></div><div class="ab-model"><div><div class="ab-model-name">Qwen3-Coder 30B AWQ</div><div class="ab-model-meta">Coding / tool formatting</div></div><span class="ab-model-ready">Ready</span></div><div class="ab-model"><div><div class="ab-model-name">Qwen2.5-VL 7B AWQ</div><div class="ab-model-meta">Scans / images / drawings</div></div><span class="ab-model-ready">Ready</span></div></div></div></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.getElementById('airbench-workbench-mockup');
+      const buttons = [...root.querySelectorAll('[data-screen]')];
+      const panels = [...root.querySelectorAll('[data-panel]')];
+      const select = (screen) => {
+        buttons.forEach((button) => button.setAttribute('aria-selected', String(button.dataset.screen === screen)));
+        panels.forEach((panel) => panel.classList.toggle('ab-hidden', panel.dataset.panel !== screen));
+      };
+      buttons.forEach((button) => button.addEventListener('click', () => select(button.dataset.screen)));
+    })();
+  </script>
+</div>
+
