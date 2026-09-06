@@ -26,4 +26,6 @@ M2.2 adds `ProjectionBuilder`, which rebuilds task, evidence, artifact, search, 
 
 M2.3 adds `RecoveryManager` for durable retry records, checkpoint validation, restart recovery, and consequential side-effect reservations. `run_once()` returns a committed result without invoking the effect again. An unfinished or uncertain reservation raises `SideEffectUncertain`, preventing an ambiguous crash from duplicating a tool or artifact action.
 
+M2.4 adds offline-only `verify_signed_export()` and `verify_projection_export()` helpers. They validate serialized hashes and HMAC seals without a database, network, remote key service, or model runtime. The acceptance fixtures and tests cover tampering, duplicate writes, provenance rejection, clearance filtering, atomic failure, and recovery safety.
+
 The compatibility rules are in `compatibility_policy.md`; the machine-readable registry and event/state catalogs are YAML and require no network or runtime service.

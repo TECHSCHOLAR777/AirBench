@@ -1,0 +1,11 @@
+{
+  "event_type": "fact.committed",
+  "task_id": "task.m24-fixture-001",
+  "actor_id": "world-model.m24",
+  "actor_type": "service",
+  "payload_contract": "FactEnvelope",
+  "payload_version": "1.0",
+  "payload": {"fact_id": "fact.m24-001", "value": "unverified"},
+  "clearance": "internal",
+  "idempotency": "m24-missing-provenance"
+}
