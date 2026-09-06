@@ -27,7 +27,7 @@ All measurements must reference a signed `HardwareProfile` ID. A model that is q
 
 The roster must support both:
 
-- a large-profile path using Gemma 4 31B where measured BF16 capacity permits it;
+- a large-profile path using Gemma 4 31B Q4 where measured capacity permits it;
 - a practical workstation path using the measured 4-bit Gemma 4 26B A4B target.
 
 The smaller target is a qualified fallback, not an implicit quality downgrade. Its use, reason, hardware profile, and qualification certificate must be recorded in the routing and audit trace.
@@ -38,7 +38,7 @@ The following targets are the initial roster. Exact repository commits, artifact
 
 | Capability | Initial target | Required role | Initial quantization direction |
 |---|---|---|---|
-| Lead and high-quality reasoning | Gemma 4 31B instruction-tuned target | lead worker, high-quality reasoning worker | BF16 on a qualified large profile |
+| Lead and high-quality reasoning | Gemma 4 31B instruction-tuned target | lead worker, high-quality reasoning worker | Q4 on a qualified large profile |
 | Practical lead and fast lane | Gemma 4 26B A4B instruction-tuned target | workstation lead, reasoning fallback | measured 4-bit target |
 | Coding and executable calculations | Qwen3-Coder-30B-A3B-Instruct | code worker | qualified 4-bit target when BF16 does not fit |
 | Scanned reports and images | Qwen2.5-VL-7B-Instruct | vision/evidence worker | qualified 4-bit target when BF16 does not fit |
@@ -105,7 +105,7 @@ roster:
     backend: vllm
     network_policy: air_gapped_no_egress
   targets:
-    - target_id: gemma4-31b-it-bf16
+    - target_id: gemma4-31b-it-q4
       repository: exact/repository
       revision: immutable-commit-or-digest
       artifact_hash: sha256:...
@@ -115,7 +115,7 @@ roster:
         hash: sha256:...
       chat_template_hash: sha256:...
       quantization:
-        format: BF16
+        format: INT4_AWQ
         artifact_hash: sha256:...
       serving:
         container_digest: sha256:...
@@ -292,7 +292,7 @@ Create:
 benchmarks/quantization_matrix.yaml
 ```
 
-For Gemma 4 31B, test BF16 on the large profile where capacity permits.
+For Gemma 4 31B, test Q4 on the large profile where capacity permits.
 
 For Gemma 4 26B A4B, test and freeze the measured 4-bit target for the practical 96 GB workstation path.
 
@@ -419,7 +419,7 @@ bundle/
   manifest.yaml
   signatures/
   models/
-    gemma4-31b-it-bf16/
+    gemma4-31b-it-q4/
     gemma4-26b-a4b-4bit/
     qwen3-coder-30b-a3b-4bit/
     qwen2.5-vl-7b-4bit/

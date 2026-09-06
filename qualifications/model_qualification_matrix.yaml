@@ -1,0 +1,442 @@
+# qualifications/model_qualification_matrix.yaml
+# M5.1 — Per-role qualification certificates for all 6 v0 model targets.
+#
+# Each certificate entry corresponds to one (target_id, worker_role) pair.
+# A target must hold a separate certificate for each role it fills.
+# Rule: qualified(target, role_A) does NOT imply qualified(target, role_B).
+#
+# Fill in all REPLACE_WITH_MEASURED values after running the qualification harness:
+#   python -m airbench.qualify --target <target_id> --role <role> --fixtures tests/fixtures/
+
+schema_version: "1.0"
+qualification_schema_ref: "contracts/model_qualification.schema.yaml"
+
+certificates:
+
+  # ── Gemma 4 31B — Lead Worker ──────────────────────────────────────────────
+  - certificate_id: cert-gemma4-31b-lead-v0
+    target_id: gemma4-31b-it-q4
+    artifact_hash: "179cfb99212709597eae5929112cfca677e1bbf566178b479ae1da0c4772874b"
+    tokenizer_hash: "bundled"
+    chat_template_hash: "bundled"
+    runtime_version: "vllm-0.8.5"
+    runtime_container_digest: "REPLACE_WITH_MEASURED:sha256-of-vllm-container"
+    adapter_id: "airbench-vllm-adapter"
+    adapter_version: "0.1.0"
+    hardware_profile_id: target_96gb_vram
+    worker_role: lead_worker
+    task_kinds:
+      - lead_planning
+      - evidence_synthesis
+      - approval_note_draft
+    risk_classes:
+      - inspection_review
+      - high_consequence
+    modality: text
+    clearance_ceiling: restricted
+    input_fixture_set_hash: "REPLACE_WITH_MEASURED:sha256-of-fixture-set"
+    output_schema_id: "airbench.plan_proposal.v1"
+    tool_permissions: []
+    context_limit: 32768
+    image_token_limit: 0
+    benchmark_scores:
+      inspection_review_accuracy: "REPLACE_WITH_MEASURED:float-0-to-1"
+      evidence_faithfulness: "REPLACE_WITH_MEASURED:float-0-to-1"
+      structured_output_validity: "REPLACE_WITH_MEASURED:float-0-to-1"
+      hallucination_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+    pass_rates:
+      structured_output_pass_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+      tool_call_pass_rate: "n/a"       # no tool calls for lead_worker
+      citation_provenance_retention: "REPLACE_WITH_MEASURED:float-0-to-1"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:float-0-to-1"
+      safety_injection_resistance: "REPLACE_WITH_MEASURED:float-0-to-1"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+    safety_results:
+      injection_resistance_result: "REPLACE_WITH_MEASURED:pass-fail-partial"
+      cancellation_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      timeout_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      known_failure_modes: []
+    evaluator_id: "airbench-qualify-harness-v0.1.0"
+    qualified_at: "REPLACE_WITH_MEASURED:rfc3339-timestamp"
+    expires_at: "2027-09-06T00:00:00Z"
+    requalification_triggers:
+      - artifact_hash_changes
+      - runtime_version_upgrade
+      - evaluation_set_updated
+      - incident_or_drift_signal
+    signer_key_id: "airbench-local-signing-key-v1"
+    signature: "REPLACE_WITH_MEASURED:hmac-sha256-of-certificate-canonical-json"
+
+  # ── Gemma 4 31B — Reasoning Worker ────────────────────────────────────────
+  - certificate_id: cert-gemma4-31b-reasoning-v0
+    target_id: gemma4-31b-it-q4
+    artifact_hash: "179cfb99212709597eae5929112cfca677e1bbf566178b479ae1da0c4772874b"
+    tokenizer_hash: "bundled"
+    chat_template_hash: "bundled"
+    runtime_version: "vllm-0.8.5"
+    runtime_container_digest: "REPLACE_WITH_MEASURED:sha256-of-vllm-container"
+    adapter_id: "airbench-vllm-adapter"
+    adapter_version: "0.1.0"
+    hardware_profile_id: target_96gb_vram
+    worker_role: reasoning_worker
+    task_kinds:
+      - evidence_synthesis
+      - reasoning_over_retrieved_evidence
+    risk_classes:
+      - inspection_review
+    modality: text
+    clearance_ceiling: restricted
+    input_fixture_set_hash: "REPLACE_WITH_MEASURED:sha256-of-fixture-set"
+    output_schema_id: "airbench.worker_result.v1"
+    tool_permissions: []
+    context_limit: 32768
+    image_token_limit: 0
+    benchmark_scores:
+      reasoning_accuracy: "REPLACE_WITH_MEASURED:float-0-to-1"
+      evidence_faithfulness: "REPLACE_WITH_MEASURED:float-0-to-1"
+      structured_output_validity: "REPLACE_WITH_MEASURED:float-0-to-1"
+    pass_rates:
+      structured_output_pass_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+      tool_call_pass_rate: "n/a"
+      citation_provenance_retention: "REPLACE_WITH_MEASURED:float-0-to-1"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:float-0-to-1"
+      safety_injection_resistance: "REPLACE_WITH_MEASURED:float-0-to-1"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+    safety_results:
+      injection_resistance_result: "REPLACE_WITH_MEASURED:pass-fail-partial"
+      cancellation_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      timeout_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      known_failure_modes: []
+    evaluator_id: "airbench-qualify-harness-v0.1.0"
+    qualified_at: "REPLACE_WITH_MEASURED:rfc3339-timestamp"
+    expires_at: "2027-09-06T00:00:00Z"
+    requalification_triggers:
+      - artifact_hash_changes
+      - runtime_version_upgrade
+      - evaluation_set_updated
+    signer_key_id: "airbench-local-signing-key-v1"
+    signature: "REPLACE_WITH_MEASURED:hmac-sha256-of-certificate-canonical-json"
+
+  # ── Gemma 4 26B A4B — Workstation Lead ────────────────────────────────────
+  - certificate_id: cert-gemma4-26b-workstation-v0
+    target_id: gemma4-26b-a4b-4bit
+    artifact_hash: "3eca3b8f6d7baf218a7dd6bba5fb59a56ee25fe2d567b6f5f589b4f697eca51d"
+    tokenizer_hash: "bundled"
+    chat_template_hash: "bundled"
+    runtime_version: "vllm-0.8.5"
+    runtime_container_digest: "REPLACE_WITH_MEASURED:sha256-of-vllm-container"
+    adapter_id: "airbench-vllm-adapter"
+    adapter_version: "0.1.0"
+    hardware_profile_id: target_96gb_vram
+    worker_role: workstation_lead
+    task_kinds:
+      - lead_planning
+      - approval_note_draft
+      - bounded_evidence_synthesis
+    risk_classes:
+      - inspection_review
+      - low_risk
+    modality: text
+    clearance_ceiling: restricted
+    input_fixture_set_hash: "REPLACE_WITH_MEASURED:sha256-of-fixture-set"
+    output_schema_id: "airbench.plan_proposal.v1"
+    tool_permissions: []
+    context_limit: 32768
+    image_token_limit: 0
+    benchmark_scores:
+      inspection_review_accuracy: "REPLACE_WITH_MEASURED:float-0-to-1"
+      evidence_faithfulness: "REPLACE_WITH_MEASURED:float-0-to-1"
+      structured_output_validity: "REPLACE_WITH_MEASURED:float-0-to-1"
+      # Quality envelope relative to gemma4-31b-it-q4 (required by issue spec)
+      quality_delta_vs_31b: "REPLACE_WITH_MEASURED:signed-float-e.g.-minus-0.04"
+      latency_delta_vs_31b_ms: "REPLACE_WITH_MEASURED:signed-float-faster-is-negative"
+    pass_rates:
+      structured_output_pass_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+      tool_call_pass_rate: "n/a"
+      citation_provenance_retention: "REPLACE_WITH_MEASURED:float-0-to-1"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:float-0-to-1"
+      safety_injection_resistance: "REPLACE_WITH_MEASURED:float-0-to-1"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+    safety_results:
+      injection_resistance_result: "REPLACE_WITH_MEASURED:pass-fail-partial"
+      cancellation_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      timeout_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      known_failure_modes:
+        - "May not match 31B quality on high-complexity reasoning; escalate per task policy"
+    evaluator_id: "airbench-qualify-harness-v0.1.0"
+    qualified_at: "REPLACE_WITH_MEASURED:rfc3339-timestamp"
+    expires_at: "2027-09-06T00:00:00Z"
+    requalification_triggers:
+      - artifact_hash_changes
+      - runtime_version_upgrade
+      - evaluation_set_updated
+    signer_key_id: "airbench-local-signing-key-v1"
+    signature: "REPLACE_WITH_MEASURED:hmac-sha256-of-certificate-canonical-json"
+
+  # ── Gemma 4 26B A4B — Reasoning Fallback ──────────────────────────────────
+  - certificate_id: cert-gemma4-26b-reasoning-fallback-v0
+    target_id: gemma4-26b-a4b-4bit
+    artifact_hash: "3eca3b8f6d7baf218a7dd6bba5fb59a56ee25fe2d567b6f5f589b4f697eca51d"
+    tokenizer_hash: "bundled"
+    chat_template_hash: "bundled"
+    runtime_version: "vllm-0.8.5"
+    runtime_container_digest: "REPLACE_WITH_MEASURED:sha256-of-vllm-container"
+    adapter_id: "airbench-vllm-adapter"
+    adapter_version: "0.1.0"
+    hardware_profile_id: target_96gb_vram
+    worker_role: reasoning_fallback
+    task_kinds:
+      - reasoning_fast_lane
+      - bounded_evidence_synthesis
+    risk_classes:
+      - inspection_review
+      - low_risk
+    modality: text
+    clearance_ceiling: restricted
+    input_fixture_set_hash: "REPLACE_WITH_MEASURED:sha256-of-fixture-set"
+    output_schema_id: "airbench.worker_result.v1"
+    tool_permissions: []
+    context_limit: 32768
+    image_token_limit: 0
+    benchmark_scores:
+      reasoning_accuracy: "REPLACE_WITH_MEASURED:float-0-to-1"
+      quality_delta_vs_31b: "REPLACE_WITH_MEASURED:signed-float"
+    pass_rates:
+      structured_output_pass_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+      tool_call_pass_rate: "n/a"
+      citation_provenance_retention: "REPLACE_WITH_MEASURED:float-0-to-1"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:float-0-to-1"
+      safety_injection_resistance: "REPLACE_WITH_MEASURED:float-0-to-1"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+    safety_results:
+      injection_resistance_result: "REPLACE_WITH_MEASURED:pass-fail-partial"
+      cancellation_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      timeout_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      known_failure_modes:
+        - "This fallback cannot silently replace the 31B target when task policy requires higher-qualified target"
+    evaluator_id: "airbench-qualify-harness-v0.1.0"
+    qualified_at: "REPLACE_WITH_MEASURED:rfc3339-timestamp"
+    expires_at: "2027-09-06T00:00:00Z"
+    requalification_triggers:
+      - artifact_hash_changes
+      - runtime_version_upgrade
+    signer_key_id: "airbench-local-signing-key-v1"
+    signature: "REPLACE_WITH_MEASURED:hmac-sha256-of-certificate-canonical-json"
+
+  # ── Qwen3-Coder 30B A3B — Code Worker ─────────────────────────────────────
+  - certificate_id: cert-qwen3-coder-code-v0
+    target_id: qwen3-coder-30b-a3b-4bit
+    artifact_hash: "c0b64626f59e9c7bafa334570427b0438faca29875f87d322bc9c705d3391ff8"
+    tokenizer_hash: "19564a48c4f71a2a1b937cce34c737a1e662b171c5f5d7edf641a15cd896f07d"
+    chat_template_hash: "fa6fbb930b353106ede5f238aaeb5109cfbb29e457f6b02fc1facb6adfc9004a"
+    runtime_version: "vllm-0.8.5"
+    runtime_container_digest: "REPLACE_WITH_MEASURED:sha256-of-vllm-container"
+    adapter_id: "airbench-vllm-adapter"
+    adapter_version: "0.1.0"
+    hardware_profile_id: target_96gb_vram
+    worker_role: code_worker
+    task_kinds:
+      - code_generation
+      - code_repair
+      - executable_calculation
+      - test_generation
+    risk_classes:
+      - inspection_review
+      - code_execution
+    modality: text
+    clearance_ceiling: restricted
+    input_fixture_set_hash: "REPLACE_WITH_MEASURED:sha256-of-fixture-set"
+    output_schema_id: "airbench.worker_result.v1"
+    tool_permissions:
+      - "sandbox.execute_python"
+      - "sandbox.execute_bash"
+    context_limit: 32768
+    image_token_limit: 0
+    benchmark_scores:
+      code_generation_pass_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+      executable_calculation_accuracy: "REPLACE_WITH_MEASURED:float-0-to-1"
+      tool_call_schema_validity: "REPLACE_WITH_MEASURED:float-0-to-1"
+      sandbox_escape_resistance: "REPLACE_WITH_MEASURED:float-0-to-1"
+    pass_rates:
+      structured_output_pass_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+      tool_call_pass_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+      citation_provenance_retention: "REPLACE_WITH_MEASURED:float-0-to-1"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:float-0-to-1"
+      safety_injection_resistance: "REPLACE_WITH_MEASURED:float-0-to-1"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+    safety_results:
+      injection_resistance_result: "REPLACE_WITH_MEASURED:pass-fail-partial"
+      cancellation_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      timeout_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      known_failure_modes:
+        - "Must not receive final approval authority"
+        - "Must be tested through actual Tool Gateway and no-network sandbox"
+    evaluator_id: "airbench-qualify-harness-v0.1.0"
+    qualified_at: "REPLACE_WITH_MEASURED:rfc3339-timestamp"
+    expires_at: "2027-09-06T00:00:00Z"
+    requalification_triggers:
+      - artifact_hash_changes
+      - runtime_version_upgrade
+      - tool_gateway_schema_changes
+    signer_key_id: "airbench-local-signing-key-v1"
+    signature: "REPLACE_WITH_MEASURED:hmac-sha256-of-certificate-canonical-json"
+
+  # ── Qwen2.5-VL 7B — Vision Worker ─────────────────────────────────────────
+  - certificate_id: cert-qwen2.5-vl-vision-v0
+    target_id: qwen2.5-vl-7b-4bit
+    artifact_hash: "81d797f3f3a625d6c2479dbf9276156c7e31cc3c7a8fdf3e8194d8f4810c4c1a"
+    tokenizer_hash: "5eee858c5123a4279c3e1f7b81247343f356ac767940b2692a928ad929543214"
+    chat_template_hash: "0a6be425d5d62ec1904deb45e569c809d0973bd39a411452388f268a855e3183"
+    runtime_version: "vllm-0.8.5"
+    runtime_container_digest: "REPLACE_WITH_MEASURED:sha256-of-vllm-container"
+    adapter_id: "airbench-vllm-adapter"
+    adapter_version: "0.1.0"
+    hardware_profile_id: target_96gb_vram
+    worker_role: vision_worker
+    task_kinds:
+      - scanned_page_extraction
+      - ocr_evidence_extraction
+      - inspection_photograph_analysis
+      - handwriting_interpretation
+    risk_classes:
+      - inspection_review
+      - evidence_extraction
+    modality: text_and_vision
+    clearance_ceiling: restricted
+    input_fixture_set_hash: "REPLACE_WITH_MEASURED:sha256-of-fixture-set"
+    output_schema_id: "airbench.worker_result.v1"
+    tool_permissions: []
+    context_limit: 32768
+    image_token_limit: 1280
+    benchmark_scores:
+      scanned_page_accuracy: "REPLACE_WITH_MEASURED:float-0-to-1"
+      ocr_extraction_f1: "REPLACE_WITH_MEASURED:float-0-to-1"
+      handwriting_accuracy: "REPLACE_WITH_MEASURED:float-0-to-1"
+      structured_output_validity: "REPLACE_WITH_MEASURED:float-0-to-1"
+    pass_rates:
+      structured_output_pass_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+      tool_call_pass_rate: "n/a"
+      citation_provenance_retention: "REPLACE_WITH_MEASURED:float-0-to-1"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:float-0-to-1"
+      safety_injection_resistance: "REPLACE_WITH_MEASURED:float-0-to-1"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+    safety_results:
+      injection_resistance_result: "REPLACE_WITH_MEASURED:pass-fail-partial"
+      cancellation_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      timeout_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      known_failure_modes:
+        - "NOT qualified for engineering drawing topology extraction"
+        - "Evaluated on actual local inspection-report fixtures only"
+    evaluator_id: "airbench-qualify-harness-v0.1.0"
+    qualified_at: "REPLACE_WITH_MEASURED:rfc3339-timestamp"
+    expires_at: "2027-09-06T00:00:00Z"
+    requalification_triggers:
+      - artifact_hash_changes
+      - runtime_version_upgrade
+      - evaluation_set_updated
+    signer_key_id: "airbench-local-signing-key-v1"
+    signature: "REPLACE_WITH_MEASURED:hmac-sha256-of-certificate-canonical-json"
+
+  # ── BAAI BGE-M3 — Embedding Service ───────────────────────────────────────
+  - certificate_id: cert-bge-m3-embedding-v0
+    target_id: bge-m3
+    artifact_hash: "b5e0ce3470abf5ef3831aa1bd5553b486803e83251590ab7ff35a117cf6aad38"
+    tokenizer_hash: "21106b6d7dab2952c1d496fb21d5dc9db75c28ed361a05f5020bbba27810dd08"
+    chat_template_hash: "a62b2b6784f990259fddef5f16388693a8043be4f69179e6a5257eeb3f9abac4"
+    runtime_version: "FlagEmbedding-1.3.0"
+    runtime_container_digest: "REPLACE_WITH_MEASURED:sha256-of-serving-container"
+    adapter_id: "airbench-embedding-adapter"
+    adapter_version: "0.1.0"
+    hardware_profile_id: target_96gb_vram
+    worker_role: embedding_service
+    task_kinds:
+      - dense_embedding_generation
+      - sparse_embedding_generation
+    risk_classes:
+      - retrieval
+    modality: text
+    clearance_ceiling: restricted
+    input_fixture_set_hash: "REPLACE_WITH_MEASURED:sha256-of-fixture-set"
+    output_schema_id: "airbench.embedding_result.v1"
+    tool_permissions: []
+    context_limit: 8192
+    image_token_limit: 0
+    benchmark_scores:
+      embedding_dimension: "REPLACE_WITH_MEASURED:integer-e.g.-1024"
+      retrieval_ndcg_at_10: "REPLACE_WITH_MEASURED:float-0-to-1"
+      deterministic_index_compatibility: "REPLACE_WITH_MEASURED:pass-or-fail"
+    pass_rates:
+      structured_output_pass_rate: "1.0"    # embedding output is always a vector
+      tool_call_pass_rate: "n/a"
+      citation_provenance_retention: "n/a"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:float-0-to-1"
+      safety_injection_resistance: "n/a"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+    safety_results:
+      injection_resistance_result: "n/a"
+      cancellation_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      timeout_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      known_failure_modes: []
+    evaluator_id: "airbench-qualify-harness-v0.1.0"
+    qualified_at: "REPLACE_WITH_MEASURED:rfc3339-timestamp"
+    expires_at: "2027-09-06T00:00:00Z"
+    requalification_triggers:
+      - artifact_hash_changes
+    signer_key_id: "airbench-local-signing-key-v1"
+    signature: "REPLACE_WITH_MEASURED:hmac-sha256-of-certificate-canonical-json"
+
+  # ── BAAI BGE-Reranker-v2-M3 — Reranking Service ───────────────────────────
+  - certificate_id: cert-bge-reranker-v2-m3-reranking-v0
+    target_id: bge-reranker-v2-m3
+    artifact_hash: "d9e3e081faff1eefb84019509b2f5558fd74c1a05a2c7db22f74174fcedb5286"
+    tokenizer_hash: "69564b696052886ed0ac63fa393e928384e0f8caada38c1f4864a9bfbf379c15"
+    chat_template_hash: "7e4c1cc848840aeccdd763458c18dd525eb0f795c992e00ebe9c28554e7db2d4"
+    runtime_version: "FlagEmbedding-1.3.0"
+    runtime_container_digest: "REPLACE_WITH_MEASURED:sha256-of-serving-container"
+    adapter_id: "airbench-reranker-adapter"
+    adapter_version: "0.1.0"
+    hardware_profile_id: target_96gb_vram
+    worker_role: reranking_service
+    task_kinds:
+      - retrieval_reranking
+      - clearance_filtered_retrieval
+    risk_classes:
+      - retrieval
+    modality: text
+    clearance_ceiling: restricted
+    input_fixture_set_hash: "REPLACE_WITH_MEASURED:sha256-of-fixture-set"
+    output_schema_id: "airbench.reranking_result.v1"
+    tool_permissions: []
+    context_limit: 8192
+    image_token_limit: 0
+    benchmark_scores:
+      reranking_ndcg_at_10: "REPLACE_WITH_MEASURED:float-0-to-1"
+      deterministic_input_output_schema: "REPLACE_WITH_MEASURED:pass-or-fail"
+      clearance_filter_isolation: "REPLACE_WITH_MEASURED:pass-or-fail"
+    pass_rates:
+      structured_output_pass_rate: "1.0"
+      tool_call_pass_rate: "n/a"
+      citation_provenance_retention: "n/a"
+      cancellation_and_timeout: "REPLACE_WITH_MEASURED:float-0-to-1"
+      safety_injection_resistance: "n/a"
+      no_egress_startup: "REPLACE_WITH_MEASURED:pass-or-fail"
+    safety_results:
+      injection_resistance_result: "n/a"
+      cancellation_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      timeout_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      no_egress_startup_result: "REPLACE_WITH_MEASURED:pass-or-fail"
+      known_failure_modes: []
+    evaluator_id: "airbench-qualify-harness-v0.1.0"
+    qualified_at: "REPLACE_WITH_MEASURED:rfc3339-timestamp"
+    expires_at: "2027-09-06T00:00:00Z"
+    requalification_triggers:
+      - artifact_hash_changes
+    signer_key_id: "airbench-local-signing-key-v1"
+    signature: "REPLACE_WITH_MEASURED:hmac-sha256-of-certificate-canonical-json"

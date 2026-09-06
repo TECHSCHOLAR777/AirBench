@@ -1,0 +1,218 @@
+# benchmarks/quantization_matrix.yaml
+# M5.1 — Per-target/precision quantization benchmark results.
+# All columns from the M5.1 issue spec are present.
+# Fill after running: python -m airbench.benchmark.quantization --target <id> --profile target_96gb_vram
+
+schema_version: "1.0"
+hardware_profile_id: target_96gb_vram
+benchmark_tool_version: "airbench-benchmark-0.1.0"
+
+entries:
+
+  # ── Gemma 4 31B — Q4 (large profile path) ───────────────────────────────
+  - target_id: gemma4-31b-it-q4
+    artifact_hash: "179cfb99212709597eae5929112cfca677e1bbf566178b479ae1da0c4772874b"
+    quantization_format: "INT4_AWQ"
+    quantization_method: "AWQ"
+    precision_mode: "int4"
+    benchmark_date: "REPLACE_WITH_MEASURED:rfc3339-date"
+    # Run: watch -n1 nvidia-smi --query-gpu=memory.used --format=csv,noheader during load
+    peak_vram_bytes: "REPLACE_WITH_MEASURED:integer-bytes-e.g.-65000000000"
+    # Run with: vllm serve ... --max-model-len 32768 and check KV cache alloc
+    context_window: 32768
+    kv_cache_allocated_bytes: "REPLACE_WITH_MEASURED:integer-bytes"
+    # Run: time vllm serve ... until /health returns 200
+    cold_load_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    warm_load_time_seconds: "REPLACE_WITH_MEASURED:float-seconds-or-resident"
+    unload_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    # Benchmark with: python -m airbench.benchmark.latency --tokens 512 --reps 10
+    first_token_latency_ms: "REPLACE_WITH_MEASURED:float-ms"
+    end_to_end_latency_ms: "REPLACE_WITH_MEASURED:float-ms"
+    prompt_processing_throughput_tokens_per_sec: "REPLACE_WITH_MEASURED:float"
+    generation_throughput_tokens_per_sec: "REPLACE_WITH_MEASURED:float"
+    # Benchmark with: python -m airbench.benchmark.concurrency --ramp-up
+    stable_max_concurrency: "REPLACE_WITH_MEASURED:integer"
+    failure_threshold_concurrency: "REPLACE_WITH_MEASURED:integer"
+    observed_failure_mode: "REPLACE_WITH_MEASURED:e.g.-OOM-or-timeout"
+    cpu_usage_percent: "REPLACE_WITH_MEASURED:float"
+    ram_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    vram_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    scratch_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    benchmark_repetitions: 5
+    latency_variance_ms: "REPLACE_WITH_MEASURED:float"
+    # Task quality eval — run qualification harness on inspection fixtures
+    task_quality_score: "REPLACE_WITH_MEASURED:float-0-to-1"
+    structured_output_pass_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+    tool_call_pass_rate: "n/a"
+    vision_image_token_result: "n/a"
+    failure_modes: []
+    supported_hardware_profile: target_96gb_vram
+    qualification_decision: "REPLACE_WITH_MEASURED:qualified-or-rejected"
+
+  # ── Gemma 4 26B A4B — Q4_0 (practical workstation path) ──────────────────
+  - target_id: gemma4-26b-a4b-4bit
+    artifact_hash: "3eca3b8f6d7baf218a7dd6bba5fb59a56ee25fe2d567b6f5f589b4f697eca51d"
+    quantization_format: "Q4_0"
+    quantization_method: "QAT"
+    benchmark_date: "REPLACE_WITH_MEASURED:rfc3339-date"
+    peak_vram_bytes: "REPLACE_WITH_MEASURED:integer-bytes-e.g.-20000000000"
+    context_window: 32768
+    kv_cache_allocated_bytes: "REPLACE_WITH_MEASURED:integer-bytes"
+    cold_load_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    warm_load_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    unload_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    first_token_latency_ms: "REPLACE_WITH_MEASURED:float-ms"
+    end_to_end_latency_ms: "REPLACE_WITH_MEASURED:float-ms"
+    prompt_processing_throughput_tokens_per_sec: "REPLACE_WITH_MEASURED:float"
+    generation_throughput_tokens_per_sec: "REPLACE_WITH_MEASURED:float"
+    stable_max_concurrency: "REPLACE_WITH_MEASURED:integer"
+    failure_threshold_concurrency: "REPLACE_WITH_MEASURED:integer"
+    observed_failure_mode: "REPLACE_WITH_MEASURED:e.g.-OOM-or-timeout"
+    cpu_usage_percent: "REPLACE_WITH_MEASURED:float"
+    ram_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    vram_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    scratch_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    benchmark_repetitions: 5
+    latency_variance_ms: "REPLACE_WITH_MEASURED:float"
+    task_quality_score: "REPLACE_WITH_MEASURED:float-0-to-1"
+    structured_output_pass_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+    tool_call_pass_rate: "n/a"
+    vision_image_token_result: "n/a"
+    failure_modes: []
+    supported_hardware_profile: target_96gb_vram
+    qualification_decision: "REPLACE_WITH_MEASURED:qualified-or-rejected"
+
+  # ── Qwen3-Coder 30B A3B — AWQ 4-bit ──────────────────────────────────────
+  - target_id: qwen3-coder-30b-a3b-4bit
+    artifact_hash: "c0b64626f59e9c7bafa334570427b0438faca29875f87d322bc9c705d3391ff8"
+    quantization_format: "INT4_AWQ"
+    quantization_method: "AWQ"
+    benchmark_date: "REPLACE_WITH_MEASURED:rfc3339-date"
+    peak_vram_bytes: "REPLACE_WITH_MEASURED:integer-bytes-e.g.-18000000000"
+    context_window: 32768
+    kv_cache_allocated_bytes: "REPLACE_WITH_MEASURED:integer-bytes"
+    cold_load_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    warm_load_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    unload_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    first_token_latency_ms: "REPLACE_WITH_MEASURED:float-ms"
+    end_to_end_latency_ms: "REPLACE_WITH_MEASURED:float-ms"
+    prompt_processing_throughput_tokens_per_sec: "REPLACE_WITH_MEASURED:float"
+    generation_throughput_tokens_per_sec: "REPLACE_WITH_MEASURED:float"
+    stable_max_concurrency: "REPLACE_WITH_MEASURED:integer"
+    failure_threshold_concurrency: "REPLACE_WITH_MEASURED:integer"
+    observed_failure_mode: "REPLACE_WITH_MEASURED:e.g.-OOM-or-timeout"
+    cpu_usage_percent: "REPLACE_WITH_MEASURED:float"
+    ram_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    vram_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    scratch_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    benchmark_repetitions: 5
+    latency_variance_ms: "REPLACE_WITH_MEASURED:float"
+    task_quality_score: "REPLACE_WITH_MEASURED:float-0-to-1"
+    structured_output_pass_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+    tool_call_pass_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+    vision_image_token_result: "n/a"
+    failure_modes: []
+    supported_hardware_profile: target_96gb_vram
+    qualification_decision: "REPLACE_WITH_MEASURED:qualified-or-rejected"
+
+  # ── Qwen2.5-VL 7B — AWQ 4-bit ─────────────────────────────────────────────
+  - target_id: qwen2.5-vl-7b-4bit
+    artifact_hash: "81d797f3f3a625d6c2479dbf9276156c7e31cc3c7a8fdf3e8194d8f4810c4c1a"
+    quantization_format: "INT4_AWQ"
+    quantization_method: "AWQ"
+    benchmark_date: "REPLACE_WITH_MEASURED:rfc3339-date"
+    peak_vram_bytes: "REPLACE_WITH_MEASURED:integer-bytes-e.g.-8000000000"
+    context_window: 32768
+    kv_cache_allocated_bytes: "REPLACE_WITH_MEASURED:integer-bytes"
+    cold_load_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    warm_load_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    unload_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    first_token_latency_ms: "REPLACE_WITH_MEASURED:float-ms"
+    end_to_end_latency_ms: "REPLACE_WITH_MEASURED:float-ms"
+    prompt_processing_throughput_tokens_per_sec: "REPLACE_WITH_MEASURED:float"
+    generation_throughput_tokens_per_sec: "REPLACE_WITH_MEASURED:float"
+    stable_max_concurrency: "REPLACE_WITH_MEASURED:integer"
+    failure_threshold_concurrency: "REPLACE_WITH_MEASURED:integer"
+    observed_failure_mode: "REPLACE_WITH_MEASURED:e.g.-OOM-or-timeout"
+    cpu_usage_percent: "REPLACE_WITH_MEASURED:float"
+    ram_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    vram_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    scratch_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    benchmark_repetitions: 5
+    latency_variance_ms: "REPLACE_WITH_MEASURED:float"
+    task_quality_score: "REPLACE_WITH_MEASURED:float-0-to-1"
+    structured_output_pass_rate: "REPLACE_WITH_MEASURED:float-0-to-1"
+    tool_call_pass_rate: "n/a"
+    # Vision-specific: image token throughput and accuracy on inspection fixtures
+    vision_image_token_result: "REPLACE_WITH_MEASURED:pass-or-fail-with-details"
+    vision_max_image_tokens: 1280
+    scanned_page_accuracy: "REPLACE_WITH_MEASURED:float-0-to-1"
+    failure_modes: []
+    supported_hardware_profile: target_96gb_vram
+    qualification_decision: "REPLACE_WITH_MEASURED:qualified-or-rejected"
+
+  # ── BAAI BGE-M3 — BF16 (CPU) ──────────────────────────────────────────────
+  - target_id: bge-m3
+    artifact_hash: "b5e0ce3470abf5ef3831aa1bd5553b486803e83251590ab7ff35a117cf6aad38"
+    quantization_format: "BF16"
+    quantization_method: "none"
+    benchmark_date: "REPLACE_WITH_MEASURED:rfc3339-date"
+    peak_vram_bytes: 0    # CPU-served; uses RAM instead
+    context_window: 8192
+    kv_cache_allocated_bytes: 0
+    cold_load_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    warm_load_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    unload_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    first_token_latency_ms: "REPLACE_WITH_MEASURED:float-ms"
+    end_to_end_latency_ms: "REPLACE_WITH_MEASURED:float-ms"
+    prompt_processing_throughput_tokens_per_sec: "REPLACE_WITH_MEASURED:float"
+    generation_throughput_tokens_per_sec: "n/a"  # embedding model
+    stable_max_concurrency: "REPLACE_WITH_MEASURED:integer"
+    failure_threshold_concurrency: "REPLACE_WITH_MEASURED:integer"
+    observed_failure_mode: "REPLACE_WITH_MEASURED"
+    cpu_usage_percent: "REPLACE_WITH_MEASURED:float"
+    ram_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    vram_usage_bytes: 0
+    scratch_usage_bytes: 0
+    benchmark_repetitions: 5
+    latency_variance_ms: "REPLACE_WITH_MEASURED:float"
+    task_quality_score: "REPLACE_WITH_MEASURED:float-retrieval-ndcg"
+    structured_output_pass_rate: "1.0"
+    tool_call_pass_rate: "n/a"
+    vision_image_token_result: "n/a"
+    failure_modes: []
+    supported_hardware_profile: target_96gb_vram
+    qualification_decision: "REPLACE_WITH_MEASURED:qualified-or-rejected"
+
+  # ── BAAI BGE-Reranker-v2-M3 — BF16 (CPU) ─────────────────────────────────
+  - target_id: bge-reranker-v2-m3
+    artifact_hash: "d9e3e081faff1eefb84019509b2f5558fd74c1a05a2c7db22f74174fcedb5286"
+    quantization_format: "BF16"
+    quantization_method: "none"
+    benchmark_date: "REPLACE_WITH_MEASURED:rfc3339-date"
+    peak_vram_bytes: 0
+    context_window: 8192
+    kv_cache_allocated_bytes: 0
+    cold_load_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    warm_load_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    unload_time_seconds: "REPLACE_WITH_MEASURED:float-seconds"
+    first_token_latency_ms: "REPLACE_WITH_MEASURED:float-ms"
+    end_to_end_latency_ms: "REPLACE_WITH_MEASURED:float-ms"
+    prompt_processing_throughput_tokens_per_sec: "REPLACE_WITH_MEASURED:float"
+    generation_throughput_tokens_per_sec: "n/a"
+    stable_max_concurrency: "REPLACE_WITH_MEASURED:integer"
+    failure_threshold_concurrency: "REPLACE_WITH_MEASURED:integer"
+    observed_failure_mode: "REPLACE_WITH_MEASURED"
+    cpu_usage_percent: "REPLACE_WITH_MEASURED:float"
+    ram_usage_bytes: "REPLACE_WITH_MEASURED:integer"
+    vram_usage_bytes: 0
+    scratch_usage_bytes: 0
+    benchmark_repetitions: 5
+    latency_variance_ms: "REPLACE_WITH_MEASURED:float"
+    task_quality_score: "REPLACE_WITH_MEASURED:float-reranking-ndcg"
+    structured_output_pass_rate: "1.0"
+    tool_call_pass_rate: "n/a"
+    vision_image_token_result: "n/a"
+    failure_modes: []
+    supported_hardware_profile: target_96gb_vram
+    qualification_decision: "REPLACE_WITH_MEASURED:qualified-or-rejected"

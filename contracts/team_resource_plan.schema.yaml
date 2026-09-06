@@ -1,0 +1,253 @@
+# team_resource_plan.schema.yaml
+# M5.2 — Typed schema for a signed TeamResourcePlan.
+#
+# The plan is created by the AdmissionController and committed before any worker starts.
+# No model response, worker output, uploaded document, or benchmark result can modify
+# an already-committed plan. The plan itself is the authority record for what resources
+# were reserved and in what execution mode the team runs.
+
+schema_id: airbench.team_resource_plan.v1
+schema_version: "1.0"
+description: >
+  Immutable team resource plan produced by the admission controller.
+  Committed to the ledger before worker execution begins.
+  Covers parallel, pipelined, and serial virtual-team execution modes.
+
+required_top_level_fields:
+  - plan_id
+  - schema_version
+  - task_id
+  - team_id
+  - hardware_profile_id
+  - plan_version
+  - created_at
+  - requested_mode
+  - admitted_mode
+  - admission
+  - admission_reason
+  - priority
+  - reservations
+  - concurrency
+  - scheduling
+  - safety_invariants
+  - provenance
+
+fields:
+  plan_id:
+    type: string
+    pattern: "^[a-z0-9][a-z0-9._:-]{0,127}$"
+    description: Stable deterministic identifier (UUID5 of task_id + team_id + idempotency_key).
+
+  schema_version:
+    type: string
+    enum: ["1.0"]
+
+  task_id:
+    type: string
+    description: The task this plan belongs to.
+
+  team_id:
+    type: string
+    description: The worker team this plan governs.
+
+  hardware_profile_id:
+    type: string
+    description: profile_id of the HardwareProfile used for admission arithmetic.
+
+  plan_version:
+    type: string
+    description: >
+      Monotonically increasing version string for this plan.
+      A plan can only be replaced by a higher version; never mutated.
+
+  created_at:
+    type: string
+    format: rfc3339
+    description: UTC timestamp when the admission controller produced this plan.
+
+  requested_mode:
+    type: string
+    enum: ["parallel", "pipelined", "serial_virtual_team", "auto"]
+    description: Execution mode requested by the orchestrator.
+
+  admitted_mode:
+    type: string
+    enum: ["parallel", "pipelined", "serial_virtual_team", "queued", "stopped"]
+    description: Execution mode actually admitted by the controller.
+
+  admission:
+    type: string
+    enum: ["admitted", "queued", "degraded_needs_review", "rejected", "stopped"]
+
+  admission_reason:
+    type: string
+    description: Human-readable explanation of the admission decision.
+
+  priority:
+    type: string
+    enum:
+      - interactive_high_consequence
+      - interactive_normal
+      - scheduled_domain_work
+      - background_ingestion
+      - maintenance
+
+  reservations:
+    type: array
+    description: Per-worker resource reservations. Must include the verifier worker.
+    item_fields:
+      worker_id:
+        type: string
+      role:
+        type: string
+        description: "e.g. lead_worker, vision_worker, code_worker, verification_worker"
+      capability:
+        type: string
+        description: Qualified capability required (must match ModelTarget.capabilities entry).
+      model_target_id:
+        type: string
+        description: target_id from the model roster.
+      qualification_id:
+        type: string
+        description: certificate_id from the qualification matrix for this role.
+      gpu_indices:
+        type: array
+        items:
+          type: integer
+        description: GPU device indices reserved for this worker.
+      vram_reserved_bytes:
+        type: integer
+        minimum: 0
+      cpu_reserved_millicores:
+        type: integer
+        minimum: 0
+      ram_reserved_bytes:
+        type: integer
+        minimum: 0
+      scratch_reserved_bytes:
+        type: integer
+        minimum: 0
+      context_tokens_reserved:
+        type: integer
+        minimum: 0
+      kv_cache_reserved_bytes:
+        type: integer
+        minimum: 0
+      start_deadline:
+        type: string
+        format: rfc3339
+        description: Latest time by which the worker must start.
+      execution_deadline:
+        type: string
+        format: rfc3339
+        description: Latest time by which the worker must complete.
+      residency:
+        type: string
+        enum: ["resident", "load_on_demand", "evictable"]
+        description: Model residency policy for this worker's assigned target.
+
+  dependency_graph:
+    type: object
+    description: >
+      Map of worker_id → list of worker_ids that must complete before this worker starts.
+      Must be a DAG (no cycles).
+    example:
+      vision_worker: []
+      lead_worker: ["vision_worker"]
+      verification_worker: ["lead_worker"]
+
+  concurrency:
+    type: object
+    fields:
+      max_parallel_workers:
+        type: integer
+        minimum: 1
+      barrier_policy:
+        type: string
+        description: "e.g. join_all, join_any_with_fallback"
+      pipeline_stages:
+        type: array
+        items:
+          type: string
+        description: Ordered stage names when admitted_mode is pipelined.
+
+  scheduling:
+    type: object
+    fields:
+      queue_class:
+        type: string
+        description: "Priority class used for queue ordering."
+      preemption_policy:
+        type: string
+        enum: ["cooperative", "cancellable", "none"]
+        description: >
+          cooperative — background worker yields at next checkpoint.
+          cancellable — background worker can be cancelled and resumed.
+          none — preemption not supported for this plan.
+      cancellation_policy:
+        type: string
+        description: What happens to in-flight work when cancelled.
+      retry_policy:
+        type: string
+        description: Retry limit and backoff strategy per worker.
+      unload_policy:
+        type: string
+        description: Model unload/eviction policy between serial worker turns.
+
+  safety_invariants:
+    type: object
+    description: >
+      Immutable safety requirements that the admission controller enforces.
+      These cannot be weakened by a model response, worker result, or resource pressure.
+    fields:
+      verifier_required:
+        type: boolean
+        const: true
+        description: Independent verification is mandatory. Must always be true.
+      review_required:
+        type: boolean
+        const: true
+        description: Human review gate is mandatory. Must always be true.
+      verification_threshold:
+        type: string
+        description: Minimum verification pass rate required for completion.
+      qualified_targets_only:
+        type: boolean
+        const: true
+        description: Only targets with a current qualification certificate may be selected.
+      provenance_required:
+        type: boolean
+        const: true
+        description: All facts must carry source, confidence, clearance, and taint.
+
+  provenance:
+    type: object
+    fields:
+      hardware_profile_hash:
+        type: string
+        description: SHA-256 digest of the canonical JSON of the HardwareProfile used.
+      qualification_hashes:
+        type: array
+        items:
+          type: string
+        description: SHA-256 digests of each qualification certificate referenced by reservations.
+      policy_hash:
+        type: string
+        description: SHA-256 digest of the routing/admission policy version used.
+      signer_key_id:
+        type: string
+      signature:
+        type: string
+        description: HMAC-SHA-256 of canonical JSON of this plan (excluding signature field).
+
+validation_rules:
+  - verifier_required must be true
+  - review_required must be true
+  - qualified_targets_only must be true
+  - provenance_required must be true
+  - dependency_graph must be acyclic
+  - all worker_ids in dependency_graph must appear in reservations
+  - verifier worker must appear in reservations
+  - admitted_mode must be consistent with admission value
+  - plan committed before first worker.started ledger event
+  - plan cannot be mutated after commitment (only replaced by a higher plan_version)
