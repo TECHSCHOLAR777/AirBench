@@ -2,6 +2,14 @@
 
 from .intake import FileIntakeLayer, IntakeError, IntakeManifest, IntakeMode, IntakeRequest
 from .sandbox import SandboxError, SandboxPolicy, SandboxResult, SandboxRunner
+from .tool_gateway import (
+    CapabilityScope,
+    ToolAuthorization,
+    ToolDefinition,
+    ToolGateway,
+    ToolGatewayError,
+    issue_capability_scope,
+)
 from .verification import (
     VerificationCheck,
     VerificationError,
@@ -22,6 +30,12 @@ __all__ = [
     "SandboxPolicy",
     "SandboxResult",
     "SandboxRunner",
+    "CapabilityScope",
+    "ToolAuthorization",
+    "ToolDefinition",
+    "ToolGateway",
+    "ToolGatewayError",
+    "issue_capability_scope",
     "VerificationCheck",
     "VerificationError",
     "VerificationOutcome",
