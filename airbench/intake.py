@@ -443,6 +443,28 @@ def _sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def _semantic_revision_hash(
+    media_type: str,
+    page_data: list[tuple[str, str]] | tuple[tuple[str, str], ...],
+    source_hash: str,
+) -> str:
+    """Fingerprint parsed content while retaining raw identity for opaque pages.
+
+    Office archives commonly carry changing ZIP metadata such as timestamps.
+    Those bytes are retained as ``source_hash`` for provenance, but they must
+    not make bulk and query parsing of the same document appear to be different
+    revisions. Images and text-free scans remain bound to their raw bytes so
+    two opaque documents cannot collapse to one revision.
+    """
+
+    normalized = [(str(region), str(text)) for region, text in page_data]
+    material: dict[str, Any] = {"media_type": media_type, "pages": normalized}
+    if media_type.startswith("image/") or not any(text for _, text in normalized):
+        material["source_hash"] = source_hash
+    canonical = json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def _media_type(file_name: str, content: bytes) -> str:
     suffix = Path(file_name).suffix.lower()
     if content.startswith(_PDF_MAGIC) and suffix == ".pdf":
@@ -786,12 +808,13 @@ class BuiltinDocumentParser:
             extraction_method = "utf8_text_decode"
             page_data = [("page:1", request.content.decode("utf-8"))]
 
+        semantic_source_hash = _semantic_revision_hash(media_type, page_data, source_hash)
         pages = tuple(
             PageRecord(
-                page_id=stable_id("page", request.source_ref, source_hash, page_number),
+                page_id=stable_id("page", request.source_ref, semantic_source_hash, page_number),
                 page_number=page_number,
                 source_region=source_region,
-                content_hash=hashlib.sha256(f"{source_hash}:page:{page_number}".encode()).hexdigest(),
+                content_hash=hashlib.sha256(f"{semantic_source_hash}:page:{page_number}".encode()).hexdigest(),
                 media_type=media_type,
                 text=text,
                 extraction_method=extraction_method,
@@ -801,7 +824,7 @@ class BuiltinDocumentParser:
                 else 0.0,
                 clearance=request.clearance,
                 taint=Taint.untrusted,
-                evidence_ref=stable_id("evidence", request.source_ref, source_hash, page_number),
+                evidence_ref=stable_id("evidence", request.source_ref, semantic_source_hash, page_number),
                 rendered_page_ref=None,
                 render_status="deferred",
             )
@@ -926,11 +949,16 @@ class FileIntakeLayer:
             ))
         pages = tuple(rendered_records)
         ingested_at = _now()
+        revision_hash = _semantic_revision_hash(
+            media_type,
+            tuple((page.source_region, page.text) for page in pages),
+            source_hash,
+        )
         manifest = IntakeManifest(
             intake_id=intake_id,
             task_id=request.task_id,
             source_ref=request.source_ref,
-            revision_id=stable_id("revision", request.source_ref, source_hash, self._parser.version, renderer_version),
+            revision_id=stable_id("revision", request.source_ref, revision_hash, self._parser.version, renderer_version),
             source_hash=source_hash,
             file_name=request.file_name,
             media_type=media_type,

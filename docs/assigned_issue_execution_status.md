@@ -16,7 +16,9 @@ The user-owned backend parent milestones were M4, M6, M7, M8, M9, and M10. The o
 | #44 | M7.3 embedding and reranking | Blocked | Requires qualified local embedding and reranking serving, not only downloaded artifacts. |
 | #45 | M7.4 world model and retrieval writes | Serial blocked | Depends on retrieval, provenance gates, and the M2.2 projection contract. |
 | #47 to #49 | M8 integration | Serial blocked | Depends on orchestrator, sandbox, intake, retrieval, and world-model seams. |
-| #50 to #57 | M9 and M10 integration and release | Serial downstream | Depends on the earlier runtime and Node contracts. |
+| #50 to #53 | M9 vertical slice | Serial downstream | Depends on the earlier runtime, domain-pack, retrieval, and deliverable contracts. |
+| #54 | M10.1 Python Node API | Autonomous implementation slice complete, production gate blocked | Authenticated local handshake, health, task mutations, snapshots, task-local event replay, evidence, route trace, and review projections are implemented and tested. Offline packaging, credential-store identity, live intake/artifact commands, and frontend integration remain. |
+| #55 to #57 | M10.2 to M10.4 deployment and release | Serial downstream | Depends on the production Node API, model qualification, artifact/intake integration, and hard no-egress evidence. |
 | #58 | Qwen3-VL qualification | Blocked | The target and a real local serving and measurement path were not available in the last audit. |
 | #59 | Qwen3-30B benchmark | Blocked | The target and a real local serving and measurement path were not available in the last audit. |
 
@@ -66,5 +68,7 @@ There is no delegated subagent runtime available in this environment. Parallel r
 - FE-VAL-4 fixture run `AirBenchNodeValidation-20260907-000611-1771bd0d55b5493baa5f3dcfbfc4a940` also covers interrupted upload, truncated artifact response, and oversized-file rejection before network transfer.
 - FE-DEV-02 now rejects inconsistent event batches before projection, including identity, protocol, clearance, cursor, sequence, metadata, and ledger-reference mismatches; frontend tests pass 35/35.
 - Rebuilt the external WebDriver binary after FE-DEV-02 changes; the packaged smoke suite passed 5/5 with retained log `frontend/logs/wdio-2026-09-06T18-49-21-126Z.log`. The known WDIO teardown warning remains non-fatal.
+- #54 now has a typed local Python API slice in `airbench/node_api.py`. It keeps handlers thin, disables public API documentation routes, enforces bearer authentication and clearance ceilings, projects task-local cursor events while retaining global ledger references, and filters evidence and route traces from the append-only ledger. Focused and full Python tests pass. See `docs/m10_1_node_api_evidence.md`.
+- File Intake revision and page identities now use canonical parsed content for Office archives, while raw source hashes remain preserved for provenance. This restores the documented bulk/query parity when ZIP metadata changes between reads.
 
 The latest local evidence is a passing full Python suite and compile check, 33 passing frontend tests, 13 passing Rust tests, a passing frontend build, generated-contract check, static no-egress check, live Node fixture validation, and 5/5 external WebDriver tests. The default embedded WebDriver provider remains blocked by a direct-eval HTTP 404; the external `tauri-driver` path passes. The local branch must still be pushed after the next main-branch refresh.
