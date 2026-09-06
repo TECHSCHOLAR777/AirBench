@@ -1,0 +1,171 @@
+# profiles/hardware/target_96gb_vram.yaml
+# M5.2 — Signed HardwareProfile for the AirBench 96 GB VRAM reference deployment.
+#
+# HOW TO FILL IN MEASURED VALUES
+# ================================
+# Run the following commands on the target machine and replace each
+# "REPLACE_WITH_MEASURED:<description>" placeholder below.
+#
+# GPU info:
+#   nvidia-smi --query-gpu=name,pci.bus_id,uuid,memory.total,memory.free,driver_version --format=csv,noheader
+#   nvidia-smi --query-gpu=compute_cap --format=csv,noheader
+#
+# CUDA version:
+#   nvcc --version   OR   nvidia-smi | grep "CUDA Version"
+#
+# CPU info (Linux):
+#   lscpu | grep -E "Model name|Core\(s\) per socket|Thread|Socket"
+#   nproc
+#
+# CPU info (Windows):
+#   Get-WmiObject -Class Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors
+#
+# RAM (Linux):
+#   free -b | awk '/Mem:/{print $2, $7}'
+#
+# RAM (Windows):
+#   Get-WmiObject -Class Win32_ComputerSystem | Select-Object TotalPhysicalMemory
+#   (Get-WmiObject -Class Win32_OperatingSystem).FreePhysicalMemory * 1024
+#
+# Storage:
+#   (Linux) df -B1 / /scratch | awk 'NR>1{print $2, $4}'
+#   (Windows) Get-PSDrive C,D | Select-Object Root,Used,Free
+#
+# Container image fingerprint:
+#   docker inspect --format='{{index .RepoDigests 0}}' vllm/vllm-openai:v0.8.5
+#
+# Measurement hash (hash of this file before adding the signature):
+#   Get-Content profiles/hardware/target_96gb_vram.yaml | python -c
+#     "import sys,hashlib; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())"
+#
+# Egress denial evidence:
+#   Start vLLM with network isolation and confirm no external calls succeed.
+#   Record the ledger event ID from hardware.measurement.completed event.
+
+profile_id: target_96gb_vram
+schema_version: "1.0"
+# Replace with actual measurement timestamp from nvidia-smi
+measured_at: "REPLACE_WITH_MEASURED:timestamp-from-nvidia-smi-output"
+# Replace with the airbench-probe version you ran
+measurement_tool_version: "airbench-probe-0.1.0"
+
+host:
+  # Replace with actual hostname or a stable local identifier
+  hostname_or_local_id: "REPLACE_WITH_MEASURED:hostname-or-node-id"
+  # e.g. "Ubuntu 24.04.1 LTS / Linux 6.8.0-45-generic"
+  os_and_kernel: "REPLACE_WITH_MEASURED:uname-a-output"
+  architecture: x86_64
+
+gpu:
+  # Replace with output from: nvidia-smi --query-gpu=count --format=csv,noheader
+  count: 1
+  devices:
+    - index: 0
+      # e.g. "NVIDIA H100 SXM5 80GB"  — replace with actual nvidia-smi name
+      model: "REPLACE_WITH_MEASURED:nvidia-smi-gpu-name"
+      # e.g. "00000000:01:00.0"  — PCI bus ID from nvidia-smi
+      device_id: "REPLACE_WITH_MEASURED:nvidia-smi-pci-bus-id"
+      # GPU UUID from: nvidia-smi --query-gpu=uuid --format=csv,noheader
+      fingerprint: "REPLACE_WITH_MEASURED:nvidia-smi-gpu-uuid"
+      # memory.total in bytes — convert from MiB: MiB * 1048576
+      # For a 96 GB GPU this should be approximately 103,079,215,104
+      vram_total_bytes: "REPLACE_WITH_MEASURED:memory-total-bytes-from-nvidia-smi"
+      # memory.free at measurement time — varies; get from nvidia-smi
+      vram_available_bytes: "REPLACE_WITH_MEASURED:memory-free-bytes-from-nvidia-smi"
+      # e.g. "550.90.07"
+      driver_version: "REPLACE_WITH_MEASURED:nvidia-smi-driver-version"
+      # e.g. "12.4"
+      cuda_or_equivalent_version: "REPLACE_WITH_MEASURED:nvcc-version-or-nvidia-smi-cuda"
+      interconnect: null  # null for single-GPU; "NVLink" or "NVSwitch" for multi-GPU
+
+cpu:
+  # e.g. "Intel Xeon Gold 6438M"
+  model: "REPLACE_WITH_MEASURED:lscpu-model-name"
+  # nproc --all
+  logical_cores: "REPLACE_WITH_MEASURED:nproc-output"
+  # lscpu "Core(s) per socket" * "Socket(s)"
+  physical_cores: "REPLACE_WITH_MEASURED:physical-cores-from-lscpu"
+  # Idle CPU % at measurement time (100 - %user - %sys from top/mpstat)
+  available_capacity_percent: "REPLACE_WITH_MEASURED:cpu-idle-percent-from-mpstat"
+
+memory:
+  # free -b → MemTotal column in bytes
+  ram_total_bytes: "REPLACE_WITH_MEASURED:meminfo-memtotal-bytes"
+  # free -b → MemAvailable column in bytes
+  ram_available_bytes: "REPLACE_WITH_MEASURED:meminfo-memavailable-bytes"
+
+storage:
+  # df -B1 / → 2nd column (1K-blocks * 1024) or use df --output=size
+  root_total_bytes: "REPLACE_WITH_MEASURED:df-root-total-bytes"
+  # df -B1 / → 4th column (Available)
+  root_available_bytes: "REPLACE_WITH_MEASURED:df-root-available-bytes"
+  # Path where model weight swap files and scratch data are written
+  scratch_path: "D:\\airbench-scratch"
+  scratch_total_bytes: "REPLACE_WITH_MEASURED:df-scratch-total-bytes"
+  scratch_available_bytes: "REPLACE_WITH_MEASURED:df-scratch-available-bytes"
+
+runtime:
+  model_server: vllm
+  # Exact pinned version — must match the container used in the roster
+  model_server_version: "0.8.5"
+  sandbox_runtime: "firejail"
+  sandbox_version: "REPLACE_WITH_MEASURED:firejail-version-from-firejail-version"
+  # sha256 digests of all container images used on this node
+  container_or_image_fingerprints:
+    - "REPLACE_WITH_MEASURED:sha256-vllm-openai-v0.8.5-container-digest"
+    # Add more container digests if other serving images are used
+
+isolation:
+  egress_policy: deny-all
+  # Ledger event ID emitted during startup egress check
+  # (hardware.measurement.completed event from the probe run)
+  network_check_id: "REPLACE_WITH_MEASURED:ledger-event-id-of-egress-denial-evidence"
+  host_socket_access: false
+
+benchmark_summary:
+  # Determined from model benchmark runs — see benchmarks/model_hardware_results.yaml
+  # For 96 GB VRAM with the v0 roster, parallel slots depends on loaded model set.
+  # Conservative default: 1 (largest model uses most of VRAM alone)
+  # Update after running: python -m airbench.probe.benchmark --profile target_96gb_vram
+  safe_parallel_slots: "REPLACE_WITH_MEASURED:safe-parallel-slots-from-benchmark"
+  supported_execution_modes:
+    - parallel           # when reservations fit simultaneously
+    - serial_virtual_team  # always supported as fallback
+  benchmark_result_ref: "benchmarks/model_hardware_results.yaml#target_96gb_vram"
+
+provenance:
+  source_measurements:
+    - "nvidia-smi --query-gpu=name,pci.bus_id,uuid,memory.total,memory.free,driver_version --format=csv,noheader"
+    - "nvcc --version"
+    - "lscpu"
+    - "free -b"
+    - "df -B1 /"
+    - "docker inspect --format='{{index .RepoDigests 0}}' vllm/vllm-openai:v0.8.5"
+  # SHA-256 of each raw probe output file
+  evidence_hashes:
+    - "REPLACE_WITH_MEASURED:sha256-of-nvidia-smi-output-file"
+    - "REPLACE_WITH_MEASURED:sha256-of-lscpu-output-file"
+    - "REPLACE_WITH_MEASURED:sha256-of-free-output-file"
+    - "REPLACE_WITH_MEASURED:sha256-of-df-output-file"
+  signer_key_id: "airbench-local-signing-key-v1"
+  # HMAC-SHA-256 of canonical JSON of this profile (excluding this signature field)
+  signature: "REPLACE_WITH_MEASURED:hmac-sha256-of-hardware-profile-canonical-json"
+
+# ── Notes for the operator ─────────────────────────────────────────────────────
+#
+# 1. Run the airbench hardware probe BEFORE any models are loaded:
+#      python -m airbench.probe.hardware --output profiles/hardware/target_96gb_vram.yaml
+#
+# 2. Re-run the probe if the GPU driver, CUDA version, or RAM changes.
+#    Any change to these fields invalidates the profile signature and requires
+#    a new measurement and re-signing.
+#
+# 3. The safe_parallel_slots value must come from actual model benchmark runs
+#    (benchmarks/model_hardware_results.yaml). Do not estimate it.
+#
+# 4. The profile must be re-signed after every measurement update.
+#    The admission controller will reject an unsigned or stale profile.
+#
+# 5. This profile is referenced by target_id in the model roster and in each
+#    qualification certificate. Any change to profile_id requires updating
+#    those references.

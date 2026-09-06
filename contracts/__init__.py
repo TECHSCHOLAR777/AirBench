@@ -18,6 +18,8 @@ from .orchestrator import (AuthorizationRejected, OrchestrationError, Orchestrat
                             TransitionResult)
 from .authorization import AuthorizationDecision, AuthorizationError, AuthorizationService, PrincipalRecord, SignedReference, sign_reference
 from .planning import PlanProposal, PlanStep, PlanValidationError, PlanValidator
+from .model_registry import ModelRegistry, ModelTarget, RegistryError
+from .admission import AdmissionController, AdmissionDecision, AdmissionError, AdmissionRequest, HardwareMeasurement
 
 __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "stable_id",
            "TaskEnvelope", "TeamPlan", "WorkerAssignment", "WorkPacket", "WorkerResult",
@@ -34,3 +36,4 @@ __all__ += ["AuthorizationRejected", "OrchestrationError", "Orchestrator", "Plan
             "CancellationRequested", "AuthorizationDecision", "AuthorizationError", "AuthorizationService",
             "PrincipalRecord", "SignedReference", "PlanProposal", "PlanStep", "PlanValidationError", "PlanValidator"]
 __all__ += ["sign_reference"]
+__all__ += ["ModelRegistry", "ModelTarget", "RegistryError", "AdmissionController", "AdmissionDecision", "AdmissionError", "AdmissionRequest", "HardwareMeasurement"]
