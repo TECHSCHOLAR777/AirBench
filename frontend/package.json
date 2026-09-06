@@ -17,7 +17,7 @@
     "check:runtime-egress": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-runtime-egress.ps1",
     "build:webdriver": "tsc -b && vite build --mode webdriver && npm run create:manifest",
     "tauri:build:webdriver": "tauri build --debug --no-bundle --features wdio --config src-tauri/tauri.webdriver.conf.json",
-    "test:desktop": "wdio run wdio.conf.ts",
+    "test:desktop": "wdio run wdio.conf.ts && node scripts/assert-wdio-log.mjs",
     "test:desktop:multiremote": "wdio run wdio.multiremote.conf.ts",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@airbench/tauri-invoke";
 import type { ApprovedNodeProfile } from "./nodeConnection";
 
 export interface NativeNodeConnectionResult {
