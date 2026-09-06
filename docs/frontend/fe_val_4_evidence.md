@@ -8,6 +8,7 @@ Status: File Intake and safe-preview fixture validation in progress. No complete
 - The Rust shell streams the selected bytes to the approved Node `query_upload` endpoint. It does not parse PDF, image, OCR, Office, or drawing content.
 - The Node returns the intake manifest with source hash, revision, parser metadata, page and OCR or vision state, clearance, taint, preview reference, artifact reference, and ledger reference.
 - Preview is a typed Node response containing safe text plus source-region, confidence, clearance, taint, and ledger references. The UI does not render arbitrary HTML or document script.
+- Preview and artifact references are treated as opaque Node-issued path segments. The shell no longer requires a fixture-specific prefix, but rejects traversal, separators, query syntax, control characters, and overlong references before constructing a request path.
 - Artifact download is Node-authorized. Rust verifies the response hash and ledger header before saving through a native save dialog.
 
 ## Synthetic fixture evidence

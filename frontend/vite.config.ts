@@ -4,8 +4,11 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => {
   const aliases: Record<string, string> = mode === "webdriver"
-    ? {}
+    ? {
+        "@airbench/tauri-invoke": resolve(__dirname, "src/tauriInvoke.webdriver.ts"),
+      }
     : {
+        "@airbench/tauri-invoke": resolve(__dirname, "src/tauriInvoke.ts"),
         "@wdio/tauri-plugin": resolve(__dirname, "src/wdio-production-empty.ts"),
       };
 

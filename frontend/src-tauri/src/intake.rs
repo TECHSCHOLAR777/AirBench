@@ -10,6 +10,7 @@ use tauri::State;
 use uuid::Uuid;
 
 const MAX_QUERY_UPLOAD_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_NODE_REFERENCE_BYTES: usize = 256;
 
 #[derive(Default)]
 pub struct IntakeState {
@@ -82,6 +83,21 @@ fn validate_file(path: &PathBuf) -> Result<std::fs::Metadata, String> {
         return Err("The selected file is larger than the query-upload limit.".to_string());
     }
     Ok(metadata)
+}
+
+fn validate_node_reference(reference: &str, label: &str) -> Result<(), String> {
+    if reference.is_empty()
+        || reference.len() > MAX_NODE_REFERENCE_BYTES
+        || reference.contains("..")
+        || !reference
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+    {
+        return Err(format!(
+            "The {label} reference is not an approved Node reference."
+        ));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -183,12 +199,7 @@ pub async fn fetch_safe_preview(
     profile: NodeProfile,
     preview_ref: String,
 ) -> Result<SafePreview, String> {
-    if !preview_ref.starts_with("fixture-intake-")
-        || preview_ref.contains("..")
-        || preview_ref.contains('/')
-    {
-        return Err("The preview reference is not an approved Node reference.".to_string());
-    }
+    validate_node_reference(&preview_ref, "preview")?;
     let token = credential_token(&profile).map_err(String::from)?;
     let response = build_client(&profile)
         .map_err(String::from)?
@@ -219,13 +230,7 @@ pub async fn download_artifact_to_path(
     artifact_id: String,
     destination: PathBuf,
 ) -> Result<DownloadReceipt, String> {
-    if artifact_id.is_empty()
-        || !artifact_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
-    {
-        return Err("The artifact reference is not valid.".to_string());
-    }
+    validate_node_reference(&artifact_id, "artifact")?;
     let token = credential_token(&profile).map_err(String::from)?;
     let response = build_client(&profile)
         .map_err(String::from)?
@@ -303,3 +308,22 @@ pub async fn download_artifact(
 
 #[allow(dead_code)]
 fn _keep_error_type_linked(_: NodeTransportError) {}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_node_reference;
+
+    #[test]
+    fn accepts_opaque_node_references_without_fixture_prefixes() {
+        assert!(validate_node_reference("intake-7f3c.preview:v2", "preview").is_ok());
+        assert!(validate_node_reference("artifact_2026.09:abc", "artifact").is_ok());
+    }
+
+    #[test]
+    fn rejects_path_traversal_and_unsafe_reference_syntax() {
+        for reference in ["", "..", "../preview", "preview\\file", "preview?id=1"] {
+            assert!(validate_node_reference(reference, "preview").is_err());
+        }
+        assert!(validate_node_reference(&"a".repeat(257), "artifact").is_err());
+    }
+}

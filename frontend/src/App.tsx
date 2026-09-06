@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@airbench/tauri-invoke";
 import type { AirBenchPresentationState, Screen } from "./contracts";
 import { initialPresentationState } from "./contracts";
 
