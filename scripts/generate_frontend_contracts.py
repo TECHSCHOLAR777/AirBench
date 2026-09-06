@@ -34,6 +34,8 @@ CONTRACT_NAMES = (
     "FactEnvelope",
     "UntrustedEvidence",
     "LedgerEventEnvelope",
+    "NodeCommandEnvelope",
+    "NodeCommandResult",
 )
 
 sys.path.insert(0, str(ROOT))

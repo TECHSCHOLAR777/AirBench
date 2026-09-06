@@ -123,7 +123,8 @@ class Orchestrator:
                     permitted_tools: tuple[str, ...] = (), output_contract: str = "text",
                     verification_criteria: tuple[str, ...] = (),
                     resource_budget: dict[str, int] | None = None,
-                    task_id: str | None = None) -> TaskEnvelope:
+                    task_id: str | None = None,
+                    command_metadata: dict[str, str] | None = None) -> TaskEnvelope:
         task = TaskEnvelope(
             task_id=task_id or stable_id("task", principal_id, request, domain_pack_ref),
             principal_id=principal_id, clearance=clearance if isinstance(clearance, Clearance) else Clearance(clearance),
@@ -145,15 +146,23 @@ class Orchestrator:
             payload = {"task": task.to_dict(), "state": "created"}
             if decision is not None:
                 payload["authorization"] = {"principal_id": decision.principal_id, "pack_ref": decision.pack.reference, "pack_digest": decision.pack.digest, "policy_ref": decision.policy.reference, "policy_digest": decision.policy.digest}
-            self._append("task.created", task.task_id, payload, "TaskEnvelope", idempotency_key("orchestrator.task.create", task.task_id))
+            if command_metadata is not None:
+                payload["_command"] = dict(command_metadata)
+            create_key = (
+                idempotency_key("orchestrator.task.create", task.task_id, command_metadata)
+                if command_metadata is not None
+                else idempotency_key("orchestrator.task.create", task.task_id)
+            )
+            self._append("task.created", task.task_id, payload, "TaskEnvelope", create_key)
         except (ContractValidationError, LedgerError) as exc:
             raise StorageFailure("task creation was not committed") from exc
         return task
 
-    def authorize(self, task_id: str, *, authorization_ref: str) -> TransitionResult:
+    def authorize(self, task_id: str, *, authorization_ref: str,
+                  command_metadata: dict[str, str] | None = None) -> TransitionResult:
         if not authorization_ref.strip():
             raise AuthorizationRejected("authorization reference is required")
-        return self.transition(task_id, "task.authorized", {"authorization_ref": authorization_ref})
+        return self.transition(task_id, "task.authorized", {"authorization_ref": authorization_ref}, command_metadata=command_metadata)
 
     def commit_plan(self, plan: TeamPlan) -> TransitionResult:
         task = self._task(plan.task_id)
@@ -189,7 +198,8 @@ class Orchestrator:
             if value > original.resource_budget.get(name, 0):
                 raise PlanRejected(f"replan cannot increase budget {name}")
 
-    def transition(self, task_id: str, event_type: str, payload: dict[str, Any], *, timeout_ms: int = 60_000) -> TransitionResult:
+    def transition(self, task_id: str, event_type: str, payload: dict[str, Any], *, timeout_ms: int = 60_000,
+                   command_metadata: dict[str, str] | None = None) -> TransitionResult:
         if timeout_ms <= 0 or timeout_ms > 86_400_000:
             raise StepTimeout("transition timeout must be 1..86400000 ms")
         state = self.state(task_id)
@@ -202,11 +212,14 @@ class Orchestrator:
             criteria = payload.get("criteria")
             if not isinstance(criteria, dict) or not criteria or any(value is not True for value in criteria.values()):
                 raise TransitionRejected("completion requires all criteria to be explicitly true")
-        key = idempotency_key("orchestrator.transition", task_id, event_type, payload)
+        event_payload = dict(payload)
+        if command_metadata is not None:
+            event_payload["_command"] = dict(command_metadata)
+        key = idempotency_key("orchestrator.transition", task_id, event_type, event_payload)
         existing = next((event for event in self.store.events if event.idempotency_key == key), None)
         if existing is not None:
             return TransitionResult(task_id, existing.event_id, event_type, self.state(task_id), existing.sequence, key, self._transaction_id(existing.event_id))
-        result = self._append(event_type, task_id, payload, "OrchestratorTransition", key)
+        result = self._append(event_type, task_id, event_payload, "OrchestratorTransition", key)
         if event_type not in {"task.failed", "task.cancelled"}:
             self._checkpoint(task_id, result)
         return result
@@ -252,15 +265,17 @@ class Orchestrator:
                     raise RetryExhausted(f"step {step_id} exhausted its retry budget") from exc
         raise RetryExhausted(f"step {step_id} exhausted its retry budget")
 
-    def cancel(self, task_id: str, *, reason: str) -> TransitionResult:
+    def cancel(self, task_id: str, *, reason: str,
+               command_metadata: dict[str, str] | None = None) -> TransitionResult:
         if not reason.strip():
             raise CancellationRequested("cancellation reason is required")
-        return self.transition(task_id, "task.cancelled", {"reason": reason})
+        return self.transition(task_id, "task.cancelled", {"reason": reason}, command_metadata=command_metadata)
 
-    def request_review(self, task_id: str, *, reason: str) -> TransitionResult:
+    def request_review(self, task_id: str, *, reason: str,
+                       command_metadata: dict[str, str] | None = None) -> TransitionResult:
         if not reason.strip():
             raise TransitionRejected("review reason is required")
-        return self.transition(task_id, "human.review.required", {"reason": reason})
+        return self.transition(task_id, "human.review.required", {"reason": reason}, command_metadata=command_metadata)
 
     def _record_dependency_failure(self, dependency: str) -> None:
         failures = self._circuit_failures.get(dependency, 0) + 1

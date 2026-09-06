@@ -7,7 +7,7 @@ import types
 from dataclasses import MISSING, dataclass, field, fields
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, ClassVar, Union, get_args, get_origin, get_type_hints
+from typing import Any, ClassVar, Literal, Union, get_args, get_origin, get_type_hints
 
 from .errors import ContractValidationError, ValidationIssue
 
@@ -170,6 +170,84 @@ class Contract:
 
     def digest(self) -> str:
         return hashlib.sha256(self.canonical_json().encode()).hexdigest()
+
+
+NODE_COMMAND_TYPES = {
+    "task.create",
+    "task.authorize",
+    "task.cancel",
+    "task.request_review",
+    "node.recheck",
+}
+
+
+@dataclass(frozen=True)
+class NodeCommandEnvelope(Contract):
+    """Versioned, authenticated command envelope at the Node boundary.
+
+    The command is transport-neutral. The Node validates it before handing
+    the requested mutation to the orchestrator, and the ledger stores only a
+    non-sensitive receipt derived from this envelope.
+    """
+
+    command_id: str
+    task_id: str | None
+    actor: str
+    expected_sequence: int | None
+    idempotency_key: str
+    client_version: str
+    command_type: str
+    arguments: dict[str, Any]
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if not self.actor.strip():
+            issues.append(ValidationIssue("actor", "required", "command actor is required"))
+        if not self.idempotency_key.strip() or len(self.idempotency_key) > 256:
+            issues.append(ValidationIssue("idempotency_key", "required", "idempotency key must be 1..256 characters"))
+        if not self.client_version.strip() or len(self.client_version) > 64:
+            issues.append(ValidationIssue("client_version", "required", "client version must be 1..64 characters"))
+        if self.command_type not in NODE_COMMAND_TYPES:
+            issues.append(ValidationIssue("command_type", "enum", "unsupported Node command"))
+        if self.expected_sequence is not None and (type(self.expected_sequence) is not int or self.expected_sequence < 0):
+            issues.append(ValidationIssue("expected_sequence", "range", "expected sequence must be a non-negative integer or null"))
+        if not isinstance(self.arguments, dict):
+            issues.append(ValidationIssue("arguments", "type", "command arguments must be an object"))
+        return issues
+
+
+@dataclass(frozen=True)
+class NodeCommandResult(Contract):
+    """Bounded result returned after a command is accepted or rejected."""
+
+    outcome: Literal["accepted", "rejected", "needs_review"]
+    command_id: str
+    task_id: str | None
+    idempotency_key: str
+    ledger_event_ref: str | None
+    sequence: int | None
+    state: str | None
+    node_identity: str
+    protocol_version: str
+    clearance_context: Clearance
+    event_type: str | None = None
+    code: str | None = None
+    message: str | None = None
+    reason: str | None = None
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if not self.idempotency_key.strip():
+            issues.append(ValidationIssue("idempotency_key", "required", "result idempotency key is required"))
+        if self.sequence is not None and (type(self.sequence) is not int or self.sequence < 0):
+            issues.append(ValidationIssue("sequence", "range", "result sequence must be non-negative"))
+        if self.outcome == "accepted" and (not self.task_id or not self.ledger_event_ref or not self.state or not self.event_type):
+            issues.append(ValidationIssue("outcome", "result", "accepted results require task, ledger, and state"))
+        if not self.node_identity.strip() or not self.protocol_version.strip():
+            issues.append(ValidationIssue("node_identity", "result", "Node identity and protocol are required"))
+        if self.outcome == "rejected" and not self.code:
+            issues.append(ValidationIssue("code", "result", "rejected results require a code"))
+        return issues
 
 
 def _type_issues(path: str, value: Any, expected: Any) -> list[ValidationIssue]:

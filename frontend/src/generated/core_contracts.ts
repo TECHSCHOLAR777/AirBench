@@ -350,3 +350,31 @@ export interface LedgerEventEnvelope extends ContractEnvelope {
   immutable?: boolean;
   payload?: Record<string, unknown>;
 }
+
+export interface NodeCommandEnvelope extends ContractEnvelope {
+  command_id: string;
+  task_id: string | null;
+  actor: string;
+  expected_sequence: number | null;
+  idempotency_key: string;
+  client_version: string;
+  command_type: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface NodeCommandResult extends ContractEnvelope {
+  outcome: "accepted" | "rejected" | "needs_review";
+  command_id: string;
+  task_id: string | null;
+  idempotency_key: string;
+  ledger_event_ref: string | null;
+  sequence: number | null;
+  state: string | null;
+  node_identity: string;
+  protocol_version: string;
+  clearance_context: Clearance;
+  event_type?: string | null;
+  code?: string | null;
+  message?: string | null;
+  reason?: string | null;
+}

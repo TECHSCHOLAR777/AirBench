@@ -38,6 +38,48 @@ def fixture_events() -> list[dict[str, object]]:
     ]
 
 
+def fixture_snapshot(server: "FixtureServer") -> dict[str, object]:
+    return {
+        "taskId": "task-fixture",
+        "schemaVersion": server.protocol_version,
+        "snapshotId": "snapshot-fixture-1",
+        "asOfSequence": len(fixture_events()),
+        "title": "Synthetic fixture task",
+        "requestSummary": "Validate a local fixture task",
+        "status": "needs_review",
+        "phase": "review",
+        "clearanceContext": server.clearance_context,
+        "inputManifestRef": "",
+        "evidence": [],
+        "facts": [],
+        "artifactRefs": ["artifact-approval-note"],
+        "unresolvedQuestions": [],
+        "nodeConnectionRef": server.node_identity,
+        "ledgerHeadRef": "ledger-artifact-5",
+    }
+
+
+def command_result(server: "FixtureServer", command: dict[str, object], event_type: str, state: str, sequence: int) -> dict[str, object]:
+    return {
+        "schema_version": "1.0",
+        "compatibility_id": "airbench-core-contracts",
+        "outcome": "accepted",
+        "command_id": command.get("command_id", "fixture-command"),
+        "task_id": command.get("task_id"),
+        "idempotency_key": command.get("idempotency_key", "fixture-idempotency"),
+        "ledger_event_ref": f"ledger-command-{sequence}",
+        "sequence": sequence,
+        "state": state,
+        "event_type": event_type,
+        "node_identity": server.node_identity,
+        "protocol_version": server.protocol_version,
+        "clearance_context": server.clearance_context,
+        "code": None,
+        "message": None,
+        "reason": None,
+    }
+
+
 class FixtureHandler(BaseHTTPRequestHandler):
     server_version = "AirBenchFixture/0.1"
 
@@ -75,6 +117,10 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 "has_more": False,
                 "ledger_event_refs": [str(event["ledgerEventRef"]) for event in events],
             })
+            return
+
+        if parsed.path == "/api/v1/tasks/task-fixture":
+            self._json(200, fixture_snapshot(self.server))  # type: ignore[arg-type]
             return
 
         if parsed.path.startswith("/api/v1/intake/") and parsed.path.endswith("/preview"):
@@ -163,6 +209,43 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.server.log_event({"event": "auth_rejected", "path": self.path})  # type: ignore[attr-defined]
             self._json(401, {"error": "unauthorized"})
             return
+
+        if self.path == "/api/v1/tasks" or self.path in {
+            "/api/v1/tasks/task-fixture/authorize",
+            "/api/v1/tasks/task-fixture/cancel",
+            "/api/v1/tasks/task-fixture/review",
+        }:
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(content_length))
+            except (ValueError, json.JSONDecodeError):
+                self._json(400, {"error": "invalid_command"})
+                return
+            if not isinstance(body, dict):
+                self._json(400, {"error": "invalid_command"})
+                return
+            if self.path == "/api/v1/tasks":
+                create_command_result = command_result(self.server, body, "task.created", "created", 1)  # type: ignore[arg-type]
+                create_command_result["task_id"] = "task-fixture"
+                response = {
+                    "task": {"task_id": "task-fixture", "state": "created"},
+                    "snapshot": fixture_snapshot(self.server),  # type: ignore[arg-type]
+                    "ledger_event_ref": "ledger-task-created",
+                    "command": create_command_result,
+                }
+                self.server.log_event({"event": "command_accepted", "command_type": "task.create"})  # type: ignore[attr-defined]
+                self._json(201, response)
+                return
+            command_result_by_path = {
+                "/api/v1/tasks/task-fixture/authorize": ("task.authorized", "authorized"),
+                "/api/v1/tasks/task-fixture/cancel": ("task.cancelled", "cancelled"),
+                "/api/v1/tasks/task-fixture/review": ("human.review.required", "awaiting_review"),
+            }
+            event_type, state = command_result_by_path[self.path]
+            self.server.log_event({"event": "command_accepted", "command_type": str(body.get("command_type", "unknown"))})  # type: ignore[attr-defined]
+            self._json(202, command_result(self.server, body, event_type, state, 6))  # type: ignore[arg-type]
+            return
+
         if self.path != "/api/v1/intake/query-upload":
             self._json(404, {"error": "not_found"})
             return

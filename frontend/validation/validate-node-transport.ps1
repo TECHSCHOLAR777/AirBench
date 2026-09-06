@@ -79,6 +79,38 @@ function Invoke-EventProbe([string]$profilePath, [int]$afterSequence, [string]$t
   return [pscustomobject]@{ code = $code; payload = $payload }
 }
 
+function Invoke-SnapshotProbe([string]$profilePath, [string]$taskId = "task-fixture") {
+  $output = & $cargo run --quiet --manifest-path (Join-Path $tauriRoot "Cargo.toml") --example node_transport_probe -- $profilePath snapshot $taskId 2>&1
+  $code = $LASTEXITCODE
+  $line = ($output | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+  $payload = if ($line) { $line | ConvertFrom-Json } else { [pscustomobject]@{ error = ($output -join " ") } }
+  return [pscustomobject]@{ code = $code; payload = $payload }
+}
+
+function Invoke-CommandProbe([string]$profilePath, [string]$mode, [string]$commandPath) {
+  $output = & $cargo run --quiet --manifest-path (Join-Path $tauriRoot "Cargo.toml") --example node_transport_probe -- $profilePath $mode $commandPath 2>&1
+  $code = $LASTEXITCODE
+  $line = ($output | Where-Object { $_ -match '^\s*\{' } | Select-Object -Last 1)
+  $payload = if ($line) { $line | ConvertFrom-Json } else { [pscustomobject]@{ error = ($output -join " ") } }
+  return [pscustomobject]@{ code = $code; payload = $payload }
+}
+
+function Write-Command([string]$path, [string]$commandId, [object]$taskId, [Nullable[int]]$expectedSequence, [string]$idempotencyKey, [string]$commandType, [hashtable]$arguments) {
+  $command = [ordered]@{
+    schema_version = "1.0"
+    compatibility_id = "airbench-core-contracts"
+    command_id = $commandId
+    task_id = $taskId
+    actor = "fixture-user"
+    expected_sequence = $expectedSequence
+    idempotency_key = $idempotencyKey
+    client_version = "0.1"
+    command_type = $commandType
+    arguments = $arguments
+  }
+  [IO.File]::WriteAllText($path, ($command | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+}
+
 function Invoke-IntakeProbe([string]$profilePath, [string]$inputPath, [string]$outputPath) {
   $output = & $cargo run --quiet --manifest-path (Join-Path $tauriRoot "Cargo.toml") --example intake_probe -- $profilePath $inputPath $outputPath 2>&1
   $code = $LASTEXITCODE
@@ -192,6 +224,16 @@ try {
   $results = [ordered]@{}
   $results.local_success = Invoke-Probe $localProfile
   Assert-Success $results.local_success "local success"
+  $results.snapshot = Invoke-SnapshotProbe $localProfile
+  if ($results.snapshot.code -ne 0 -or $results.snapshot.payload.taskId -ne "task-fixture" -or $results.snapshot.payload.nodeConnectionRef -ne "fixture-node-01") { throw "The typed task snapshot probe failed: $($results.snapshot.payload | ConvertTo-Json -Compress)" }
+  $createCommandPath = Join-Path $runRoot "create-command.json"
+  Write-Command $createCommandPath "command.create.1" $null $null "idempotency.create.1" "task.create" @{ request = "Synthetic fixture task" }
+  $results.create_command = Invoke-CommandProbe $localProfile "create" $createCommandPath
+  if ($results.create_command.code -ne 0 -or $results.create_command.payload.command.outcome -ne "accepted") { throw "The typed create command probe failed: $($results.create_command.payload | ConvertTo-Json -Compress)" }
+  $authorizeCommandPath = Join-Path $runRoot "authorize-command.json"
+  Write-Command $authorizeCommandPath "command.authorize.1" "task-fixture" 5 "idempotency.authorize.1" "task.authorize" @{ authorization_ref = "fixture-authorization" }
+  $results.authorize_command = Invoke-CommandProbe $localProfile "command" $authorizeCommandPath
+  if ($results.authorize_command.code -ne 0 -or $results.authorize_command.payload.outcome -ne "accepted" -or $results.authorize_command.payload.node_identity -ne "fixture-node-01") { throw "The typed authorize command probe failed: $($results.authorize_command.payload | ConvertTo-Json -Compress)" }
   $results.events_initial = Invoke-EventProbe $localProfile 0
   if ($results.events_initial.code -ne 0 -or $results.events_initial.payload.events.Count -ne 5) { throw "Initial event batch was not complete." }
   $initialSequences = @($results.events_initial.payload.events | ForEach-Object sequence)
