@@ -10,7 +10,9 @@ Implemented in `airbench/intake.py`.
 - Both modes use the same parser object and the same manifest, provenance, taint, and ledger path.
 - The three caller switches are explicit: destination, trust profile, and latency profile.
 - Source hash, revision identity, intake identity, page identity, source region, extraction method, confidence, clearance, taint, and parser identity are stable and retained.
-- Text, images, and PDF metadata are handled by the built-in safe parser. PDF page text and OCR are intentionally not invented by this first core parser. OCR and vision belong behind the later adapter issue.
+- Text, images, and PDF metadata are handled by the built-in safe parser. DOCX text and simple tables are read from bounded WordprocessingML parts. XLSX sheets are read as bounded tabular text with formulas preserved as data and never evaluated by intake. PDF page text and OCR are intentionally not invented by this first core parser. OCR and vision belong behind the later adapter issue.
+- DOCX and XLSX are treated as untrusted ZIP archives. The parser rejects malformed archives, path traversal, backslash or absolute paths, symlink entries, macro payloads, excessive member counts, and excessive uncompressed size. It reads selected XML parts without extracting archive paths or executing embedded content.
+- This slice does not claim full Office layout fidelity, rich styling, drawing relationships, formula recalculation, macro support, scanned-document OCR, handwriting, or engineering-drawing understanding. Those require qualified adapters and verification evidence.
 - Uploaded content is never treated as an instruction. Page text is retained as untrusted data and can be omitted from a manifest projection.
 - `evidence.created` is appended before a manifest is returned. A ledger failure returns an intake failure instead of an apparently successful manifest.
 - File names cannot contain path syntax. Empty, oversized, malformed, and unsupported files fail closed.
@@ -19,7 +21,7 @@ Implemented in `airbench/intake.py`.
 - Repeating an intake with the same local store and ledger returns the persisted manifest without reparsing or appending a duplicate evidence event. A stored manifest without its ledger evidence is rejected as an inconsistent recovery state.
 - Storage preparation and ledger failure paths remove staged files. The store uses only local filesystem operations and does not create network clients.
 
-The M7.1 issue should not be closed until the production parser adapter set, rendered-page artifact storage, and real Node integration are present. This slice establishes the shared boundary and replayable manifest contract.
+The M7.1 issue should not be closed until the production parser adapter set, rendered-page artifact storage, and real Node integration are present. This slice establishes the shared boundary, bounded Office XML baseline, and replayable manifest contract.
 
 ## M6.1 sandbox
 
@@ -43,7 +45,7 @@ python -m pytest -q
 python -m compileall -q airbench contracts tests
 ```
 
-Observed result: all tests pass. The full suite currently contains 76 passing tests.
+Observed result: all tests pass. The full suite currently contains 81 passing tests.
 
 ## Files
 
