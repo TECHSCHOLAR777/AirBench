@@ -136,3 +136,57 @@ h1 { margin-bottom: 10px; color: #20241f; font-size: 31px; line-height: 1.16; le
   .content-wrap { padding-left: 40px; padding-right: 40px; }
   .topbar { padding-left: 34px; padding-right: 34px; }
 }
+
+/* Quiet industrial presentation tokens. The work surface stays document-first,
+   while the rail carries the trusted application identity. */
+:root {
+  --ink: #172630;
+  --muted: #5f6d73;
+  --faint: #8d9a9d;
+  --line: #dce3e2;
+  --surface: #ffffff;
+  --canvas: #f3f6f5;
+  --nav: #142731;
+  --nav-soft: #1c3540;
+  --green: #2d7b73;
+  --green-dark: #22635d;
+  --green-soft: #e4f0ee;
+  --amber: #a66e25;
+}
+
+.sidebar {
+  color: #e6efed;
+  background: var(--nav);
+  border-right-color: #25414b;
+}
+
+.brand-name { color: #f3f8f7; }
+.brand-subtitle { color: #9db1b0; }
+.brand-mark { color: var(--nav); background: #b9d9d3; }
+.new-task-button { border-color: #3f958a; color: #f5fbfa; background: var(--green); }
+.new-task-button:hover, .primary-button:hover { background: var(--green-dark); }
+.nav-group-title { color: #7f9898; }
+.nav-item { color: #b3c4c2; }
+.nav-item:hover { color: #f2f8f7; background: var(--nav-soft); }
+.nav-item.active { color: #eaf8f5; background: #24504e; }
+.nav-count { color: #88a7a4; }
+.node-chip { color: #e8f1ef; border-color: #34515a; background: #1a333d; }
+.node-chip:hover { border-color: #55726f; background: #20404a; }
+.node-chip small, .user-row small { color: #9db1b0; }
+.user-row { color: #e8f1ef; }
+.avatar { color: #173b3a; background: #acd0c9; }
+.more-icon, .chevron { color: #89a09f; }
+.topbar { background: rgba(255, 255, 255, .9); }
+.quiet-status { color: #52666b; }
+.quiet-action { color: #5e6e73; }
+.quiet-action:hover { color: var(--ink); }
+.content-wrap { max-width: 1120px; }
+.welcome-block { max-width: 720px; }
+.composer-card { border-color: #d3dfdc; box-shadow: 0 8px 22px rgba(19, 45, 49, .06); }
+.composer-footer { background: #fafcfc; }
+.trust-check { color: var(--green); }
+.readiness-card { border-color: #cfe0dc; background: #f0f7f5; }
+.readiness-card h2 { color: #245a56; }
+.settings-status { background: #f7f5ed; }
+.settings-note { border-left-color: #8cb9b1; background: #eef6f4; }
+.settings-note strong { color: #245a56; }
