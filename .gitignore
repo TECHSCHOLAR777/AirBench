@@ -42,3 +42,6 @@ frontend/src-tauri/target/
 frontend/artifacts/
 frontend/logs/
 *.tsbuildinfo
+
+# Python Packaging
+*.egg-info/

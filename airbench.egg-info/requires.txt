@@ -1,4 +1,0 @@
-PyYAML<7,>=6.0
-
-[test]
-pytest>=8.0
