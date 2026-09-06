@@ -13,6 +13,9 @@ from .models import (TaskEnvelope, TeamPlan, WorkerAssignment, WorkPacket, Worke
 from .projections import ProjectionBuilder, ProjectionSnapshot
 from .recovery import RecoveryManager, RecoveryPoint, RetryRecord, SideEffectUncertain
 from .verification import verify_projection_export, verify_signed_export
+from .orchestrator import (AuthorizationRejected, OrchestrationError, Orchestrator,
+                            PlanRejected, RetryExhausted, StepResult, StepTimeout,
+                            TransitionResult)
 
 __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "stable_id",
            "TaskEnvelope", "TeamPlan", "WorkerAssignment", "WorkPacket", "WorkerResult",
@@ -24,3 +27,5 @@ __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "sta
            "TransitionRejected", "build_event", "ProjectionBuilder", "ProjectionSnapshot",
            "RecoveryManager", "RecoveryPoint", "RetryRecord", "SideEffectUncertain"]
 __all__ += ["verify_signed_export", "verify_projection_export"]
+__all__ += ["AuthorizationRejected", "OrchestrationError", "Orchestrator", "PlanRejected",
+            "RetryExhausted", "StepResult", "StepTimeout", "TransitionResult"]
