@@ -23,6 +23,8 @@ npm run validate:node
 
 The validation runner creates a synthetic scanned PDF containing instruction-bearing text, uploads it through the fixture File Intake endpoint, compares the returned source hash with the selected file, checks that source and artifact preview taint remain `untrusted`, displays both safe preview contracts, verifies the downloaded artifact hash and ledger reference, rejects a denied artifact download, and rejects an unsupported `.exe` file.
 
+Latest fixture run: `AirBenchNodeValidation-20260906-232445-68a26105626b40bc9fd6805af14853f4`. The run passed local and pinned internal HTTPS handshakes, event replay, query upload, source-hash comparison, source and artifact preview validation, artifact hash verification, denied download, and unsupported-document rejection.
+
 Run: `AirBenchNodeValidation-20260906-173337-4902af3ae5ef4d5aa4239c8e5211d9d3`
 
 The run passed local and pinned internal HTTPS connection handshakes, event replay, query-upload intake, source-hash comparison, untrusted taint preservation, safe preview metadata, artifact hash verification, denied artifact download, and unsupported-document rejection. The fixture produced redacted JSONL logs under the run directory and retained the limitation that it is not a packaged desktop or production Python Node proof.
@@ -30,6 +32,8 @@ The run passed local and pinned internal HTTPS connection handshakes, event repl
 The fixture parses only the multipart envelope needed to receive the bytes. It does not interpret document instructions or execute content. It is not the production File Intake Layer.
 
 The packaged Tauri smoke suite now drives the same trust boundary with IPC mocks. The test builds the WebDriver binary, launches the packaged debug executable through external `tauri-driver`, connects an approved profile, uploads a selected scanned-document fixture, renders the Node-generated safe preview with `untrusted` taint, renders the bounded artifact preview, and exercises the Node-authorized download receipt. This is one packaged UI path, not a complete FE-VAL-4 pass.
+
+Latest external WebDriver run: `npm run test:desktop` with `AIRBENCH_WDIO_DRIVER=external` and the installed `tauri-driver`. Result: 5/5 tests passed. The retained log is `frontend/logs/wdio-2026-09-06T18-01-14-545Z.log`. The default embedded provider still returns HTTP 404 from its direct-eval harness and is not treated as application evidence.
 
 ## Remaining acceptance evidence
 

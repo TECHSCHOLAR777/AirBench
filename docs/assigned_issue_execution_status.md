@@ -1,6 +1,6 @@
 # Assigned issue execution status
 
-This is the local execution record for the last verified GitHub assignment snapshot. It is not a replacement for GitHub. The repository and issue connector are currently unreachable, so the snapshot must be revalidated before changing assignments, closing issues, or claiming that a remote issue has moved.
+This is the local execution record for the latest verified GitHub assignment snapshot. It is not a replacement for GitHub. Revalidate it before changing assignments, closing issues, or claiming that a remote issue has moved.
 
 ## Assignment snapshot
 
@@ -31,7 +31,7 @@ The first-release frontend assignment snapshot covered #64 to #69 and #73 to #85
 | #64 | FE-VAL-1 offline shell and WebView2 | Local checks autonomous, packaged gate blocked | Needs a clean Windows image and offline installer evidence. |
 | #65 | FE-VAL-2 approved Node connection | Fixture and native transport autonomous, production gate blocked | Needs real Python Node identity, policy, and packaged connection evidence. |
 | #66 | FE-VAL-3 sequence-numbered event stream | Projection and native transport autonomous, production gate blocked | Needs the authoritative Node event endpoint and packaged reconnect evidence. |
-| #67 | FE-VAL-4 intake and safe preview | Fixture slice autonomous, integration blocked | Needs production File Intake and artifact-preview contracts. |
+| #67 | FE-VAL-4 intake and safe preview | Fixture plus external packaged smoke slice complete, production gate blocked | Artifact preview and controlled download now have typed Rust and React paths. Production Python File Intake, negative corpus, clean packaged evidence, and internal Node integration remain. |
 | #68 | FE-VAL-5 no-egress proof | Static review autonomous, packet gate blocked | Needs packaged runtime and approved internal transport for network capture. |
 | #69 | FE-VAL-6 desktop WebDriver | Serial integration | Requires #64 through #68 executable fixtures and packaged evidence. |
 | #73 | FE-DEV-01 secure Tauri shell | Foundation | Can progress independently until packaged offline proof is required. |
@@ -58,5 +58,6 @@ There is no delegated subagent runtime available in this environment. Parallel r
 - `d486b8e`: frontend task and cursor validation before IPC.
 - `1d4b88c`, `84bd887`, and `4b0f3cf`: native event-batch, profile-catalog, and cursor-integrity checks.
 - `a9e1c24`: typed native task-event envelope before IPC.
+- `4982591`: typed artifact preview validation, Node-authorized download UI, fixture coverage, and external WebDriver evidence for FE-VAL-4.
 
-The latest local evidence is 81 passing Python tests, 33 passing frontend tests, 8 passing Rust tests, a passing frontend build, generated-contract check, and static no-egress check. The local branch is clean and ahead of `origin/main` because GitHub DNS is unavailable. Pull and push must be retried before this record is treated as remotely synchronized.
+The latest local evidence is 124 passing Python tests, 33 passing frontend tests, 11 passing Rust tests, a passing frontend build, generated-contract check, static no-egress check, live Node fixture validation, and 5/5 external WebDriver tests. The default embedded WebDriver provider remains blocked by a direct-eval HTTP 404; the external `tauri-driver` path passes. The local branch must still be pushed after the next main-branch refresh.
