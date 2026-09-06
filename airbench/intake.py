@@ -9,6 +9,7 @@ bulk-ingestion or query-upload boundary.
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import io
 import json
@@ -32,6 +33,8 @@ from contracts import Clearance, EventLedger, Taint, build_event, idempotency_ke
 MAX_FILE_BYTES = 50_000_000
 MAX_OFFICE_ZIP_MEMBERS = 1_024
 MAX_OFFICE_UNCOMPRESSED_BYTES = 100_000_000
+MAX_CSV_ROWS = 1_000_000
+MAX_CSV_COLUMNS = 4_096
 _PDF_MAGIC = b"%PDF-"
 _PDF_PAGE = re.compile(rb"/Type\s*/Page\b")
 _TEXT_SUFFIXES = {".txt", ".md", ".csv", ".json", ".log"}
@@ -463,6 +466,25 @@ def _media_type(file_name: str, content: bytes) -> str:
     raise IntakeError("unsupported_media", "the File Intake Layer does not support this file type")
 
 
+def _csv_table(content: bytes) -> str:
+    try:
+        decoded = content.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise IntakeError("malformed_text", "the CSV document is not valid UTF-8") from exc
+    reader = csv.reader(io.StringIO(decoded, newline=""), strict=True)
+    rows: list[str] = []
+    try:
+        for row_number, row in enumerate(reader, start=1):
+            if row_number > MAX_CSV_ROWS:
+                raise IntakeError("csv_too_many_rows", "the CSV document has too many rows")
+            if len(row) > MAX_CSV_COLUMNS:
+                raise IntakeError("csv_too_many_columns", "the CSV document has too many columns")
+            rows.append("\t".join(row))
+    except csv.Error as exc:
+        raise IntakeError("malformed_csv", "the CSV document is malformed") from exc
+    return "\n".join(rows)
+
+
 def _safe_office_members(content: bytes) -> dict[str, bytes]:
     """Read only bounded ZIP members and never extract archive paths."""
 
@@ -694,6 +716,9 @@ class BuiltinDocumentParser:
         elif media_type == _XLSX_MEDIA_TYPE:
             extraction_method = "xlsx_xml_table"
             page_data = _xlsx_pages(request.content)
+        elif media_type == "text/csv":
+            extraction_method = "csv_table"
+            page_data = [("page:1", _csv_table(request.content))]
         else:
             extraction_method = "utf8_text_decode"
             page_data = [("page:1", request.content.decode("utf-8"))]
@@ -707,7 +732,7 @@ class BuiltinDocumentParser:
                 media_type=media_type,
                 text=text,
                 extraction_method=extraction_method,
-                confidence=1.0 if extraction_method in {"utf8_text_decode", "docx_xml_text", "xlsx_xml_table"} else 0.0,
+                confidence=1.0 if extraction_method in {"utf8_text_decode", "csv_table", "docx_xml_text", "xlsx_xml_table"} else 0.0,
                 clearance=request.clearance,
                 taint=Taint.untrusted,
                 evidence_ref=stable_id("evidence", request.source_ref, source_hash, page_number),

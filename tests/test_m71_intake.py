@@ -115,6 +115,30 @@ class FileIntakeTests(unittest.TestCase):
         self.assertEqual(len(first_ledger.events), 2)
         self.assertEqual(first_ledger.events[-1].event_type, "evidence.created")
 
+    def test_csv_is_normalized_as_a_table_and_formulas_remain_data(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.csv")
+        manifest = FileIntakeLayer(ledger).query_upload(
+            task_id="task.csv", source_ref="upload:csv", file_name="findings.csv",
+            content=b"Item,Value\n\"Finding, critical\",=SUM(B2:B2)\n", clearance=Clearance.internal,
+        )
+
+        self.assertEqual(manifest.media_type, "text/csv")
+        self.assertEqual(manifest.pages[0].extraction_method, "csv_table")
+        self.assertEqual(manifest.pages[0].text, "Item\tValue\nFinding, critical\t=SUM(B2:B2)")
+        self.assertEqual(manifest.pages[0].confidence, 1.0)
+
+    def test_malformed_csv_fails_before_a_ledger_evidence_event(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.csv-invalid")
+        with self.assertRaises(IntakeError) as caught:
+            FileIntakeLayer(ledger).query_upload(
+                task_id="task.csv-invalid", source_ref="upload:csv-invalid", file_name="bad.csv",
+                content=b'"unterminated', clearance=Clearance.internal,
+            )
+        self.assertEqual(caught.exception.code, "malformed_csv")
+        self.assertEqual(len(ledger.events), 1)
+
     def test_pdf_manifest_has_stable_page_identity_and_no_instruction_authority(self):
         ledger = EventLedger()
         task_created(ledger, "task.pdf")
