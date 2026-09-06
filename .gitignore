@@ -23,20 +23,14 @@ venv.bak/
 *.swp
 *.swo
 
-# AirBench Scratch
+# AirBench Scratch & Local Weights
 D:/airbench-scratch/
-
-# Model weights are distributed through signed offline bundles, never Git.
 airbench-models/
 
 # AirBench signing key — NEVER commit this
 .airbench_signing_key
 
-# AirBench hash tool output — intermediate files, not authoritative
+# Intermediate scratch outputs
 airbench_hashes_output.yaml
 airbench_signed_patches.yaml
-
-# AirBench utility scripts — keep out of the main tree
-airbench_hash.py
-airbench_sign.py
-airbench_patch_hashes.py
+*.patch
