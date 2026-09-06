@@ -34,4 +34,6 @@ M3.2 adds `AuthorizationService` for local principal resolution, clearance ceili
 
 M3.3 adds typed `PlanProposal`/`PlanStep` validation for tools, evidence, budgets, dependency cycles, supported execution kinds, and completion criteria. M3.4 extends the executor to retrieval/world-model/verification kinds, generic typed step failures, cancellation, review requests, and dependency circuit breakers. All state changes remain orchestrator-owned and ledger-backed.
 
+M3.5 adds the restart walking-skeleton acceptance test. It runs fake model, retrieval, tool, verification, and artifact adapters through the complete pipeline, closes and reopens the durable control plane after every transition, replays the final trace, and proves tool/artifact side effects are not repeated.
+
 The compatibility rules are in `compatibility_policy.md`; the machine-readable registry and event/state catalogs are YAML and require no network or runtime service.
