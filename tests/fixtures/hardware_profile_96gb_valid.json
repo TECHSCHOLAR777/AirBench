@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "compatibility_id": "airbench-core-contracts",
+  "profile_id": "hardware.96gb-vram-001",
+  "gpu_model": "measured-local-gpu",
+  "gpu_count": 1,
+  "vram_bytes": 103079215104,
+  "driver_version": "measured-driver",
+  "accelerator_runtime": "CUDA-measured",
+  "cpu_model": "measured-cpu",
+  "cpu_cores": 16,
+  "ram_bytes": 68719476736,
+  "storage_bytes": 1099511627776,
+  "scratch_bytes": 107374182400,
+  "model_context_tokens": 32768,
+  "kv_cache_bytes": 4294967296,
+  "safe_parallel_slots": 2,
+  "egress_policy": "no-egress",
+  "measurement_hash": "sha256:hardware-measurement"
+}

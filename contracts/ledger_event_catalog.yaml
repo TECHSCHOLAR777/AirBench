@@ -5,12 +5,19 @@ events:
   - worker.assigned
   - worker.handoff
   - model.requested
+  - model.route.decided
+  - hardware.profile.loaded
+  - resource.plan.created
+  - resource.plan.admitted
+  - resource.plan.queued
+  - resource.exhaustion.detected
   - routing.decided
   - model.responded
   - model.failed
   - tool.requested
   - tool.authorized
   - tool.result
+  - tool.denied
   - evidence.created
   - fact.candidate
   - fact.committed

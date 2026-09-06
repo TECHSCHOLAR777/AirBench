@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "compatibility_id": "airbench-core-contracts",
+  "request_id": "request.vision-001",
+  "task_id": "task.inspection-001",
+  "team_id": "team.inspection-001",
+  "worker_id": "worker.vision-001",
+  "task_kind": "inspection_review",
+  "modality": "multimodal",
+  "required_capability": "local_vision",
+  "evidence_summary": ["evidence.report-001"],
+  "clearance": "restricted",
+  "action_risk": "high",
+  "resource_budget": {"max_tokens": 4096, "timeout_ms": 60000},
+  "attempt": 1,
+  "idempotency_key": "model-call-vision-001",
+  "timeout_ms": 60000,
+  "role": "vision_worker",
+  "resource_lease_id": "lease.vision-001"
+}
