@@ -10,6 +10,15 @@ from .tool_gateway import (
     ToolGatewayError,
     issue_capability_scope,
 )
+from .code_execution import (
+    ArtifactRecord,
+    CalculationEvidence,
+    CodeExecutionError,
+    CodeExecutionRequest,
+    CodeExecutionRunner,
+    ExecutionManifest,
+    TestResult,
+)
 from .verification import (
     VerificationCheck,
     VerificationError,
@@ -36,6 +45,13 @@ __all__ = [
     "ToolGateway",
     "ToolGatewayError",
     "issue_capability_scope",
+    "ArtifactRecord",
+    "CalculationEvidence",
+    "CodeExecutionError",
+    "CodeExecutionRequest",
+    "CodeExecutionRunner",
+    "ExecutionManifest",
+    "TestResult",
     "VerificationCheck",
     "VerificationError",
     "VerificationOutcome",
