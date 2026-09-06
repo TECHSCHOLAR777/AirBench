@@ -26,6 +26,16 @@ events:
   - escalation.required
   - human.signoff
   - completion.recorded
+  - projection.rebuilt
+  - projection.exported
+  - checkpoint.committed
+  - retry.completed
+  - retry.failed
+  - side_effect.reserved
+  - side_effect.committed
+  - side_effect.uncertain
+  - recovery.resumed
+  - crash.recovered
   - task.cancelled
 required_payload_fields: [task_id, actor_id, clearance, payload_contract, payload_version, payload_hash, idempotency_key]
 failure_rule: ledger write failure blocks the consequential action
