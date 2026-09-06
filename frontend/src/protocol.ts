@@ -102,10 +102,15 @@ export type CommandResult =
 
 export interface TaskProjection {
   taskId: string;
+  schemaVersion: string;
+  snapshotId: string;
   title: string;
   requestSummary: string;
   status: TaskStatus;
   phase: string;
+  clearanceContext: Clearance;
+  nodeConnectionRef: string;
+  ledgerHeadRef: string;
   lastAppliedSequence: number;
   evidence: EvidenceRef[];
   facts: FactEnvelope[];
@@ -125,10 +130,15 @@ export type ProjectionResult =
 export function projectionFromSnapshot(snapshot: TaskSnapshot): TaskProjection {
   return {
     taskId: snapshot.taskId,
+    schemaVersion: snapshot.schemaVersion,
+    snapshotId: snapshot.snapshotId,
     title: snapshot.title,
     requestSummary: snapshot.requestSummary,
     status: snapshot.status,
     phase: snapshot.phase,
+    clearanceContext: snapshot.clearanceContext,
+    nodeConnectionRef: snapshot.nodeConnectionRef,
+    ledgerHeadRef: snapshot.ledgerHeadRef,
     lastAppliedSequence: snapshot.asOfSequence,
     evidence: [...snapshot.evidence],
     facts: [...snapshot.facts],

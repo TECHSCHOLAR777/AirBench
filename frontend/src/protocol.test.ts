@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { maySendConsequentialCommand, CommandDeduplicator, TaskEventStore } from "./eventStore";
+import { maySendConsequentialCommand, CommandDeduplicator, TaskEventStore, TaskEventSynchronizer } from "./eventStore";
+import type { TaskEventBatch } from "./eventTransport";
 import { applyEvent, projectionFromSnapshot, type TaskEvent, type TaskSnapshot } from "./protocol";
 
 const snapshot: TaskSnapshot = {
@@ -33,6 +34,17 @@ const event = (sequence: number, eventType: TaskEvent["eventType"], payload: Tas
   ledgerEventRef: `ledger-${sequence}`,
   eventType: eventType as never,
   payload: payload as never,
+});
+
+const batch = (events: TaskEvent[], nextSequence: number, hasMore = false): TaskEventBatch => ({
+  stream_id: "task-1",
+  node_identity: "node-1",
+  protocol_version: "0.1",
+  clearance_context: "restricted",
+  events,
+  next_sequence: nextSequence,
+  has_more: hasMore,
+  ledger_event_refs: events.map((item) => item.ledgerEventRef),
 });
 
 describe("sequence-numbered task projection", () => {
@@ -92,8 +104,10 @@ describe("sequence-numbered task projection", () => {
     const projection = store.replaceSnapshot(replacement);
     expect(projection.lastAppliedSequence).toBe(8);
     expect(projection.status).toBe("completed");
+    expect(projection.snapshotId).toBe("snapshot-2");
+    expect(projection.ledgerHeadRef).toBe("ledger-4");
     expect(projection.health).toBe("current");
-    expect(maySendConsequentialCommand(projection)).toBe(true);
+    expect(maySendConsequentialCommand(projection, "connected")).toBe(true);
   });
 
   it("applies a cursor batch until a gap and prevents duplicate command reservation", () => {
@@ -120,5 +134,90 @@ describe("sequence-numbered task projection", () => {
     expect(deduplicator.tryReserve("idem-1")).toBe(false);
     deduplicator.release("idem-1");
     expect(deduplicator.tryReserve("idem-1")).toBe(true);
+  });
+
+  it("replays a gap from the applied cursor before returning current", async () => {
+    const calls: Array<[string, number]> = [];
+    const batches = [
+      batch([
+        event(5, "worker.started", { role: "planner", label: "Plan", status: "running" }),
+        event(7, "task.completed", { phase: "complete", status: "completed" }),
+      ], 7),
+      batch([
+        event(6, "tool.completed", { role: "file_intake", label: "Read report", status: "completed" }),
+        event(7, "task.completed", { phase: "complete", status: "completed" }),
+      ], 7),
+    ];
+    const synchronizer = new TaskEventSynchronizer(async (taskId, afterSequence) => {
+      calls.push([taskId, afterSequence]);
+      return batches.shift() as TaskEventBatch;
+    });
+    synchronizer.loadSnapshot(snapshot);
+
+    const result = await synchronizer.synchronizeOnce();
+
+    expect(result.kind).toBe("current");
+    expect(result.projection.lastAppliedSequence).toBe(7);
+    expect(calls).toEqual([["task-1", 4], ["task-1", 5]]);
+    expect(maySendConsequentialCommand(result.projection, result.state.status)).toBe(true);
+  });
+
+  it("retries a temporary disconnect and gates commands while reconnecting", async () => {
+    let calls = 0;
+    const sleeps: number[] = [];
+    const synchronizer = new TaskEventSynchronizer(async () => {
+      calls += 1;
+      if (calls < 3) throw new Error("The approved Node could not be reached.");
+      return batch([], 4);
+    });
+    synchronizer.loadSnapshot(snapshot);
+
+    const result = await synchronizer.synchronizeWithRetry({
+      maxAttempts: 3,
+      baseDelayMs: 10,
+      sleep: async (durationMs) => { sleeps.push(durationMs); },
+    });
+
+    expect(result.kind).toBe("current");
+    expect(result.state.attempt).toBe(3);
+    expect(sleeps).toEqual([10, 20]);
+    expect(maySendConsequentialCommand(result.projection, "reconnecting")).toBe(false);
+  });
+
+  it("replaces the projection after replay refuses to converge", async () => {
+    let snapshotCalls = 0;
+    const synchronizer = new TaskEventSynchronizer(
+      async () => batch([event(7, "task.completed", { phase: "complete", status: "completed" })], 7),
+      async () => {
+        snapshotCalls += 1;
+        return { ...snapshot, snapshotId: "snapshot-3", asOfSequence: 8, status: "completed", phase: "complete", ledgerHeadRef: "ledger-8" };
+      },
+    );
+    synchronizer.loadSnapshot(snapshot);
+
+    const result = await synchronizer.synchronizeOnce();
+
+    expect(result.kind).toBe("current");
+    expect(snapshotCalls).toBe(1);
+    expect(result.projection.lastAppliedSequence).toBe(8);
+    expect(result.projection.status).toBe("completed");
+    expect(result.state.lastLedgerEventRefs).toEqual(["ledger-8"]);
+  });
+
+  it("fails closed for a protocol batch from another task", async () => {
+    const synchronizer = new TaskEventSynchronizer(async () => ({ ...batch([], 4), stream_id: "other-task" }));
+    synchronizer.loadSnapshot(snapshot);
+
+    const result = await synchronizer.synchronizeOnce();
+
+    expect(result.kind).toBe("blocked");
+    expect(result.state.status).toBe("blocked");
+    expect(result.state.error?.code).toBe("event_protocol_invalid");
+    expect(result.projection.health).toBe("blocked");
+    expect(maySendConsequentialCommand(result.projection, result.state.status)).toBe(false);
+  });
+
+  it("does not treat a loaded snapshot as command-ready before synchronization", () => {
+    expect(maySendConsequentialCommand(projectionFromSnapshot(snapshot))).toBe(false);
   });
 });
