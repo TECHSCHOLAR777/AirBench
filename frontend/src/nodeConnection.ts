@@ -57,6 +57,17 @@ export function validateApprovedProfile(profile: ApprovedNodeProfile): ProfileVa
   return { valid: true, normalizedEndpoint: parsed.origin + parsed.pathname.replace(/\/$/, "") };
 }
 
+/**
+ * Shared fail-closed guard for every native transport command. A controller
+ * may use this for presentation state, but no bridge may rely on a controller
+ * having called it first.
+ */
+export function assertApprovedNodeProfile(profile: ApprovedNodeProfile): ApprovedNodeProfile {
+  const validation = validateApprovedProfile(profile);
+  if (!validation.valid) throw new Error(validation.message);
+  return profile;
+}
+
 export function blockedConnection(profile: ApprovedNodeProfile, validation: Extract<ProfileValidation, { valid: false }>): NodeConnectionResult {
   return {
     state: "blocked",

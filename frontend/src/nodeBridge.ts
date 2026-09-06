@@ -1,5 +1,5 @@
 import { invoke } from "@airbench/tauri-invoke";
-import type { ApprovedNodeProfile } from "./nodeConnection";
+import { assertApprovedNodeProfile, type ApprovedNodeProfile } from "./nodeConnection";
 import type { Clearance } from "./protocol";
 
 export interface NativeNodeConnectionResult {
@@ -33,5 +33,6 @@ export function toNativeNodeProfile(profile: ApprovedNodeProfile) {
  * and it crosses into the Rust-owned Tauri command boundary.
  */
 export async function connectApprovedNode(profile: ApprovedNodeProfile): Promise<NativeNodeConnectionResult> {
-  return invoke<NativeNodeConnectionResult>("connect_node", { profile: toNativeNodeProfile(profile) });
+  const approvedProfile = assertApprovedNodeProfile(profile);
+  return invoke<NativeNodeConnectionResult>("connect_node", { profile: toNativeNodeProfile(approvedProfile) });
 }

@@ -12,6 +12,7 @@ $hash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
 $start = Get-Date
 $process = Start-Process -FilePath $installerPath -ArgumentList @("/S", "/D=$installRoot") -PassThru
 $networkObservations = [System.Collections.Generic.List[object]]::new()
+$installedExecutable = Join-Path $installRoot "airbench-desktop.exe"
 
 function Get-ProcessTreeIds([int]$rootProcessId) {
     $allIds = [System.Collections.Generic.HashSet[int]]::new()
@@ -44,7 +45,18 @@ while (-not $process.HasExited) {
 }
 
 $process.Refresh()
-$installedExecutable = Join-Path $installRoot "airbench-desktop.exe"
+$installDeadline = (Get-Date).AddSeconds(60)
+while ((Get-Date) -lt $installDeadline) {
+    if ((Test-Path -LiteralPath $installedExecutable) -and ((Get-Item -LiteralPath $installedExecutable).Length -gt 0)) {
+        break
+    }
+    Start-Sleep -Milliseconds 250
+}
+
+$installedFile = Get-Item -LiteralPath $installedExecutable -ErrorAction SilentlyContinue
+$artifactDirectory = Join-Path $PSScriptRoot "..\artifacts"
+$null = New-Item -ItemType Directory -Path $artifactDirectory -Force
+$reportPath = Join-Path $artifactDirectory ("AirBenchInstallerSmoke-" + $runId + "-" + $hash.Substring(0, 12) + ".json")
 $result = [ordered]@{
     validation = "FE-VAL-1 installer smoke run"
     runId = $runId
@@ -54,9 +66,13 @@ $result = [ordered]@{
     finishedAt = (Get-Date).ToString("o")
     exitCode = $process.ExitCode
     installRoot = $installRoot
-    installedExecutableExists = Test-Path -LiteralPath $installedExecutable
-    observedEstablishedConnections = @($networkObservations | Sort-Object observedAt -Unique)
+    installedExecutableExists = $null -ne $installedFile -and $installedFile.Length -gt 0
+    installedExecutableBytes = if ($null -ne $installedFile) { $installedFile.Length } else { 0 }
+    observedEstablishedConnections = @($networkObservations | Sort-Object processId, remoteAddress, remotePort, observedAt -Unique)
     limitation = "This is a host smoke run, not the required clean offline Windows image proof."
 }
 
-$result | ConvertTo-Json -Depth 8
+$json = $result | ConvertTo-Json -Depth 8
+$json | Set-Content -LiteralPath $reportPath -Encoding utf8
+Write-Output ("Installer smoke report: " + $reportPath)
+Write-Output $json

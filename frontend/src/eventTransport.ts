@@ -1,12 +1,12 @@
 import { invoke } from "@airbench/tauri-invoke";
-import type { ApprovedNodeProfile } from "./nodeConnection";
-import type { TaskEvent } from "./protocol";
+import { assertApprovedNodeProfile, type ApprovedNodeProfile } from "./nodeConnection";
+import type { Clearance, TaskEvent } from "./protocol";
 
 export interface TaskEventBatch {
   stream_id: string;
   node_identity: string;
   protocol_version: string;
-  clearance_context: string;
+  clearance_context: Clearance;
   events: TaskEvent[];
   next_sequence: number;
   has_more: boolean;
@@ -30,8 +30,9 @@ export function toNativeEventProfile(profile: ApprovedNodeProfile) {
 
 /** Fetches a replayable cursor range through the Rust-owned Node transport. */
 export function fetchTaskEventBatch(profile: ApprovedNodeProfile, taskId: string, afterSequence: number): Promise<TaskEventBatch> {
+  const approvedProfile = assertApprovedNodeProfile(profile);
   return invoke<TaskEventBatch>("fetch_task_events", {
-    profile: toNativeEventProfile(profile),
+    profile: toNativeEventProfile(approvedProfile),
     taskId,
     afterSequence,
   });
