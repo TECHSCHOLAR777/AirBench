@@ -18,6 +18,7 @@ pub fn run() {
             node_transport::connect_node,
             node_transport::fetch_task_events,
             node_transport::fetch_task_snapshot,
+            node_transport::fetch_task_plan,
             node_transport::create_task,
             node_transport::send_task_command,
             intake::pick_query_file,

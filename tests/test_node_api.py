@@ -3,7 +3,7 @@ import unittest
 
 import httpx
 
-from contracts import Clearance, EventLedger, Orchestrator, build_event
+from contracts import Clearance, ContractStatus, EventLedger, Orchestrator, TeamPlan, build_event
 from airbench.node_api import NodeApiConfig, NodeApiService, create_app
 
 
@@ -181,6 +181,78 @@ class NodeApiTests(unittest.TestCase):
         self.assertEqual(task["priority"], "high")
         self.assertEqual(task["deadline"], "2026-10-01T12:00:00Z")
         self.assertEqual(task["input_manifest_refs"], ["intake.report-001"])
+
+    def test_plan_projection_is_explicitly_not_ready_until_node_commits_plan_and_hardware(self):
+        task, _ = self.create_task()
+        response = self.request("GET", f"/api/v1/tasks/{task['task_id']}/plan", headers=self.headers())
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["plan_state"], "not_ready")
+        self.assertEqual(response.json()["execution_mode"], "not_selected")
+        self.assertEqual(response.json()["failure_code"], "plan_not_ready")
+
+    def test_plan_projection_and_approval_are_server_authoritative_and_idempotent(self):
+        task, _ = self.create_task()
+        task_id = task["task_id"]
+        self.orchestrator.authorize(task_id, authorization_ref="authorization.plan")
+        plan = TeamPlan(
+            team_id="team.plan-001",
+            task_id=task_id,
+            assignments=("assignment.intake-001", "assignment.verify-001"),
+            dependency_graph={"intake": (), "verify": ("intake",)},
+            concurrency_ceiling=1,
+            required_verification=True,
+            completion_criteria=("source_check",),
+            plan_version_hash="plan-hash-001",
+            policy_version_hash="policy-hash-001",
+            status=ContractStatus.proposed,
+        )
+        self.orchestrator.commit_plan(plan)
+        self.append_event(
+            "team.resource_plan.admitted",
+            task_id,
+            {
+                "team_id": plan.team_id,
+                "task_id": task_id,
+                "admission": "admitted",
+                "execution_mode": "serial_virtual_team",
+                "concurrency_ceiling": 1,
+                "hardware_profile_ref": "hardware.test.local",
+                "worker_capabilities": {"worker-intake": "vision", "worker-verify": "verification"},
+                "reason": "Only one safe concurrent slot is available on the measured workstation.",
+            },
+        )
+        review = self.request("GET", f"/api/v1/tasks/{task_id}/plan", headers=self.headers())
+        self.assertEqual(review.status_code, 200, review.text)
+        self.assertEqual(review.json()["plan_state"], "ready")
+        self.assertEqual(review.json()["execution_mode"], "serial_virtual_team")
+        self.assertEqual(review.json()["dependency_graph"]["verify"], ["intake"])
+        self.assertEqual(review.json()["hardware_profile_ref"], "hardware.test.local")
+        self.assertEqual(review.json()["task_sequence"], 4)
+
+        approval_command = self.command(
+            command_id="command.approve-plan.1",
+            task_id=task_id,
+            expected_sequence=4,
+            idempotency_key="idempotency.approve-plan.1",
+            command_type="task.approve_plan",
+            arguments={"approval_ref": "operator.plan-review"},
+        )
+        approval = self.request("POST", f"/api/v1/tasks/{task_id}/approve", headers=self.headers(), json=approval_command)
+        self.assertEqual(approval.status_code, 202, approval.text)
+        self.assertEqual(approval.json()["event_type"], "task.plan.approved")
+        retry = self.request("POST", f"/api/v1/tasks/{task_id}/approve", headers=self.headers(), json=approval_command)
+        self.assertEqual(retry.status_code, 202, retry.text)
+        self.assertEqual(retry.json()["ledger_event_ref"], approval.json()["ledger_event_ref"])
+        self.assertEqual([event.event_type for event in self.ledger.events].count("task.plan.approved"), 1)
+
+        stale = self.request(
+            "POST",
+            f"/api/v1/tasks/{task_id}/approve",
+            headers=self.headers(),
+            json={**approval_command, "command_id": "command.approve-plan-stale", "idempotency_key": "idempotency.approve-plan-stale", "expected_sequence": 4},
+        )
+        self.assertEqual(stale.status_code, 409, stale.text)
+        self.assertEqual(stale.json()["code"], "stale_command")
 
     def test_event_batch_uses_task_local_cursor_and_preserves_ledger_reference(self):
         task, _ = self.create_task()

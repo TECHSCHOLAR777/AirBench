@@ -1,12 +1,12 @@
 import { invoke } from "@airbench/tauri-invoke";
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 import type { TaskSnapshot } from "./protocol";
-import type { NodeCommandEnvelope, NodeCommandResult, TaskEnvelope } from "./generated/core_contracts";
+import type { NodeCommandEnvelope, NodeCommandResult, TaskEnvelope, TaskPlanReview } from "./generated/core_contracts";
 
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const COMMAND_ID = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 
-export type TaskCommandType = "task.authorize" | "task.cancel" | "task.request_review";
+export type TaskCommandType = "task.authorize" | "task.approve_plan" | "task.cancel" | "task.request_review";
 
 export interface CreateTaskResponse {
   task: TaskEnvelope;
@@ -37,7 +37,7 @@ function assertTaskCommand(command: NodeCommandEnvelope): asserts command is Nod
   if (expectedSequence === null || !Number.isSafeInteger(expectedSequence) || expectedSequence < 0) {
     throw new Error("The command expected sequence is invalid.");
   }
-  if (!["task.authorize", "task.cancel", "task.request_review"].includes(command.command_type)) {
+  if (!["task.authorize", "task.approve_plan", "task.cancel", "task.request_review"].includes(command.command_type)) {
     throw new Error("The command type is not supported by this transport.");
   }
 }
@@ -46,6 +46,15 @@ export function fetchTaskSnapshot(profile: ApprovedNodeProfileReference, taskId:
   assertApprovedProfile(profile);
   if (!TASK_ID.test(taskId)) throw new Error("The task identifier is invalid.");
   return invoke<TaskSnapshot>("fetch_task_snapshot", {
+    profileId: profile.profileId,
+    taskId,
+  });
+}
+
+export function fetchTaskPlan(profile: ApprovedNodeProfileReference, taskId: string): Promise<TaskPlanReview> {
+  assertApprovedProfile(profile);
+  if (!TASK_ID.test(taskId)) throw new Error("The task identifier is invalid.");
+  return invoke<TaskPlanReview>("fetch_task_plan", {
     profileId: profile.profileId,
     taskId,
   });

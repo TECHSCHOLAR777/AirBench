@@ -105,6 +105,29 @@ h1 { margin-bottom: 10px; color: #20241f; font-size: 31px; line-height: 1.16; le
 .task-confirmation .eyebrow { margin-bottom: 1px; color: #327066; }
 .task-confirmation strong { color: #245a56; font-size: 12px; overflow-wrap: anywhere; }
 .task-confirmation small { color: var(--faint); font-size: 9px; overflow-wrap: anywhere; }
+.plan-review-card { display: grid; gap: 13px; margin-top: 14px; padding: 17px 18px; border: 1px solid #d8dfd9; border-radius: 9px; background: #fff; }
+.plan-review-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
+.plan-review-head h2 { margin: 0; color: var(--ink); font-size: 15px; letter-spacing: -.02em; }
+.plan-muted { margin: 0; color: #68736b; font-size: 11px; line-height: 1.55; }
+.plan-meta-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.plan-meta-grid > div, .plan-reason, .plan-workers, .plan-stages { padding: 10px; border: 1px solid #e4e9e4; border-radius: 6px; background: #fbfdfb; }
+.plan-meta-grid span, .plan-reason > span, .plan-workers > span, .plan-stages > span { display: block; margin-bottom: 5px; color: var(--faint); font-size: 9px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
+.plan-meta-grid strong { display: block; color: var(--ink); font-size: 11px; overflow-wrap: anywhere; }
+.plan-reason p { margin: 0; color: #536159; font-size: 11px; line-height: 1.5; }
+.plan-workers > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.plan-worker { padding: 4px 7px; border-radius: 999px; color: #37665f; background: #edf7f3; font-size: 10px; }
+.plan-stages { display: grid; gap: 7px; }
+.plan-stage { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 7px; border-bottom: 1px solid #edf0ed; }
+.plan-stage:last-child { padding-bottom: 0; border-bottom: 0; }
+.plan-stage strong { color: var(--ink); font-size: 11px; }
+.plan-stage small { color: #68736b; font-size: 10px; text-align: right; }
+.plan-warning { display: grid; gap: 3px; padding: 10px 11px; border: 1px solid #ecd9ae; border-radius: 6px; color: #765a1d; background: #fffaf0; font-size: 11px; line-height: 1.45; }
+.plan-warning strong { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.plan-review-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 3px; }
+.plan-review-footer small { color: var(--faint); font-size: 9px; overflow-wrap: anywhere; }
+.plan-approved { color: #327066; font-size: 11px; font-weight: 650; }
+.plan-state-needs_review, .plan-state-queued { color: #765a1d; background: #fff5d8; }
+.plan-state-blocked, .plan-state-rejected { color: #8b4537; background: #fff0ed; }
 .intake-result { margin-top: 20px; padding: 17px 18px; border: 1px solid #cfe0dc; border-radius: 9px; background: #f8fcfb; }
 .intake-result-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
 .intake-result-head .eyebrow { margin-bottom: 6px; }
@@ -191,6 +214,7 @@ h1 { margin-bottom: 10px; color: #20241f; font-size: 31px; line-height: 1.16; le
 
 @media (max-width: 1050px) {
   .composer-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .plan-meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* Quiet industrial presentation tokens. The work surface stays document-first,

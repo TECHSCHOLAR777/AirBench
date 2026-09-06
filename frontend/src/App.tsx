@@ -6,8 +6,9 @@ import { NodeConnectionController, type NodeConnectionView } from "./nodeConnect
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 import { listApprovedNodeProfiles } from "./profileBridge";
 import { downloadArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, type ArtifactPreview, type DownloadReceipt, type IntakeManifest, type SafePreview } from "./intakeBridge";
-import { createTask, type CreateTaskResponse } from "./nodeCommands";
-import { buildCreateTaskCommand } from "./taskComposer";
+import { createTask, fetchTaskPlan, sendTaskCommand, type CreateTaskResponse } from "./nodeCommands";
+import type { NodeCommandResult, TaskPlanReview } from "./generated/core_contracts";
+import { buildApprovePlanCommand, buildCreateTaskCommand } from "./taskComposer";
 
 type SelectedFile = { selection_id: string; file_name: string; byte_size: number };
 
@@ -48,6 +49,10 @@ function App() {
   const [downloadState, setDownloadState] = useState<"idle" | "downloading" | "downloaded" | "failed">("idle");
   const [downloadReceipt, setDownloadReceipt] = useState<DownloadReceipt | null>(null);
   const [taskResult, setTaskResult] = useState<CreateTaskResponse | null>(null);
+  const [planReview, setPlanReview] = useState<TaskPlanReview | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planApprovalResult, setPlanApprovalResult] = useState<NodeCommandResult | null>(null);
+  const [approvingPlan, setApprovingPlan] = useState(false);
   const [creatingTask, setCreatingTask] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const controller = useMemo(() => new NodeConnectionController(), []);
@@ -179,6 +184,8 @@ function App() {
     }
     setCreatingTask(true);
     setTaskResult(null);
+    setPlanReview(null);
+    setPlanApprovalResult(null);
     setNotice(null);
     try {
       const commandId = `command.create.${crypto.randomUUID()}`;
@@ -196,11 +203,53 @@ function App() {
       }, commandId, `idempotency.${commandId}`);
       const result = await createTask(profile, command);
       setTaskResult(result);
-      setNotice(`Task accepted by ${profile.displayName}. The Node owns the task state and will provide the next event.`);
+      setPlanLoading(true);
+      try {
+        const plan = await fetchTaskPlan(profile, result.task.task_id);
+        setPlanReview(plan);
+        setNotice(`Task accepted by ${profile.displayName}. The Node owns the task state and has returned the current plan review.`);
+      } catch {
+        setNotice(`Task accepted by ${profile.displayName}. The Node plan review is not available yet.`);
+      } finally {
+        setPlanLoading(false);
+      }
     } catch {
       setNotice("The Node did not accept this task. No local task state was created.");
     } finally {
       setCreatingTask(false);
+    }
+  };
+
+  const approvePlan = async () => {
+    const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
+    if (!profile || !nodeConnected || !connection.authenticatedSubject || !taskResult || !planReview) {
+      setNotice("Connect a verified Node and wait for an approvable plan before continuing.");
+      return;
+    }
+    if (planReview.plan_state !== "ready" || planReview.required_authority !== "operator_approval") {
+      setNotice("This plan is not ready for operator approval. The Node must resolve its policy or hardware state first.");
+      return;
+    }
+    setApprovingPlan(true);
+    setPlanApprovalResult(null);
+    setNotice(null);
+    try {
+      const commandId = `command.approve.${crypto.randomUUID()}`;
+      const command = buildApprovePlanCommand(
+        connection.authenticatedSubject,
+        taskResult.task.task_id,
+        planReview.task_sequence,
+        "operator.confirmed.plan-review",
+        commandId,
+        `idempotency.${commandId}`,
+      );
+      const result = await sendTaskCommand(profile, command);
+      setPlanApprovalResult(result);
+      setNotice("Plan approval was accepted by the Node. Execution state will change only after the authoritative event arrives.");
+    } catch {
+      setNotice("The Node did not accept this plan approval. No local execution state was changed.");
+    } finally {
+      setApprovingPlan(false);
     }
   };
 
@@ -224,7 +273,7 @@ function App() {
       <main className="main-area">
         <header className="topbar"><div className="breadcrumb"><span>AirBench</span><span className="breadcrumb-slash">/</span><strong>{screenTitle}</strong></div><div className="topbar-actions"><div className="quiet-status"><span className={`status-dot ${nodeConnected ? "status-dot-connected" : ""}`} aria-hidden="true" /> {nodeLabel}</div><button className="quiet-action" aria-label="Open command menu">Command</button><button className="quiet-action" aria-label="Open notifications">Alerts</button></div></header>
         <div className="content-wrap">
-          {state.screen === "home" && <HomeView taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} notice={notice} canStart={canStart} creatingTask={creatingTask} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={() => setShowConnectionHelp(true)} onOpenNode={() => selectScreen("node")} />}
+          {state.screen === "home" && <HomeView taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} notice={notice} canStart={canStart} creatingTask={creatingTask} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={() => setShowConnectionHelp(true)} onOpenNode={() => selectScreen("node")} />}
           {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesState("idle"); }} onHome={() => selectScreen("home")} />}
           {state.screen !== "home" && state.screen !== "node" && <RecordView screen={screenTitle} onHome={() => selectScreen("home")} />}
         </div>
@@ -238,7 +287,7 @@ function NavGroup({ title, items, active, onSelect }: { title: string; items: Ar
   return <div className="nav-group"><div className="nav-group-title">{title}</div>{items.map((item) => <button key={item.id} className={`nav-item ${active === item.id ? "active" : ""}`} onClick={() => onSelect(item.id)}><span className="nav-icon" aria-hidden="true">{item.icon}</span><span>{item.label}</span>{item.id === "review" && <span className="nav-count">0</span>}</button>)}</div>;
 }
 
-function HomeView({ taskText, setTaskText, taskTitle, setTaskTitle, projectRef, setProjectRef, outputContract, setOutputContract, priority, setPriority, deadline, setDeadline, selectedFile, intakeState, intakeManifest, safePreview, artifactPreview, downloadState, downloadReceipt, taskResult, notice, canStart, creatingTask, onAttach, onUpload, onDownload, onStart, onRemoveFile, onHelp, onOpenNode }: { taskText: string; setTaskText: (value: string) => void; taskTitle: string; setTaskTitle: (value: string) => void; projectRef: string; setProjectRef: (value: string) => void; outputContract: string; setOutputContract: (value: string) => void; priority: string; setPriority: (value: string) => void; deadline: string; setDeadline: (value: string) => void; selectedFile: SelectedFile | null; intakeState: "idle" | "uploading" | "ready" | "failed"; intakeManifest: IntakeManifest | null; safePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; downloadState: "idle" | "downloading" | "downloaded" | "failed"; downloadReceipt: DownloadReceipt | null; taskResult: CreateTaskResponse | null; notice: string | null; canStart: boolean; creatingTask: boolean; onAttach: () => void; onUpload: () => void; onDownload: () => void; onStart: () => void; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void }) {
+function HomeView({ taskText, setTaskText, taskTitle, setTaskTitle, projectRef, setProjectRef, outputContract, setOutputContract, priority, setPriority, deadline, setDeadline, selectedFile, intakeState, intakeManifest, safePreview, artifactPreview, downloadState, downloadReceipt, taskResult, planReview, planLoading, planApprovalResult, approvingPlan, notice, canStart, creatingTask, onAttach, onUpload, onDownload, onStart, onApprovePlan, onRemoveFile, onHelp, onOpenNode }: { taskText: string; setTaskText: (value: string) => void; taskTitle: string; setTaskTitle: (value: string) => void; projectRef: string; setProjectRef: (value: string) => void; outputContract: string; setOutputContract: (value: string) => void; priority: string; setPriority: (value: string) => void; deadline: string; setDeadline: (value: string) => void; selectedFile: SelectedFile | null; intakeState: "idle" | "uploading" | "ready" | "failed"; intakeManifest: IntakeManifest | null; safePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; downloadState: "idle" | "downloading" | "downloaded" | "failed"; downloadReceipt: DownloadReceipt | null; taskResult: CreateTaskResponse | null; planReview: TaskPlanReview | null; planLoading: boolean; planApprovalResult: NodeCommandResult | null; approvingPlan: boolean; notice: string | null; canStart: boolean; creatingTask: boolean; onAttach: () => void; onUpload: () => void; onDownload: () => void; onStart: () => void; onApprovePlan: () => void; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void }) {
   return <div className="home-view">
     <section className="welcome-block"><p className="eyebrow">PRIVATE BY DESIGN</p><h1>What should AirBench complete?</h1><p className="lead">Describe the outcome. Add files if they are part of the work.</p></section>
     <section className="composer-card" data-testid="task-composer" aria-label="New task composer">
@@ -256,11 +305,32 @@ function HomeView({ taskText, setTaskText, taskTitle, setTaskTitle, projectRef, 
     {intakeManifest && safePreview && <section className="intake-result" data-testid="intake-result" aria-label="File Intake result"><div className="intake-result-head"><div><p className="eyebrow">FILE INTAKE COMPLETE</p><h2>{intakeManifest.file_name}</h2></div><span className="intake-badge">{intakeManifest.ocr_status} OCR</span></div><div className="intake-meta-grid"><div><span>Source hash</span><strong>{intakeManifest.source_hash}</strong></div><div><span>Pages</span><strong>{intakeManifest.page_count}</strong></div><div><span>Clearance</span><strong>{intakeManifest.clearance}</strong></div><div><span>Taint</span><strong>{intakeManifest.taint}</strong></div></div><div className="safe-preview"><div className="safe-preview-label">Node-generated safe preview <span>Page region: {safePreview.source_region}</span></div><p>{safePreview.text}</p><small>Confidence {Math.round(safePreview.confidence * 100)}% / ledger {safePreview.ledger_event_ref}</small></div></section>}
     {artifactPreview && <section className="artifact-preview" data-testid="artifact-preview" aria-label="Artifact preview"><div className="intake-result-head"><div><p className="eyebrow">NODE ARTIFACT PREVIEW</p><h2>{artifactPreview.title}</h2></div><span className="intake-badge">{artifactPreview.preview_kind}</span></div><div className="artifact-preview-meta"><span>{artifactPreview.clearance} clearance</span><span>{artifactPreview.taint} data</span><span>Ledger {artifactPreview.ledger_event_ref}</span></div><div className="artifact-blocks">{artifactPreview.blocks.map((block, index) => <div className="artifact-block" key={`${block.kind}-${index}`}><span className="artifact-block-kind">{block.kind}</span><p>{block.text}</p></div>)}</div><div className="artifact-actions"><button className="primary-button" data-testid="download-artifact" onClick={onDownload} disabled={downloadState === "downloading"}>{downloadState === "downloading" ? "Verifying..." : downloadState === "downloaded" ? "Download again" : "Download artifact"}</button>{downloadReceipt && <small data-testid="download-receipt">Saved {downloadReceipt.byte_size} bytes / {downloadReceipt.content_hash} / ledger {downloadReceipt.ledger_event_ref}</small>}</div></section>}
     {taskResult && <section className="task-confirmation" data-testid="task-confirmation" aria-label="Task submission result"><p className="eyebrow">TASK ACCEPTED BY NODE</p><strong>{taskResult.task.task_id}</strong><span>State: {taskResult.command.state ?? taskResult.task.state ?? "created"}</span><small>Ledger {taskResult.command.ledger_event_ref ?? taskResult.ledger_event_ref} / sequence {taskResult.command.sequence ?? taskResult.snapshot.asOfSequence}</small></section>}
+    {taskResult && <PlanReviewCard plan={planReview} loading={planLoading} approval={planApprovalResult} approving={approvingPlan} onApprove={onApprovePlan} />}
     {notice && <div className="inline-notice" role="status">{notice}</div>}
     <div className="trust-line" role="status"><span className="trust-item"><span className="trust-check" aria-hidden="true">OK</span> Files stay on your node</span><span className="trust-item"><span className="trust-check" aria-hidden="true">OK</span> External network denied</span><button className="text-button" onClick={onHelp}>How this works</button></div>
     <section className="continue-section"><div className="section-heading"><div><h2>Continue work</h2><p>Your recent tasks will appear here.</p></div><button className="text-button" disabled>View history <span aria-hidden="true">-&gt;</span></button></div><div className="empty-state"><div className="empty-icon" aria-hidden="true">T</div><p>No tasks yet</p><small>When you start work, you can return to it here.</small></div></section>
     <section className="readiness-card"><div><p className="eyebrow">READY WHEN YOU ARE</p><h2>Connect a trusted Node to begin</h2><p>Your organization controls the models, tools, files, and audit record on that Node.</p></div><button className="secondary-button bordered-button" data-testid="open-node-settings" onClick={onOpenNode}>Open Node settings</button></section>
   </div>;
+}
+
+function PlanReviewCard({ plan, loading, approval, approving, onApprove }: { plan: TaskPlanReview | null; loading: boolean; approval: NodeCommandResult | null; approving: boolean; onApprove: () => void }) {
+  if (loading) {
+    return <section className="plan-review-card" data-testid="plan-review-loading" aria-label="Task plan review"><p className="eyebrow">PLAN REVIEW</p><h2>AirBench is preparing the plan</h2><p className="plan-muted">The Node is validating the work against policy and available hardware. No execution has started.</p></section>;
+  }
+  if (!plan) return null;
+  const modeLabel: Record<string, string> = { parallel: "Parallel team", pipelined: "Pipelined team", serial_virtual_team: "Serial virtual team", not_selected: "Not selected" };
+  const stateLabel: Record<string, string> = { not_ready: "Not ready", ready: "Ready for approval", queued: "Queued for hardware", needs_review: "Needs review", blocked: "Blocked", rejected: "Rejected" };
+  const canApprove = plan.plan_state === "ready" && plan.required_authority === "operator_approval" && !approval;
+  return <section className="plan-review-card" data-testid="plan-review" aria-label="Task plan review">
+    <div className="plan-review-head"><div><p className="eyebrow">PLAN REVIEW</p><h2>{stateLabel[plan.plan_state] ?? plan.plan_state}</h2></div><span className={`intake-badge plan-state-${plan.plan_state}`}>{modeLabel[plan.execution_mode] ?? plan.execution_mode}</span></div>
+    <p className="plan-muted">{plan.authority_reason}</p>
+    {plan.failure_reason && <div className="plan-warning" role="status"><strong>{plan.failure_code ?? "Plan requires attention"}</strong><span>{plan.failure_reason}</span></div>}
+    <div className="plan-meta-grid"><div><span>Team</span><strong>{plan.team_id ?? "Not assigned"}</strong></div><div><span>Concurrency</span><strong>{plan.concurrency_ceiling || "Not selected"}</strong></div><div><span>Hardware</span><strong>{plan.hardware_profile_ref ?? "Admission pending"}</strong></div><div><span>Verification</span><strong>{plan.required_verification ? "Required" : "Missing"}</strong></div></div>
+    <div className="plan-reason"><span>Why this mode</span><p>{plan.hardware_reason}</p></div>
+    <div className="plan-workers"><span>Capability lanes</span><div>{Object.entries(plan.worker_capabilities).map(([worker, capability]) => <span className="plan-worker" key={worker}>{worker}: {capability}</span>)}</div></div>
+    <div className="plan-stages"><span>Stage dependencies</span>{Object.entries(plan.dependency_graph).map(([stage, dependencies]) => <div className="plan-stage" key={stage}><strong>{stage}</strong><small>{dependencies.length ? `After ${dependencies.join(", ")}` : "Can begin first"}</small></div>)}</div>
+    <div className="plan-review-footer"><small>Plan {plan.plan_version_hash ?? "pending"} / ledger {plan.ledger_event_ref ?? "pending"} / sequence {plan.task_sequence}</small>{approval ? <span className="plan-approved" role="status">Approval accepted by Node. Awaiting task event.</span> : <button className="primary-button" data-testid="approve-plan" onClick={onApprove} disabled={!canApprove || approving} title={canApprove ? "Approve this Node-validated plan" : "The Node must return a ready plan requiring operator approval"}>{approving ? "Sending..." : "Approve and run"}</button>}</div>
+  </section>;
 }
 
 function NodeSettingsView({ profiles, profilesState, profileError, connection, connectingProfileId, onConnect, onReconnect, onReload, onHome }: { profiles: ApprovedNodeProfileReference[]; profilesState: "idle" | "loading" | "ready" | "failed"; profileError: string | null; connection: NodeConnectionView; connectingProfileId: string | null; onConnect: (profile: ApprovedNodeProfileReference) => void; onReconnect: () => void; onReload: () => void; onHome: () => void }) {

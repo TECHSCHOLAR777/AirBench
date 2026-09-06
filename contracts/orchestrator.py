@@ -67,6 +67,7 @@ _TARGETS = {
     "task.created": "created",
     "task.authorized": "authorized",
     "task.plan.committed": "planned",
+    "task.plan.approved": "planned",
     "resource.plan.admitted": "executing",
     "model.requested": "executing",
     "retrieval.requested": "executing",
@@ -86,6 +87,7 @@ _TARGETS = {
 _ALLOWED = {
     "task.authorized": {"created"},
     "task.plan.committed": {"authorized"},
+    "task.plan.approved": {"planned"},
     "resource.plan.admitted": {"planned"},
     "model.requested": {"planned", "executing"},
     "retrieval.requested": {"planned", "executing"},
@@ -172,7 +174,19 @@ class Orchestrator:
         self.validate_plan(task, plan)
         if plan.status != ContractStatus.proposed:
             raise PlanRejected("only proposed plans may be committed")
-        return self.transition(plan.task_id, "task.plan.committed", {"team_id": plan.team_id, "plan_hash": plan.plan_version_hash})
+        return self.transition(plan.task_id, "task.plan.committed", {
+            "team_id": plan.team_id,
+            "plan_hash": plan.plan_version_hash,
+            "plan": plan.to_dict(),
+        })
+
+    def approve_plan(self, task_id: str, *, approval_ref: str,
+                     command_metadata: dict[str, str] | None = None) -> TransitionResult:
+        if not approval_ref.strip():
+            raise AuthorizationRejected("plan approval reference is required")
+        if not any(event.task_id == task_id and event.event_type == "task.plan.committed" for event in self.store.events):
+            raise PlanRejected("a committed plan is required before approval")
+        return self.transition(task_id, "task.plan.approved", {"approval_ref": approval_ref}, command_metadata=command_metadata)
 
     def commit_proposal(self, proposal: PlanProposal) -> TransitionResult:
         task = self._task(proposal.task_id)

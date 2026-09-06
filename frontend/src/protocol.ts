@@ -79,7 +79,7 @@ export interface TaskEventBase {
 }
 
 export type TaskEvent =
-  | (TaskEventBase & { eventType: "task.accepted" | "plan.created" | "plan.revised" | "task.paused" | "task.resumed" | "task.blocked" | "task.failed" | "task.stopped" | "task.completed"; payload: { phase: string; status: TaskStatus; summary?: string } })
+  | (TaskEventBase & { eventType: "task.accepted" | "plan.created" | "plan.revised" | "plan.approved" | "task.paused" | "task.resumed" | "task.blocked" | "task.failed" | "task.stopped" | "task.completed"; payload: { phase: string; status: TaskStatus; summary?: string } })
   | (TaskEventBase & { eventType: "worker.started" | "worker.completed" | "tool.started" | "tool.completed"; payload: { role: string; label: string; status: string } })
   | (TaskEventBase & { eventType: "evidence.added" | "evidence.revised"; payload: { evidence: EvidenceRef } })
   | (TaskEventBase & { eventType: "verification.completed" | "verification.failed"; payload: { summary: string; passed: boolean } })
@@ -166,7 +166,7 @@ export function applyEvent(projection: TaskProjection, event: TaskEvent): Projec
     health: "current",
   };
 
-  if (event.eventType === "task.accepted" || event.eventType === "plan.created" || event.eventType === "plan.revised" || event.eventType === "task.paused" || event.eventType === "task.resumed" || event.eventType === "task.blocked" || event.eventType === "task.failed" || event.eventType === "task.stopped" || event.eventType === "task.completed") {
+  if (event.eventType === "task.accepted" || event.eventType === "plan.created" || event.eventType === "plan.revised" || event.eventType === "plan.approved" || event.eventType === "task.paused" || event.eventType === "task.resumed" || event.eventType === "task.blocked" || event.eventType === "task.failed" || event.eventType === "task.stopped" || event.eventType === "task.completed") {
     next.status = event.payload.status;
     next.phase = event.payload.phase;
   }

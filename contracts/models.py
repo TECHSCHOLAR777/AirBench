@@ -16,7 +16,7 @@ COMPATIBILITY_ID = "airbench-core-contracts"
 _ID = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 LEDGER_EVENT_TYPES = {
     # ── Core task lifecycle ────────────────────────────────────────────────────
-    "task.created", "task.authorized", "task.plan.committed", "task.checkpoint.committed", "task.cancelled", "task.failed",
+    "task.created", "task.authorized", "task.plan.committed", "task.plan.approved", "task.checkpoint.committed", "task.cancelled", "task.failed",
     "team.created", "worker.assigned", "worker.started", "worker.completed", "worker.failed", "worker.handoff",
     "model.requested", "routing.decided", "model.responded", "model.failed", "tool.requested", "tool.authorized", "tool.denied", "tool.result",
     "evidence.created", "fact.candidate", "fact.committed", "verification.completed", "retry.started", "fallback.selected",
@@ -177,6 +177,7 @@ NODE_COMMAND_TYPES = {
     "task.authorize",
     "task.cancel",
     "task.request_review",
+    "task.approve_plan",
     "node.recheck",
 }
 
@@ -348,6 +349,57 @@ class TeamPlan(Contract):
             issues.append(ValidationIssue("assignments", "required", "team must contain at least one assignment"))
         if not self.completion_criteria:
             issues.append(ValidationIssue("completion_criteria", "required", "completion criteria are required"))
+        return issues
+
+
+@dataclass(frozen=True)
+class TaskPlanReview(Contract):
+    """Clearance-filtered plan projection for the desktop review surface.
+
+    The Node creates this view from committed orchestrator and hardware
+    admission events. The desktop cannot construct or revise it locally.
+    """
+
+    task_id: str
+    node_identity: str
+    protocol_version: str
+    clearance_context: Clearance
+    plan_state: str
+    task_sequence: int
+    team_id: str | None
+    assignments: tuple[str, ...]
+    dependency_graph: dict[str, tuple[str, ...]]
+    concurrency_ceiling: int
+    execution_mode: str
+    worker_capabilities: dict[str, str]
+    hardware_profile_ref: str | None
+    hardware_reason: str
+    required_verification: bool
+    completion_criteria: tuple[str, ...]
+    required_authority: str
+    authority_reason: str
+    plan_version_hash: str | None
+    policy_version_hash: str | None
+    ledger_event_ref: str | None
+    failure_code: str | None = None
+    failure_reason: str | None = None
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.plan_state not in {"not_ready", "ready", "queued", "needs_review", "blocked", "rejected"}:
+            issues.append(ValidationIssue("plan_state", "enum", "invalid plan state"))
+        if type(self.task_sequence) is not int or self.task_sequence < 0:
+            issues.append(ValidationIssue("task_sequence", "range", "task sequence must be non-negative"))
+        if type(self.concurrency_ceiling) is not int or self.concurrency_ceiling < 0:
+            issues.append(ValidationIssue("concurrency_ceiling", "range", "concurrency ceiling must be non-negative"))
+        if self.execution_mode not in {"parallel", "pipelined", "serial_virtual_team", "not_selected"}:
+            issues.append(ValidationIssue("execution_mode", "enum", "invalid execution mode"))
+        if not self.required_verification:
+            issues.append(ValidationIssue("required_verification", "safety", "independent verification is mandatory"))
+        if self.plan_state == "ready" and (not self.team_id or not self.plan_version_hash or self.execution_mode == "not_selected"):
+            issues.append(ValidationIssue("plan_state", "authority", "ready plans require a committed team and hardware mode"))
+        if self.plan_state in {"blocked", "rejected"} and not (self.failure_code and self.failure_reason):
+            issues.append(ValidationIssue("failure_reason", "required", "blocked plans require a bounded failure reason"))
         return issues
 
 

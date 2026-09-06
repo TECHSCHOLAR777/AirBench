@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@airbench/tauri-invoke", () => ({ invoke: invokeMock }));
 
-import { createTask, fetchTaskSnapshot, sendTaskCommand } from "./nodeCommands";
+import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand } from "./nodeCommands";
 import type { NodeCommandEnvelope } from "./generated/core_contracts";
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 
@@ -39,6 +39,11 @@ describe("typed Node command transport", () => {
       profileId: "profile-1",
       taskId: "task-1",
     });
+    fetchTaskPlan(profile, "task-1");
+    expect(invokeMock).toHaveBeenLastCalledWith("fetch_task_plan", {
+      profileId: "profile-1",
+      taskId: "task-1",
+    });
   });
 
   it("serializes creation and consequential commands as one envelope", () => {
@@ -62,6 +67,21 @@ describe("typed Node command transport", () => {
       profileId: "profile-1",
       command,
     });
+
+    const approval: NodeCommandEnvelope = {
+      ...createCommand,
+      command_id: "command.approve.1",
+      task_id: "task-1",
+      expected_sequence: 5,
+      idempotency_key: "idempotency.approve.1",
+      command_type: "task.approve_plan",
+      arguments: { approval_ref: "operator.confirmed.plan-review" },
+    };
+    sendTaskCommand(profile, approval);
+    expect(invokeMock).toHaveBeenLastCalledWith("send_task_command", {
+      profileId: "profile-1",
+      command: approval,
+    });
   });
 
   it("fails closed before IPC for unsafe profiles, targets, or envelopes", () => {
@@ -69,6 +89,7 @@ describe("typed Node command transport", () => {
     expect(() => fetchTaskSnapshot(profile, "../secret")).toThrow(/task identifier/);
     expect(() => createTask(profile, { ...createCommand, task_id: "task-1" })).toThrow(/creation command/);
     expect(() => sendTaskCommand(profile, { ...createCommand, task_id: "../secret", expected_sequence: 0, command_type: "task.cancel" })).toThrow(/task identifier/);
+    expect(() => fetchTaskPlan(profile, "../secret")).toThrow(/task identifier/);
     expect(invokeMock).not.toHaveBeenCalled();
   });
 });

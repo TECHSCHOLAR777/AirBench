@@ -7,7 +7,7 @@ from .ledger import (EVENT_TYPES, Checkpoint, CommittedTransaction, EventLedger,
                      ReplayRejected, ReplayState, SQLiteLedgerStore,
                      StorageFailure, TransitionRejected, build_event)
 from .models import *
-from .models import (TaskEnvelope, TeamPlan, WorkerAssignment, WorkPacket, WorkerResult,
+from .models import (TaskEnvelope, TeamPlan, TaskPlanReview, WorkerAssignment, WorkPacket, WorkerResult,
                      CompletionRecord, ModelCallRequest, RoutingDecision, TeamResourcePlan, HardwareProfile,
                      ToolAction, FactEnvelope, UntrustedEvidence, LedgerEventEnvelope,
                      NodeCommandEnvelope, NodeCommandResult)
@@ -23,7 +23,7 @@ from .model_registry import ModelRegistry, ModelTarget, RegistryError
 from .admission import AdmissionController, AdmissionDecision, AdmissionError, AdmissionRequest, HardwareMeasurement
 
 __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "stable_id",
-           "TaskEnvelope", "TeamPlan", "WorkerAssignment", "WorkPacket", "WorkerResult",
+           "TaskEnvelope", "TeamPlan", "TaskPlanReview", "WorkerAssignment", "WorkPacket", "WorkerResult",
            "CompletionRecord", "ModelCallRequest", "RoutingDecision", "TeamResourcePlan", "HardwareProfile",
            "ToolAction", "FactEnvelope", "UntrustedEvidence", "LedgerEventEnvelope",
            "NodeCommandEnvelope", "NodeCommandResult",

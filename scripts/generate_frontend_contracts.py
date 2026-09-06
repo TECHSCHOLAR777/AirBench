@@ -22,6 +22,7 @@ OUTPUT = ROOT / "frontend" / "src" / "generated" / "core_contracts.ts"
 CONTRACT_NAMES = (
     "TaskEnvelope",
     "TeamPlan",
+    "TaskPlanReview",
     "WorkerAssignment",
     "WorkPacket",
     "WorkerResult",

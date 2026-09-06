@@ -5,7 +5,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
-use std::{collections::HashSet, fs};
+use std::{collections::{HashMap, HashSet}, fs};
 use tauri::Manager;
 
 const HANDSHAKE_PATH: &str = "/api/v1/node/handshake";
@@ -120,6 +120,36 @@ pub struct TaskSnapshot {
     pub unresolved_questions: Vec<String>,
     pub node_connection_ref: String,
     pub ledger_head_ref: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct TaskPlanReview {
+    pub schema_version: String,
+    pub compatibility_id: String,
+    pub task_id: String,
+    pub node_identity: String,
+    pub protocol_version: String,
+    pub clearance_context: String,
+    pub plan_state: String,
+    pub task_sequence: u64,
+    pub team_id: Option<String>,
+    pub assignments: Vec<String>,
+    pub dependency_graph: HashMap<String, Vec<String>>,
+    pub concurrency_ceiling: u64,
+    pub execution_mode: String,
+    pub worker_capabilities: HashMap<String, String>,
+    pub hardware_profile_ref: Option<String>,
+    pub hardware_reason: String,
+    pub required_verification: bool,
+    pub completion_criteria: Vec<String>,
+    pub required_authority: String,
+    pub authority_reason: String,
+    pub plan_version_hash: Option<String>,
+    pub policy_version_hash: Option<String>,
+    pub ledger_event_ref: Option<String>,
+    pub failure_code: Option<String>,
+    pub failure_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -507,6 +537,10 @@ fn task_snapshot_path(task_id: &str) -> Result<String, NodeTransportError> {
     Ok(format!("/api/v1/tasks/{task_id}"))
 }
 
+fn task_plan_path(task_id: &str) -> Result<String, NodeTransportError> {
+    Ok(format!("{}/plan", task_snapshot_path(task_id)?))
+}
+
 fn command_path(command: &NodeCommandEnvelope) -> Result<String, NodeTransportError> {
     let task_id = command.task_id.as_deref().ok_or_else(|| {
         NodeTransportError::CommandSchemaInvalid(
@@ -516,6 +550,7 @@ fn command_path(command: &NodeCommandEnvelope) -> Result<String, NodeTransportEr
     let base = task_snapshot_path(task_id)?;
     let suffix = match command.command_type.as_str() {
         "task.authorize" => "/authorize",
+        "task.approve_plan" => "/approve",
         "task.cancel" => "/cancel",
         "task.request_review" => "/review",
         _ => {
@@ -573,6 +608,48 @@ pub async fn fetch_task_snapshot_profile(
     )
     .map_err(String::from)?;
     Ok(snapshot)
+}
+
+pub async fn fetch_task_plan_profile(
+    profile: NodeProfile,
+    task_id: String,
+) -> Result<TaskPlanReview, String> {
+    let path = task_plan_path(&task_id).map_err(String::from)?;
+    let plan: TaskPlanReview = request_json(&profile, Method::GET, &path, None)
+        .await
+        .map_err(|error| NodeTransportError::SnapshotFailed(error.to_string()).to_string())?;
+    if plan.task_id != task_id {
+        return Err(NodeTransportError::SnapshotFailed(
+            "The Node plan task identity does not match the request.".to_string(),
+        )
+        .into());
+    }
+    validate_node_response_identity(
+        &profile,
+        &plan.node_identity,
+        &plan.protocol_version,
+        &plan.clearance_context,
+    )
+    .map_err(String::from)?;
+    if !matches!(plan.plan_state.as_str(), "not_ready" | "ready" | "queued" | "needs_review" | "blocked" | "rejected") {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The Node plan state is not supported by this client.".to_string(),
+        )
+        .into());
+    }
+    if !matches!(plan.execution_mode.as_str(), "parallel" | "pipelined" | "serial_virtual_team" | "not_selected") {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The Node plan execution mode is not supported by this client.".to_string(),
+        )
+        .into());
+    }
+    if !plan.required_verification {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The Node plan did not require independent verification.".to_string(),
+        )
+        .into());
+    }
+    Ok(plan)
 }
 
 pub async fn create_task_profile(
@@ -921,6 +998,16 @@ pub async fn fetch_task_snapshot(
 }
 
 #[tauri::command]
+pub async fn fetch_task_plan(
+    app: tauri::AppHandle,
+    profile_id: String,
+    task_id: String,
+) -> Result<TaskPlanReview, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    fetch_task_plan_profile(profile, task_id).await
+}
+
+#[tauri::command]
 pub async fn create_task(
     app: tauri::AppHandle,
     profile_id: String,
@@ -1067,6 +1154,10 @@ mod tests {
             arguments: serde_json::json!({"reason": "operator stopped the task"}),
         };
         assert_eq!(command_path(&command).unwrap(), "/api/v1/tasks/task-1/cancel");
+
+        let mut approval = command.clone();
+        approval.command_type = "task.approve_plan".to_string();
+        assert_eq!(command_path(&approval).unwrap(), "/api/v1/tasks/task-1/approve");
 
         let mut unsafe_command = command.clone();
         unsafe_command.task_id = Some("../secret".to_string());
