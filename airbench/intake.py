@@ -28,6 +28,7 @@ from typing import Any, Protocol
 from xml.etree import ElementTree
 
 from contracts import Clearance, EventLedger, Taint, build_event, idempotency_key, stable_id
+from PIL import Image, UnidentifiedImageError
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
@@ -40,6 +41,8 @@ MAX_CSV_COLUMNS = 4_096
 MAX_PDF_PAGES = 10_000
 MAX_PDF_PAGE_TEXT_BYTES = 2_000_000
 MAX_PDF_TEXT_BYTES = 20_000_000
+MAX_IMAGE_PIXELS = 100_000_000
+MAX_IMAGE_DIMENSION = 32_768
 _PDF_MAGIC = b"%PDF-"
 _TEXT_SUFFIXES = {".txt", ".md", ".csv", ".json", ".log"}
 _DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -505,6 +508,27 @@ def _pdf_pages(content: bytes) -> list[tuple[str, str]]:
     return pages
 
 
+def _validate_image(content: bytes) -> None:
+    """Validate image structure and dimensions without decoding pixels for OCR."""
+
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            width, height = image.size
+            if (
+                width < 1
+                or height < 1
+                or width > MAX_IMAGE_DIMENSION
+                or height > MAX_IMAGE_DIMENSION
+                or width * height > MAX_IMAGE_PIXELS
+            ):
+                raise IntakeError("image_dimensions_too_large", "the image dimensions exceed the intake limit")
+            image.verify()
+    except IntakeError:
+        raise
+    except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
+        raise IntakeError("malformed_image", "the image document is malformed") from exc
+
+
 def _csv_table(content: bytes) -> str:
     try:
         decoded = content.decode("utf-8")
@@ -746,6 +770,7 @@ class BuiltinDocumentParser:
             extraction_method = "pdf_text"
             page_data = _pdf_pages(request.content)
         elif media_type.startswith("image/"):
+            _validate_image(request.content)
             extraction_method = "image_metadata_only"
             page_data = [("page:1", "")]
         elif media_type == _DOCX_MEDIA_TYPE:
