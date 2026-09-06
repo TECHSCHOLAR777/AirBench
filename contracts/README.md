@@ -16,6 +16,23 @@ Use `stable_id(kind, ...)` for deterministic UUID5 identities and `idempotency_k
 
 `FactEnvelope` always carries source, confidence, clearance, timestamps, derivation parents, and taint. `UntrustedEvidence` can never be marked clean. `ToolAction` accepts only clean, policy-cleared inputs. Worker/model outputs are proposals until deterministic orchestration and verification accept them.
 
+## M5.1/M5.2 model and resource boundary
+
+`model_registry.py` loads only a locally supplied, HMAC-signed registry. Each
+target is bound to its artifact digest, tokenizer/template, quantization,
+runtime/backend, exact role and modality, risk class, clearance, domain pack,
+hardware profile, license, and qualification expiry. Artifact paths stay below
+the supplied local artifact root and are hashed before use. Unsigned, stale,
+tampered, or out-of-root targets fail closed; a reasoning qualification cannot
+be reused for coding, vision, or verification.
+
+`admission.py` accepts measured hardware values rather than probing a remote
+service. It carries VRAM/RAM/KV-cache, model residency, latency, throughput,
+sandbox limits, concurrency, and verified no-egress status. Admission returns
+deterministic parallel, serial virtual-team, queued, or stopped plans. Every
+admitted plan has an independent verifier reservation, and active reservations
+are included in subsequent capacity checks.
+
 M1.3 adds `HardwareProfile`, role-aware `ModelCallRequest` and `RoutingDecision`, resource admission through `TeamResourcePlan`, and strict tool/evidence gates. Model calls require a worker role, capability, attempt, idempotency key, and resource lease. Accepted routes require qualification and admitted resources. Resource plans require a verifier reservation and a declared execution mode. Hardware and resource values reject malformed or negative inputs before any state mutation.
 
 M1.4 adds `EventLedger` and `build_event()`. Events are canonicalized, hash chained, immutable, sequence checked, and idempotent. Reusing an idempotency key for the same event is safe; reusing it for different content raises `IdempotencyConflict`. Invalid ordering, hashes, event names, or state preconditions raise a typed failure before append. `replay()` rebuilds task state from committed events, and `verify_chain()` checks the complete local chain. The example JSONL trace documents the wire shape; generated events should be used for executable replay fixtures.

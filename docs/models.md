@@ -78,7 +78,7 @@ These are the deliberate reference targets for the first AirBench vertical slice
 
 | Capability | Reference target | Preferred execution profile |
 |---|---|---|
-| Lead reasoning, planning, and high-quality prose | `google/gemma-4-31b-it` | BF16 on a large server profile; not assumed on a mid-range workstation |
+| Lead reasoning, planning, and high-quality prose | `google/gemma-4-31b-it-q4` | Q4 on a large server profile; not assumed on a mid-range workstation |
 | Workstation lead, fast reasoning, and low-risk substeps | `google/gemma-4-26b-a4b-it` | Q4_0 or the measured equivalent on a mid-range profile |
 | Coding and executable calculations | `Qwen/Qwen3-Coder-30B-A3B-Instruct` | A qualified 4-bit AWQ or GPTQ artifact in the serial slot unless measured hardware supports more |
 | Scanned documents, photographs, handwriting, and image understanding | `Qwen/Qwen2.5-VL-7B-Instruct` | A qualified 4-bit vision artifact with page and image limits |
