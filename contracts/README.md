@@ -22,4 +22,8 @@ M1.4 adds `EventLedger` and `build_event()`. Events are canonicalized, hash chai
 
 M2.1 adds `SQLiteLedgerStore`, the first durable local adapter. It stores immutable event JSON, transaction seals, and checkpoints in SQLite; validates the hash chain after reload; commits related events atomically; rejects governed events without source/confidence/clearance/taint provenance; returns committed transaction IDs; supports clearance-filtered projections and signed exports; and keeps the signing key outside the database. A failed batch leaves no partial events or transaction seal.
 
+M2.2 adds `ProjectionBuilder`, which rebuilds task, evidence, artifact, search, and audit views from committed events only. Each read-only snapshot records clearance, source sequence/head hash, event IDs, a content hash, and an HMAC signature. Projection rebuilding and export have no mutation path to the authoritative ledger.
+
+M2.3 adds `RecoveryManager` for durable retry records, checkpoint validation, restart recovery, and consequential side-effect reservations. `run_once()` returns a committed result without invoking the effect again. An unfinished or uncertain reservation raises `SideEffectUncertain`, preventing an ambiguous crash from duplicating a tool or artifact action.
+
 The compatibility rules are in `compatibility_policy.md`; the machine-readable registry and event/state catalogs are YAML and require no network or runtime service.

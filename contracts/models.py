@@ -21,6 +21,9 @@ LEDGER_EVENT_TYPES = {
     "evidence.created", "fact.candidate", "fact.committed", "verification.completed", "retry.started", "fallback.selected",
     "resource.plan.admitted", "resource.plan.queued", "barrier.waiting", "barrier.completed", "artifact.staged", "artifact.checked",
     "human.review.required", "human.signoff", "completion.recorded", "escalation.required",
+    "projection.rebuilt", "projection.exported", "checkpoint.committed", "retry.completed",
+    "retry.failed", "side_effect.reserved", "side_effect.committed", "side_effect.uncertain",
+    "recovery.resumed", "crash.recovered",
 }
 
 

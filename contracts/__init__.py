@@ -10,6 +10,8 @@ from .models import *
 from .models import (TaskEnvelope, TeamPlan, WorkerAssignment, WorkPacket, WorkerResult,
                      CompletionRecord, ModelCallRequest, RoutingDecision, TeamResourcePlan, HardwareProfile,
                      ToolAction, FactEnvelope, UntrustedEvidence, LedgerEventEnvelope)
+from .projections import ProjectionBuilder, ProjectionSnapshot
+from .recovery import RecoveryManager, RecoveryPoint, RetryRecord, SideEffectUncertain
 
 __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "stable_id",
            "TaskEnvelope", "TeamPlan", "WorkerAssignment", "WorkPacket", "WorkerResult",
@@ -18,4 +20,5 @@ __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "sta
            "EVENT_TYPES", "Checkpoint", "CommittedTransaction", "EventLedger",
            "IdempotencyConflict", "LedgerStore", "ProvenanceRejected",
            "ReplayRejected", "ReplayState", "SQLiteLedgerStore", "StorageFailure",
-           "TransitionRejected", "build_event"]
+           "TransitionRejected", "build_event", "ProjectionBuilder", "ProjectionSnapshot",
+           "RecoveryManager", "RecoveryPoint", "RetryRecord", "SideEffectUncertain"]
