@@ -120,6 +120,10 @@ Color never carries meaning alone. Status text, an icon, shape, or layout positi
 - `ExecutionTimeline`
 - `TaskStatusHeader`
 - `TaskQuestionCard`
+- `LiveWorkTrace`
+- `WorkTraceStage`
+- `NodeActivityRecord`
+- `TechnicalTraceDisclosure`
 
 ### Proof
 
@@ -163,6 +167,17 @@ The task entry surface is a Launchpad, not a settings form. The outcome prompt r
 - The source panel identifies File Intake and untrusted-data treatment before the operator sends a file.
 - The review panel explains the Node decision boundary without predicting whether approval will be required.
 - The follow-up composer and question cards appear only when the Node has supplied their typed task command contract.
+
+### 4.2 Live Work Trace pattern
+
+The live task surface should feel active because it shows recorded work, not because it imitates model activity. It uses a quiet current-state panel, a fixed seven-stage trace, compact evidence and verification records, and a collapsed technical disclosure.
+
+- Every active, recorded, waiting, or attention state maps to a Node snapshot, Node plan, or ordered event.
+- The primary view uses short human-readable typed summaries. The technical disclosure retains event time, sequence, actor, clearance, payload hash, and ledger reference.
+- Evidence cards visibly retain source, confidence, clearance, taint, source location, and ledger identity.
+- Routing may show only Node-supplied plan context. Selected models, fallback decisions, and policy rationale are unavailable until the event contract provides them.
+- A task question is a record until a sequence-aware, ledgered response command is available. Do not render a decorative response input.
+- No private chain of thought, raw payload JSON, fake typing, elapsed-progress animation, or locally inferred completion appears in the product.
 
 ## 5. Shared status vocabulary
 
@@ -209,7 +224,7 @@ Show:
 - parent facts for derived values;
 - ledger event reference.
 
-Never create a generic “AI generated” badge in place of provenance.
+Never create a generic "AI generated" badge in place of provenance.
 
 ## 7. Interaction rules
 

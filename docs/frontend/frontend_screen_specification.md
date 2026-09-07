@@ -140,17 +140,18 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 **Content**:
 
 - task status and current phase;
-- server-authoritative execution timeline;
-- worker roles and hardware mode;
-- tool and evidence summaries;
-- verification progress;
-- questions waiting for the user;
-- emerging artifacts;
-- stream cursor and connection status.
+- current Node state and last recorded activity;
+- server-authoritative staged work trace: Plan, Work, Evidence, Verification, Review, Artifacts, and Outcome;
+- worker roles, tool activity, and plan-level hardware mode;
+- source-backed evidence with confidence, clearance, taint, source location, and ledger reference;
+- verification summaries and blocked or failed state;
+- questions reported by the Node and emerging artifact references;
+- stream cursor, reconnect, replay, gap, and connection status;
+- collapsed technical trace with event metadata and the Node-supplied routing and hardware context.
 
-**Actions**: pause, stop, resume, answer question, open source, open artifact, open technical event detail.
+**Actions**: stop when the current typed Node command allows it, refresh the projection, open permitted source or artifact paths, and open technical trace detail. Pause, resume, answer-question, source-open, and artifact-open controls appear only after their typed Node command or safe-preview contract exists.
 
-**Rules**: no guessed completion; no optimistic stop or approval; reconnect by cursor replay or snapshot.
+**Rules**: no guessed completion, timer, typing indicator, raw model reasoning, raw event payload, or optimistic stop or approval. Reconnect by cursor replay or snapshot. The desktop shows an unavailable routing target or fallback as not supplied, never as a local estimate.
 
 ### S05 Evidence and Sources
 
