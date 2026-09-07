@@ -1,5 +1,5 @@
 import { AppIcon } from "./AppIcon";
-import { operatorQuestionPresentation } from "./operatorQuestion";
+import { operatorQuestionAnnouncement, operatorQuestionPresentation } from "./operatorQuestion";
 import type { TaskStatus } from "./protocol";
 
 interface OperatorQuestionCardProps {
@@ -19,13 +19,14 @@ export function OperatorQuestionCard({
 }: OperatorQuestionCardProps) {
   const presentation = operatorQuestionPresentation(taskStatus, phase, synchronized);
 
-  return <section className="operator-question-card" data-testid="operator-question-card" role="status" aria-live="polite" aria-label="Node question awaiting response">
+  return <section className="operator-question-card" data-testid="operator-question-card" role="region" aria-labelledby="operator-question-title" aria-describedby="operator-question-state">
+    <span className="sr-only" data-testid="operator-question-announcement" role="status" aria-live="polite" aria-atomic="true">{operatorQuestionAnnouncement(presentation)}</span>
     <div className="operator-question-icon"><AppIcon name="review" size={18} /></div>
     <div className="operator-question-content">
       <p className="eyebrow">{presentation.eyebrow}</p>
-      <h2>{presentation.title}</h2>
-      <p className="operator-question-state">{presentation.state}</p>
-      <ol className="operator-question-list">{questions.map((question, index) => <li key={`${question}-${index}`}>{question}</li>)}</ol>
+      <h2 id="operator-question-title">{presentation.title}</h2>
+      <p id="operator-question-state" className="operator-question-state">{presentation.state}</p>
+      <ol className="operator-question-list" aria-label="Questions from the Node">{questions.map((question, index) => <li key={`${question}-${index}`}>{question}</li>)}</ol>
       <dl className="operator-question-context">
         <div><dt>Continuation</dt><dd>{presentation.continuation}</dd></div>
         <div><dt>Ledger</dt><dd>{ledgerEventRef}</dd></div>
