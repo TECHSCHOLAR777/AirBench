@@ -243,6 +243,10 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **Rules**: UI cannot manually route around qualification or policy.
 
+**Current connection proof**: when the Rust-owned handshake is verified, show only the approved profile label, Node identity, authenticated subject, clearance context, domain-pack reference, transport kind, protocol version, and handshake ledger reference. Do not expose endpoint URLs, certificate material, credential references, or retained proof fields after a disconnect.
+
+**Pre-contract operational state**: a trusted connection is not evidence that the GPU, sandbox, workload, model roster, qualification, or router history is healthy. Until the Node sends those typed projections, the screen shows them as not supplied and leaves model preference unavailable.
+
 ### S12 Settings and Identity
 
 **User outcome**: understand identity and control permitted preferences.

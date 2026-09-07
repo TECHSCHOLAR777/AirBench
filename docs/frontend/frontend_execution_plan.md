@@ -50,7 +50,7 @@ The first interactive answer control starts only when the Node exposes its typed
 | --- | --- | --- |
 | #81 FE-DEV-09 | Until the query exists, render a truthful gateway that identifies the missing clearance-filtered review or artifact projection and offers only local navigation. Full implementation needs a clearance-filtered review queue and artifact-library query plus policy-controlled actions. | Queue membership, authority, and artifact visibility are Node policy decisions. |
 | #82 FE-DEV-10 | Until the query exists, render a truthful gateway that identifies the missing history or ledger projection and offers only local navigation. Full implementation needs paged task-history, ledger query, chain verification, and offline export contracts. | The client must not create a second audit store or export reconstructed local records. |
-| #83 FE-DEV-11 | node health, qualified capability catalog, identity, and policy projections | The UI must not infer health, qualification, model roster, or sovereignty. |
+| #83 FE-DEV-11 | Render the existing verified handshake as connection proof: approved profile, Node identity, authenticated operator, clearance, domain-pack reference, transport, protocol, and handshake ledger reference. Show hardware, sandbox, workload, qualification, and router detail as explicitly not supplied until the Node projection exists. Full implementation needs node health, qualified capability catalog, identity, and policy projections. | The UI must not infer health, qualification, model roster, or sovereignty. |
 
 These are parallel only after the shared generated contracts are accepted. They must have separate files and worktrees. Contract changes are serialized through #74.
 
