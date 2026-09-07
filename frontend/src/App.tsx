@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@airbench/tauri-invoke";
+import { AppIcon, type AppIconName } from "./AppIcon";
 import type { AirBenchPresentationState, Screen } from "./contracts";
 import { initialPresentationState } from "./contracts";
 import { NodeConnectionController, type NodeConnectionView } from "./nodeConnectionController";
@@ -11,24 +12,27 @@ import type { NodeCommandResult, TaskPlanReview } from "./generated/core_contrac
 import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand } from "./taskComposer";
 import { fetchTaskEventBatch } from "./eventTransport";
 import { maySendConsequentialCommand, TaskEventSynchronizer, type EventSyncState } from "./eventStore";
+import { loadPresentationPreferences, savePresentationPreferences, type PresentationPreferences } from "./presentationPreferences";
 import type { TaskEvent, TaskProjection } from "./protocol";
 
 type SelectedFile = { selection_id: string; file_name: string; byte_size: number };
 
-const primaryNav: Array<{ id: Screen; label: string; icon: string }> = [
-  { id: "home", label: "Home", icon: "H" },
-  { id: "tasks", label: "Tasks", icon: "T" },
-  { id: "review", label: "Review", icon: "R" },
+const primaryNav: Array<{ id: Screen; label: string; icon: AppIconName }> = [
+  { id: "home", label: "Home", icon: "home" },
+  { id: "tasks", label: "Tasks", icon: "tasks" },
+  { id: "review", label: "Review", icon: "review" },
 ];
 
-const recordNav: Array<{ id: Screen; label: string; icon: string }> = [
-  { id: "artifacts", label: "Artifacts", icon: "A" },
-  { id: "history", label: "History", icon: "H" },
-  { id: "audit", label: "Audit", icon: "L" },
+const recordNav: Array<{ id: Screen; label: string; icon: AppIconName }> = [
+  { id: "artifacts", label: "Artifacts", icon: "archive" },
+  { id: "history", label: "History", icon: "history" },
+  { id: "audit", label: "Audit", icon: "audit" },
 ];
 
 function App() {
   const [state, setState] = useState<AirBenchPresentationState>(initialPresentationState);
+  const [presentation, setPresentation] = useState<PresentationPreferences>(() => loadPresentationPreferences());
+  const [showAppearanceMenu, setShowAppearanceMenu] = useState(false);
   const [connection, setConnection] = useState<NodeConnectionView>({
     state: "not_connected", profileId: null, nodeIdentity: null, protocolVersion: null,
     clearanceContext: null, authenticatedSubject: null, domainPackRef: null, sovereignty: "unknown", ledgerEventRef: null, failure: null,
@@ -71,6 +75,10 @@ function App() {
   }, [state.screen]);
 
   const selectScreen = (screen: Screen) => setState((current) => ({ ...current, screen }));
+
+  useEffect(() => {
+    savePresentationPreferences(presentation);
+  }, [presentation]);
 
   useEffect(() => {
     if (state.screen !== "node" || profilesState !== "idle") return;
@@ -318,23 +326,24 @@ function App() {
   const canStart = nodeConnected && taskText.trim().length > 0 && (!selectedFile || intakeState === "ready") && !creatingTask;
   const nodeLabel = nodeConnected ? (profiles.find((profile) => profile.profileId === connection.profileId)?.displayName ?? "Node connected") : connection.state === "connecting" ? "Connecting to Node" : "Node not connected";
   const nodeDetail = nodeConnected ? "Verified and ready" : connection.state === "failed" ? "Connection blocked" : "Choose an approved Node";
+  const sovereigntyLabel = nodeConnected && connection.sovereignty === "verified" ? "Verified internal path" : "No verified Node path";
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-theme={presentation.theme} data-density={presentation.density} data-contrast={presentation.highContrast ? "high" : "standard"}>
       <aside className="sidebar" aria-label="AirBench navigation">
-        <div className="brand-lockup"><div className="brand-mark" aria-hidden="true">A</div><div><div className="brand-name">AirBench</div><div className="brand-subtitle">Sovereign workbench</div></div></div>
-        <button className="new-task-button" onClick={() => selectScreen("home")}><span aria-hidden="true">+</span><span>New task</span><kbd>Ctrl N</kbd></button>
+        <div className="brand-lockup"><div className="brand-mark"><AppIcon name="airbench" size={19} /></div><div><div className="brand-name">AirBench</div><div className="brand-subtitle">Sovereign task command</div></div></div>
+        <button className="new-task-button" onClick={() => selectScreen("home")}><AppIcon name="plus" size={17} /><span>New task</span><kbd>Ctrl N</kbd></button>
         <nav className="nav-groups"><NavGroup title="Work" items={primaryNav} active={state.screen} onSelect={selectScreen} /><NavGroup title="Records" items={recordNav} active={state.screen} onSelect={selectScreen} /></nav>
         <div className="sidebar-spacer" />
-        <button className="node-chip" data-testid="node-chip" onClick={() => selectScreen("node")} aria-label="Open Node and settings"><span className={`status-dot ${nodeConnected ? "status-dot-connected" : ""}`} aria-hidden="true" /><span><strong>{nodeLabel}</strong><small>{nodeDetail}</small></span><span className="chevron" aria-hidden="true">&gt;</span></button>
-        <div className="user-row"><div className="avatar">RG</div><div><strong>Local operator</strong><small>{connection.clearanceContext ? `${connection.clearanceContext} clearance` : "Clearance not resolved"}</small></div><span className="more-icon" aria-hidden="true">...</span></div>
+        <button className="node-chip" data-testid="node-chip" onClick={() => selectScreen("node")} aria-label="Open Node and settings"><span className={`status-dot ${nodeConnected ? "status-dot-connected" : ""}`} aria-hidden="true" /><span className="node-chip-copy"><strong>{nodeLabel}</strong><small>{nodeDetail}</small></span><AppIcon name="chevron-down" size={15} /></button>
+        <div className="user-row"><div className="avatar">RG</div><div><strong>Local operator</strong><small>{connection.clearanceContext ? `${connection.clearanceContext} clearance` : "Clearance not resolved"}</small></div><span className="operator-session">Local session</span></div>
         <small className="build-info" data-testid="app-version">AirBench {__AIRBENCH_VERSION__} / offline shell</small>
       </aside>
 
       <main className="main-area">
-        <header className="topbar"><div className="breadcrumb"><span>AirBench</span><span className="breadcrumb-slash">/</span><strong>{screenTitle}</strong></div><div className="topbar-actions"><div className="quiet-status"><span className={`status-dot ${nodeConnected ? "status-dot-connected" : ""}`} aria-hidden="true" /> {nodeLabel}</div><button className="quiet-action" aria-label="Open command menu">Command</button><button className="quiet-action" aria-label="Open notifications">Alerts</button></div></header>
+        <header className="topbar"><div className="breadcrumb"><span>AirBench</span><span className="breadcrumb-slash">/</span><strong>{screenTitle}</strong></div><div className="topbar-actions"><button className={`sovereignty-status ${nodeConnected ? "is-verified" : ""}`} onClick={() => selectScreen("node")} aria-label="Open Node and settings"><AppIcon name={nodeConnected ? "shield" : "node"} size={16} /><span><small>Node path</small><strong>{sovereigntyLabel}</strong></span></button><div className="appearance-control"><button className="appearance-button" type="button" onClick={() => setShowAppearanceMenu((open) => !open)} aria-expanded={showAppearanceMenu} aria-controls="appearance-preferences"><AppIcon name="display" size={16} /><span>Display</span><AppIcon name="chevron-down" size={14} /></button>{showAppearanceMenu && <AppearanceMenu preferences={presentation} onChange={setPresentation} onClose={() => setShowAppearanceMenu(false)} />}</div></div></header>
         <div className="content-wrap">
-          {state.screen === "home" && <HomeView taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} notice={notice} canStart={canStart} creatingTask={creatingTask} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={() => setShowConnectionHelp(true)} onOpenNode={() => selectScreen("node")} />}
+          {state.screen === "home" && <HomeView taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} notice={notice} canStart={canStart} creatingTask={creatingTask} nodeConnected={nodeConnected} nodeLabel={nodeLabel} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={() => setShowConnectionHelp(true)} onOpenNode={() => selectScreen("node")} />}
           {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesState("idle"); }} onHome={() => selectScreen("home")} />}
           {state.screen === "tasks" && taskProjection && <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onHome={() => selectScreen("home")} />}
           {state.screen !== "home" && state.screen !== "node" && state.screen !== "tasks" && <RecordView screen={screenTitle} onHome={() => selectScreen("home")} />}
@@ -345,13 +354,53 @@ function App() {
   );
 }
 
-function NavGroup({ title, items, active, onSelect }: { title: string; items: Array<{ id: Screen; label: string; icon: string }>; active: Screen; onSelect: (screen: Screen) => void }) {
-  return <div className="nav-group"><div className="nav-group-title">{title}</div>{items.map((item) => <button key={item.id} className={`nav-item ${active === item.id ? "active" : ""}`} onClick={() => onSelect(item.id)}><span className="nav-icon" aria-hidden="true">{item.icon}</span><span>{item.label}</span>{item.id === "review" && <span className="nav-count">0</span>}</button>)}</div>;
+function NavGroup({ title, items, active, onSelect }: { title: string; items: Array<{ id: Screen; label: string; icon: AppIconName }>; active: Screen; onSelect: (screen: Screen) => void }) {
+  return <div className="nav-group">
+    <div className="nav-group-title">{title}</div>
+    {items.map((item) => <button key={item.id} className={`nav-item ${active === item.id ? "active" : ""}`} onClick={() => onSelect(item.id)}>
+      <span className="nav-icon"><AppIcon name={item.icon} size={16} /></span>
+      <span>{item.label}</span>
+      {item.id === "review" && <span className="nav-count">0</span>}
+    </button>)}
+  </div>;
 }
 
-function HomeView({ taskText, setTaskText, taskTitle, setTaskTitle, projectRef, setProjectRef, outputContract, setOutputContract, priority, setPriority, deadline, setDeadline, selectedFile, intakeState, intakeManifest, safePreview, artifactPreview, downloadState, downloadReceipt, taskResult, planReview, planLoading, planApprovalResult, approvingPlan, notice, canStart, creatingTask, onAttach, onUpload, onDownload, onStart, onApprovePlan, onRemoveFile, onHelp, onOpenNode }: { taskText: string; setTaskText: (value: string) => void; taskTitle: string; setTaskTitle: (value: string) => void; projectRef: string; setProjectRef: (value: string) => void; outputContract: string; setOutputContract: (value: string) => void; priority: string; setPriority: (value: string) => void; deadline: string; setDeadline: (value: string) => void; selectedFile: SelectedFile | null; intakeState: "idle" | "uploading" | "ready" | "failed"; intakeManifest: IntakeManifest | null; safePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; downloadState: "idle" | "downloading" | "downloaded" | "failed"; downloadReceipt: DownloadReceipt | null; taskResult: CreateTaskResponse | null; planReview: TaskPlanReview | null; planLoading: boolean; planApprovalResult: NodeCommandResult | null; approvingPlan: boolean; notice: string | null; canStart: boolean; creatingTask: boolean; onAttach: () => void; onUpload: () => void; onDownload: () => void; onStart: () => void; onApprovePlan: () => void; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void }) {
+function AppearanceMenu({ preferences, onChange, onClose }: { preferences: PresentationPreferences; onChange: (next: PresentationPreferences) => void; onClose: () => void }) {
+  return <section className="appearance-menu" id="appearance-preferences" aria-label="Display preferences">
+    <div className="appearance-menu-header">
+      <div><span>Display</span><small>Stored only on this desktop profile</small></div>
+      <button type="button" className="text-button" onClick={onClose}>Close</button>
+    </div>
+    <fieldset className="appearance-fieldset">
+      <legend>Theme</legend>
+      <div className="appearance-options">
+        <button type="button" className={`appearance-choice ${preferences.theme === "obsidian" ? "selected" : ""}`} aria-pressed={preferences.theme === "obsidian"} onClick={() => onChange({ ...preferences, theme: "obsidian" })}>
+          <span className="theme-preview theme-preview-obsidian" aria-hidden="true" />
+          <span><strong>Obsidian Signal</strong><small>Dark, focused workspace</small></span>
+        </button>
+        <button type="button" className={`appearance-choice ${preferences.theme === "ledger" ? "selected" : ""}`} aria-pressed={preferences.theme === "ledger"} onClick={() => onChange({ ...preferences, theme: "ledger" })}>
+          <span className="theme-preview theme-preview-ledger" aria-hidden="true" />
+          <span><strong>Ledger Paper</strong><small>Warm document review</small></span>
+        </button>
+      </div>
+    </fieldset>
+    <fieldset className="appearance-fieldset appearance-split">
+      <legend>Density</legend>
+      <div className="segmented-control">
+        <button type="button" className={preferences.density === "comfortable" ? "selected" : ""} aria-pressed={preferences.density === "comfortable"} onClick={() => onChange({ ...preferences, density: "comfortable" })}>Comfortable</button>
+        <button type="button" className={preferences.density === "compact" ? "selected" : ""} aria-pressed={preferences.density === "compact"} onClick={() => onChange({ ...preferences, density: "compact" })}>Compact</button>
+      </div>
+    </fieldset>
+    <label className="contrast-toggle">
+      <span><strong>High contrast</strong><small>Increase borders and focus visibility</small></span>
+      <input type="checkbox" checked={preferences.highContrast} onChange={(event) => onChange({ ...preferences, highContrast: event.target.checked })} />
+    </label>
+  </section>;
+}
+
+function HomeView({ taskText, setTaskText, taskTitle, setTaskTitle, projectRef, setProjectRef, outputContract, setOutputContract, priority, setPriority, deadline, setDeadline, selectedFile, intakeState, intakeManifest, safePreview, artifactPreview, downloadState, downloadReceipt, taskResult, planReview, planLoading, planApprovalResult, approvingPlan, notice, canStart, creatingTask, nodeConnected, nodeLabel, onAttach, onUpload, onDownload, onStart, onApprovePlan, onRemoveFile, onHelp, onOpenNode }: { taskText: string; setTaskText: (value: string) => void; taskTitle: string; setTaskTitle: (value: string) => void; projectRef: string; setProjectRef: (value: string) => void; outputContract: string; setOutputContract: (value: string) => void; priority: string; setPriority: (value: string) => void; deadline: string; setDeadline: (value: string) => void; selectedFile: SelectedFile | null; intakeState: "idle" | "uploading" | "ready" | "failed"; intakeManifest: IntakeManifest | null; safePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; downloadState: "idle" | "downloading" | "downloaded" | "failed"; downloadReceipt: DownloadReceipt | null; taskResult: CreateTaskResponse | null; planReview: TaskPlanReview | null; planLoading: boolean; planApprovalResult: NodeCommandResult | null; approvingPlan: boolean; notice: string | null; canStart: boolean; creatingTask: boolean; nodeConnected: boolean; nodeLabel: string; onAttach: () => void; onUpload: () => void; onDownload: () => void; onStart: () => void; onApprovePlan: () => void; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void }) {
   return <div className="home-view">
-    <section className="welcome-block"><p className="eyebrow">PRIVATE BY DESIGN</p><h1>What should AirBench complete?</h1><p className="lead">Describe the outcome. Add files if they are part of the work.</p></section>
+    <section className="welcome-block"><p className="eyebrow">NEW TASK</p><h1>What should AirBench complete?</h1><p className="lead">Describe the outcome. Add files if they are part of the work.</p></section>
     <section className="composer-card" data-testid="task-composer" aria-label="New task composer">
       <textarea value={taskText} onChange={(event) => setTaskText(event.target.value)} placeholder="For example: Review the scanned inspection report and draft an approval note with the key findings and required actions." rows={4} />
       <div className="composer-fields" aria-label="Task details">
@@ -369,7 +418,7 @@ function HomeView({ taskText, setTaskText, taskTitle, setTaskTitle, projectRef, 
     {taskResult && <section className="task-confirmation" data-testid="task-confirmation" aria-label="Task submission result"><p className="eyebrow">TASK ACCEPTED BY NODE</p><strong>{taskResult.task.task_id}</strong><span>State: {taskResult.command.state ?? taskResult.task.state ?? "created"}</span><small>Ledger {taskResult.command.ledger_event_ref ?? taskResult.ledger_event_ref} / sequence {taskResult.command.sequence ?? taskResult.snapshot.asOfSequence}</small></section>}
     {taskResult && <PlanReviewCard plan={planReview} loading={planLoading} approval={planApprovalResult} approving={approvingPlan} onApprove={onApprovePlan} />}
     {notice && <div className="inline-notice" role="status">{notice}</div>}
-    <div className="trust-line" role="status"><span className="trust-item"><span className="trust-check" aria-hidden="true">OK</span> Files stay on your node</span><span className="trust-item"><span className="trust-check" aria-hidden="true">OK</span> External network denied</span><button className="text-button" onClick={onHelp}>How this works</button></div>
+    <div className="trust-line" role="status"><span className="trust-item"><span className={`status-dot ${nodeConnected ? "status-dot-connected" : ""}`} aria-hidden="true" />{nodeConnected ? `${nodeLabel} is verified for this session.` : "No Node path is verified. Nothing has been submitted."}</span><button className="text-button" onClick={onHelp}>How this works</button></div>
     <section className="continue-section"><div className="section-heading"><div><h2>Continue work</h2><p>Your recent tasks will appear here.</p></div><button className="text-button" disabled>View history <span aria-hidden="true">-&gt;</span></button></div><div className="empty-state"><div className="empty-icon" aria-hidden="true">T</div><p>No tasks yet</p><small>When you start work, you can return to it here.</small></div></section>
     <section className="readiness-card"><div><p className="eyebrow">READY WHEN YOU ARE</p><h2>Connect a trusted Node to begin</h2><p>Your organization controls the models, tools, files, and audit record on that Node.</p></div><button className="secondary-button bordered-button" data-testid="open-node-settings" onClick={onOpenNode}>Open Node settings</button></section>
   </div>;
@@ -451,7 +500,7 @@ function RecordView({ screen, onHome }: { screen: string; onHome: () => void }) 
 }
 
 function ConnectionHelp({ onClose, onOpenNode }: { onClose: () => void; onOpenNode: () => void }) {
-  return <div className="modal-backdrop" role="presentation"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="connection-help-title"><button className="modal-close" aria-label="Close" onClick={onClose}>X</button><p className="eyebrow">TRUSTED EXECUTION</p><h2 id="connection-help-title">AirBench works on an approved Node</h2><p>Your files, task state, model calls, tools, and audit record stay inside the organization. Select a trusted Node before starting work.</p><div className="modal-note"><span className="status-dot" aria-hidden="true" /><span><strong>No Node is connected</strong><small>Nothing has been submitted or sent anywhere.</small></span></div><div className="modal-actions"><button className="secondary-button" onClick={onClose}>Close</button><button className="primary-button" onClick={onOpenNode}>Open Node settings</button></div></section></div>;
+  return <div className="modal-backdrop" role="presentation"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="connection-help-title"><button className="modal-close" aria-label="Close" onClick={onClose}>X</button><p className="eyebrow">TRUSTED EXECUTION</p><h2 id="connection-help-title">AirBench works on an approved Node</h2><p>AirBench accepts work only after you select a trusted Node. The Node owns the files, task state, model calls, tools, and audit record for that work.</p><div className="modal-note"><span className="status-dot" aria-hidden="true" /><span><strong>No Node is connected</strong><small>Nothing has been submitted or sent anywhere.</small></span></div><div className="modal-actions"><button className="secondary-button" onClick={onClose}>Close</button><button className="primary-button" onClick={onOpenNode}>Open Node settings</button></div></section></div>;
 }
 
 function formatBytes(bytes: number): string {

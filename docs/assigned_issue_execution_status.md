@@ -47,6 +47,18 @@ The first-release frontend assignment snapshot covered #64 to #69 and #73 to #85
 | #84 | FE-DEV-12 recovery and hardening | Release gate | Depends on the preceding frontend and transport paths. |
 | #85 | FE-DEV-13 packaged desktop integration | Final serial gate | Depends on the complete first-release path and validation evidence. |
 
+### P1 frontend command-center refactor
+
+The focused P1 refactor parent is [#105](https://github.com/TECHSCHOLAR777/AirBench/issues/105). It preserves the first-release frontend contracts above and changes only the presentation and interaction layer in dependency order.
+
+| Issues | Area | Execution status | Dependency |
+| --- | --- | --- | --- |
+| #107 | FE-REF-01 design system and shell | Local implementation slice complete | Default dark and warm light semantic themes, local icons, local display preferences, focus, contrast, and reduced-motion support are implemented. Visual baselines and packaged desktop evidence remain in #111. |
+| #106 | FE-REF-02 Launchpad and route control | Next serial product slice | Builds on #107 without allowing the UI to choose a model or bypass the Node router. |
+| #110 | FE-REF-03 audit-safe live work trace | Follows #106 | Builds on the existing event projection. It must show Node events and audit-safe summaries, never raw reasoning. |
+| #108 to #109 | FE-REF-04 through FE-REF-05 interventions and proof inspector | Dependent product slices | Need the strengthened Launchpad and live trace structure. |
+| #111 | FE-REF-06 visual, accessibility, and sovereign validation | Release evidence gate | Covers both themes, visual baselines, desktop accessibility, and packaged no-egress evidence. |
+
 ## What can be done autonomously
 
 An agent can safely work now on bounded code, fixtures, tests, and evidence for #38, #42, #64, #65, #66, #67, #68, #73, and the core-contract portion of #74. Such work must remain honest about the missing production gates.
@@ -78,6 +90,7 @@ There is no delegated subagent runtime available in this environment. Parallel r
 - FE-VAL-5 runtime smoke run `AirBenchRuntimeEgress-20260907-013213-6a6a9eab8caa4b95bedfd7e5eae4ac1e` failed as expected for an unenforced host: WebView2 established external Microsoft connections. The validator supports an elevated `-EnforceFirewall -RequireFirewall` run; until that evidence exists, no-egress remains an open release gate.
 - FE-DEV-05 now has a typed `TaskPlanReview` projection and a separate `task.approve_plan` command. The Node persists the validated TeamPlan, refuses approval without hardware admission, and preserves expected-sequence and idempotency semantics. Fixture run `AirBenchNodeValidation-20260907-022035-cf89d512b74446c6b614eb4da0e565f9` covers a parallel plan and approval transport. This is synthetic evidence, not production plan-generation proof.
 - FE-DEV-06 now connects the existing cursor-aware event synchronizer to a Live Task Workspace. The UI renders server-authoritative status, phase, activity, plan review, sequence, ledger references, reconnect state, and technical event details. Stop is sent through the existing `task.cancel` command and remains non-optimistic. Frontend tests pass 42/42 and the production build passes. This is a local implementation slice, not packaged or production Node evidence.
+- FE-REF-01 now supplies the Obsidian Signal default shell and Ledger Paper alternative. It replaces navigation letters with static local SVG, stores only theme, density, and contrast preferences locally, and derives the visible Node-path status from the typed connection state. It does not change task, routing, file, or ledger authority. Frontend tests pass 45/45; production build, no-egress source scan, and Tauri configuration checks pass. See `docs/frontend/fe_ref_01_design_shell.md`.
 - File Intake revision and page identities now use canonical parsed content for Office archives, while raw source hashes remain preserved for provenance. This restores the documented bulk/query parity when ZIP metadata changes between reads.
 
 The latest local evidence is a passing focused Node API suite, generated-contract check, 40 passing frontend tests, 14 passing Rust tests, a passing frontend build, and static no-egress and Tauri policy checks. Packaged live Node, clean-machine, network-capture, and full WebDriver evidence remain release gates. FE-DEV-04 is implemented locally but remains open until the real Python Node, authoritative event stream, and packaged integration are exercised. The local branch must still be pushed after the next main-branch refresh.
