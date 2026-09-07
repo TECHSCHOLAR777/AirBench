@@ -12,6 +12,8 @@ The implementation order is tracked by the development issues below. The validat
 
 The P1 command-center refactor is tracked separately in [#105](https://github.com/TECHSCHOLAR777/AirBench/issues/105). Its foundation, [#107](https://github.com/TECHSCHOLAR777/AirBench/issues/107), now provides the local Obsidian Signal and Ledger Paper shell, static local SVG icons, presentation-only display preferences, accessibility token support, and passing source/build/no-egress checks. It does not claim desktop visual-baseline or packaged evidence; those stay open in [#111](https://github.com/TECHSCHOLAR777/AirBench/issues/111).
 
+The next P1 slice, [#106](https://github.com/TECHSCHOLAR777/AirBench/issues/106), replaces the static task form with a progressive Launchpad. It preserves the typed task-create envelope, routes files only to File Intake, keeps Auto route Node-controlled, and deliberately withholds a manual model preference until the Node provides a qualified, clearance-filtered catalog. See `fe_ref_02_launchpad.md` for the exact product and contract boundary.
+
 | Development issue | Outcome | Lane |
 | --- | --- | --- |
 | [FE-DEV-01, #73](https://github.com/TECHSCHOLAR777/AirBench/issues/73) | Secure Tauri shell | Parallel foundation |

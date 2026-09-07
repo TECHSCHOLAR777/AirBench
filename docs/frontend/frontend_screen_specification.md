@@ -98,15 +98,21 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **User outcome**: submit a bounded outcome and a complete input manifest.
 
-**Step 1, Outcome**: prompt, project, title, deliverable type, priority, optional deadline.
+**Launchpad core**: one outcome prompt with a concise row of progressive controls for Sources, Deliverable, Auto route, Task details, and Review. The operator should not have to configure implementation details to begin useful work.
 
-**Step 2, Sources**: files, knowledge sources, intake status, clearance compatibility, manifest identity, safe preview availability.
+**Outcome**: a bounded result request, plus optional project, title, priority, and deadline fields that already exist in the typed task-create envelope.
 
-**Step 3, Preferences**: default Node-selected execution team, permitted review posture, deadline, notifications.
+**Sources**: native file selection, File Intake state, manifest identity, and safe preview availability. Files, OCR, vision, clearance compatibility, and taint remain Node-owned.
 
-**Actions**: add files, remove files before intake commit, choose project, submit, return to edit.
+**Deliverable**: a non-authoritative intent such as document, summary, spreadsheet, presentation, or code. The Node verifies final deliverables and computes authoritative values.
 
-**Rules**: all files go through File Intake; content is untrusted data; UI does not parse, OCR, or execute it.
+**Routing and review**: Auto route is always the default. The Node selects qualified capabilities, fallback, resource admission, and review posture after validation. An advanced preference is unavailable until the Node sends a clearance-filtered qualified catalog.
+
+**Knowledge and tools**: only Node-provided governed catalogs can make these interactive. The desktop app does not offer free-text collection names or tool permissions.
+
+**Actions**: add files, remove files before intake commit, choose deliverable intent, add bounded task context, launch, and return to edit.
+
+**Rules**: all files go through File Intake; content is untrusted data; UI does not parse, OCR, or execute it. A keyboard shortcut may invoke Launch only when the same Node readiness rule has enabled the primary action. The UI never sends a direct model name, endpoint, or routing fallback.
 
 ### S03 Task Plan Review
 
