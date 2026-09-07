@@ -10,6 +10,8 @@ The first frontend runtime now lives in the repository's `frontend/` directory. 
 
 The implementation order is tracked by the development issues below. The validation issues remain evidence gates and are not replaced by a rendered mockup.
 
+The P1 command-center refactor is tracked separately in [#105](https://github.com/TECHSCHOLAR777/AirBench/issues/105). Its foundation, [#107](https://github.com/TECHSCHOLAR777/AirBench/issues/107), now provides the local Obsidian Signal and Ledger Paper shell, static local SVG icons, presentation-only display preferences, accessibility token support, and passing source/build/no-egress checks. It does not claim desktop visual-baseline or packaged evidence; those stay open in [#111](https://github.com/TECHSCHOLAR777/AirBench/issues/111).
+
 | Development issue | Outcome | Lane |
 | --- | --- | --- |
 | [FE-DEV-01, #73](https://github.com/TECHSCHOLAR777/AirBench/issues/73) | Secure Tauri shell | Parallel foundation |
