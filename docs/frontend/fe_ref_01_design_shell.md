@@ -17,6 +17,9 @@ Establish a professional, offline-safe desktop shell before rebuilding task-spec
 - The left rail, Node status, sovereignty control, display control, task canvas, previews, plan review, task workspace, and Node settings use one token foundation.
 - Static local SVG icons replace letter placeholders in the navigation and shell.
 - A local Display menu offers theme, comfortable or compact density, and high contrast.
+- A local workspace command menu is available from the top bar and with `Ctrl/Cmd + K`. It contains only navigation and presentation commands: New task, Current task when a Node projection exists, Node and settings, and Display preferences.
+- `Ctrl/Cmd + N` returns to a fresh outcome brief and restores focus to the composer. The command menu traps focus while open, restores focus on close, supports search and arrow-key entry, and never emits a Node command.
+- Selecting Tasks without an authoritative task projection shows an honest empty state. It explains the required Node-issued task ID, event cursor, and ledger reference instead of rendering invented activity or a false task count.
 - Presentation preferences are stored only in the local desktop webview profile. They do not alter Node state, task payloads, policy, routing, evidence, or ledger records.
 - The current type stack uses local operating-system fonts only. It contains no remote `@import`, CDN, font URL, image URL, analytics, or tracking asset.
 
@@ -40,8 +43,9 @@ The Node-path control is derived from the existing typed connection state. It do
 
 On 2026-09-07:
 
-- `npm test`: 45 tests passed.
+- `npm test -- --run`: 63 tests passed.
 - `npm run build`: passed with generated typed contracts and local resource manifest.
+- `npm run check:contracts`: passed.
 - `npm run check:egress`: passed, reporting no network-capable APIs or external resource URLs in frontend source.
 - `npm run check:tauri-config`: passed.
 - `git diff --check`: passed.
