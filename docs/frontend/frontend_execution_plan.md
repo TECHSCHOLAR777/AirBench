@@ -35,7 +35,7 @@ This lane is serialized because it shares the task workspace, safe-preview prese
 
 | Issue | Build now | Blocked contract |
 | --- | --- | --- |
-| #108 FE-REF-04 | Render an accessible, read-only Node question record from the current unresolved-question projection and clearly state which action is unavailable. | A versioned question object with options, authority, deadline, continuation policy, clearance-safe text, expected task sequence, and `task.answer_question`, pause, resume, or revision command availability. |
+| #108 FE-REF-04 | Render an accessible, anchored, read-only Node question card from the current unresolved-question projection. It identifies the preserved Node task state, ledger head, synchronization state, and unavailable action rather than inventing an answer form. | A versioned question object with options, authority, deadline, continuation policy, clearance-safe text, expected task sequence, and `task.answer_question`, pause, resume, or revision command availability. |
 
 The first interactive answer control starts only when the Node exposes its typed and ledgered command. The UI may never turn a free-text response into a task transition by itself.
 

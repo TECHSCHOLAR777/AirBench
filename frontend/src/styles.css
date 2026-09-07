@@ -462,6 +462,22 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .workspace-technical summary { cursor: pointer; color: var(--ink-soft); font-weight: 650; }
 .workspace-technical pre { max-height: 300px; overflow: auto; margin-top: 10px; padding: 12px; color: var(--ink-soft); background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 10px; line-height: 1.55; white-space: pre-wrap; }
 .workspace-command-note { align-self: center; max-width: 420px; color: var(--faint); font-size: 10px; line-height: 1.45; }
+.operator-question-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 13px; padding: 16px; color: var(--ink); background: linear-gradient(135deg, color-mix(in srgb, var(--attention-soft) 78%, var(--surface)), color-mix(in srgb, var(--surface-raised) 90%, transparent)); border: 1px solid color-mix(in srgb, var(--attention) 38%, var(--line)); border-radius: var(--radius-md); box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 10%, transparent), var(--shadow-small); backdrop-filter: blur(18px) saturate(110%); }
+.operator-question-icon { display: grid; place-items: center; width: 32px; height: 32px; color: var(--attention-ink); background: var(--attention-soft); border: 1px solid color-mix(in srgb, var(--attention) 35%, var(--line)); border-radius: 10px; }
+.operator-question-content { min-width: 0; }
+.operator-question-card .eyebrow { margin-bottom: 5px; color: var(--attention-ink); }
+.operator-question-card h2 { margin: 0; color: var(--ink); font-size: 15px; }
+.operator-question-state { margin: 7px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+.operator-question-list { display: grid; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; counter-reset: operator-question; }
+.operator-question-list li { counter-increment: operator-question; display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; align-items: flex-start; padding: 9px 10px; color: var(--ink-soft); background: color-mix(in srgb, var(--surface-subtle) 76%, transparent); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 10px; line-height: 1.5; }
+.operator-question-list li::before { display: grid; place-items: center; width: 18px; height: 18px; color: var(--attention-ink); background: var(--attention-soft); border: 1px solid color-mix(in srgb, var(--attention) 31%, var(--line)); border-radius: 50%; content: counter(operator-question); font-family: var(--font-mono); font-size: 8px; }
+.operator-question-context { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, .55fr); gap: 8px; margin: 11px 0 0; }
+.operator-question-context > div { min-width: 0; padding: 8px 9px; background: color-mix(in srgb, var(--surface-subtle) 68%, transparent); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.operator-question-context dt { color: var(--faint); font-size: 8px; font-weight: 730; letter-spacing: .055em; text-transform: uppercase; }
+.operator-question-context dd { margin: 4px 0 0; color: var(--muted); font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
+.operator-question-context > div:last-child dd { font-family: var(--font-mono); font-size: 8px; }
+.operator-question-action { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px; align-items: flex-start; margin: 11px 0 0; color: var(--faint); font-size: 9px; line-height: 1.5; }
+.operator-question-action svg { color: var(--attention-ink); }
 .workspace-now { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(260px, .85fr); gap: 16px; padding: 18px; background: color-mix(in srgb, var(--info-soft) 36%, var(--surface)); border: 1px solid color-mix(in srgb, var(--info) 28%, var(--line)); border-radius: var(--radius-md); }
 .workspace-now .eyebrow { margin-bottom: 6px; color: var(--info); }
 .workspace-now h2 { margin: 0 0 6px; font-size: 17px; }
@@ -652,6 +668,7 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
   .workspace-sync { grid-template-columns: auto minmax(0, 1fr) auto; }
   .workspace-sync > strong { display: none; }
   .workspace-head, .readiness-card { align-items: flex-start; flex-direction: column; }
+  .operator-question-context { grid-template-columns: 1fr; }
   .workspace-now, .worktrace-detail-grid, .workspace-proof-layout { grid-template-columns: 1fr; }
   .technical-trace-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .technical-event-list dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
