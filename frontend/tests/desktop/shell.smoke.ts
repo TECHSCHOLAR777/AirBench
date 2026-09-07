@@ -2,10 +2,19 @@ import { browser, expect } from "@wdio/globals";
 
 describe("AirBench desktop shell", () => {
   it("renders the private-by-design task surface", async () => {
-    await expect(browser.$("h1")).toHaveText("What should AirBench complete?");
+    await expect(browser.$("h1")).toHaveText("What do you want AirBench to complete?");
     await expect(browser.$('[data-testid="task-composer"]')).toBeDisplayed();
     await expect(browser.$('[data-testid="start-task"]')).toBeDisabled();
     await expect(browser.$('[data-testid="app-version"]')).toHaveText(expect.stringContaining("AirBench 0.1.0"));
+  });
+
+  it("keeps routing policy-controlled when no qualified capability catalog exists", async () => {
+    await browser.$('[aria-controls="launchpad-routing"]').click();
+    await expect(browser.$("#launchpad-routing")).toHaveText(expect.stringContaining("Auto route is always in control"));
+    await expect(browser.$("#launchpad-routing select")).toBeDisabled();
+    await expect(browser.$("#launchpad-routing")).toHaveText(expect.stringContaining("Connect a verified Node first"));
+    await expect(browser.$("#launchpad-routing")).not.toHaveText(expect.stringContaining("http://"));
+    await expect(browser.$("#launchpad-routing")).not.toHaveText(expect.stringContaining("https://"));
   });
 
   it("uses IPC mocking for native file selection", async () => {

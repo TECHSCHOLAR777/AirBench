@@ -112,6 +112,8 @@ Color never carries meaning alone. Status text, an icon, shape, or layout positi
 ### Work
 
 - `TaskComposer`
+- `LaunchpadContextControl`
+- `LaunchpadDisclosurePanel`
 - `IntakeManifest`
 - `PlanGraph`
 - `WorkerRoleCard`
@@ -150,6 +152,17 @@ Color never carries meaning alone. Status text, an icon, shape, or layout positi
 - `ConnectionProfileCard`
 
 Each component must state which data is authoritative, which actions it can issue, and what it renders when the data is unavailable.
+
+### 4.1 Launchpad pattern
+
+The task entry surface is a Launchpad, not a settings form. The outcome prompt remains visually dominant. Sources, deliverable intent, automatic routing, task context, and review are compact controls that reveal one panel at a time.
+
+- `Launch` is the single primary action.
+- `Auto route` is shown as a Node-controlled capability decision, not as a generic model picker.
+- A disabled advanced preference must explain the missing Node-qualified catalog rather than look unfinished.
+- The source panel identifies File Intake and untrusted-data treatment before the operator sends a file.
+- The review panel explains the Node decision boundary without predicting whether approval will be required.
+- The follow-up composer and question cards appear only when the Node has supplied their typed task command contract.
 
 ## 5. Shared status vocabulary
 
@@ -200,7 +213,7 @@ Never create a generic “AI generated” badge in place of provenance.
 
 ## 7. Interaction rules
 
-- Primary buttons use verbs: `Start task`, `Approve`, `Return for changes`, `Reconnect`, `Verify chain`.
+- Primary buttons use verbs: `Launch`, `Approve`, `Return for changes`, `Reconnect`, `Verify chain`.
 - Destructive actions require confirmation that states the impact and task ID.
 - A disabled consequential action explains exactly what is missing.
 - No infinite scroll without a visible loading and end state.
