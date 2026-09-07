@@ -14,10 +14,14 @@ The plan is intentionally honest about two kinds of work:
 The local desktop foundation already covers the initial shell and connection path:
 
 - #73, #74, #75, #76, #77, and #78 provide the Tauri shell, approved Node profile path, typed task create and plan commands, cursor-aware task projection, and a non-optimistic stop request.
-- #106, #107, and #110 provide the Obsidian Signal and Ledger Paper shell, the compact Launchpad, and the audit-safe Live Work Trace.
+- #106, #107, and #110 provide the Obsidian Signal and Ledger Paper shell, compact Launchpad, audit-safe Live Work Trace, local workspace command menu, and truthful empty task workspace state.
 - #64 through #68 have local fixtures or static checks. They remain open until their production evidence gates are met.
 
 The Tauri debug shell may be used for local smoke tests. It is not evidence of a packaged installer, WebDriver flow, or full no-egress proof.
+
+## Local shell-command boundary
+
+The #107 command menu is deliberately constrained to local presentation actions. It can focus a new brief, navigate to an already-projected task, open Node settings, or open Display preferences. It cannot create a task, send a model request, route work, download an artifact, approve or stop work, or alter Node state. Any future consequential command requires a typed Rust-owned Node contract, permission result, idempotency behavior, and ledger evidence before it can appear in this menu.
 
 ## Delivery lanes
 

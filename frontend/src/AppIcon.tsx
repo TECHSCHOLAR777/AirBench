@@ -12,6 +12,7 @@ export type AppIconName =
   | "plus"
   | "review"
   | "route"
+  | "search"
   | "shield"
   | "sliders"
   | "tasks";
@@ -60,6 +61,8 @@ export function AppIcon({ name, size = 18 }: AppIconProps) {
       return <svg aria-hidden="true" {...common}><path d="M5 4.5h14v15H5z" /><path d="m8 12 2.2 2.2L16 8.5" /></svg>;
     case "route":
       return <svg aria-hidden="true" {...common}><path d="M5 6.5h5.5a2.5 2.5 0 0 1 0 5H9a2.5 2.5 0 0 0 0 5h10" /><path d="m16 13.5 3 3-3 3M8 3.5 5 6.5l3 3" /></svg>;
+    case "search":
+      return <svg aria-hidden="true" {...common}><circle cx="10.5" cy="10.5" r="5.8" /><path d="m15 15 4.3 4.3" /></svg>;
     case "shield":
       return <svg aria-hidden="true" {...common}><path d="M12 3.5 19 6v5.5c0 4.2-2.8 7.2-7 9-4.2-1.8-7-4.8-7-9V6z" /><path d="m8.8 12 2.1 2.1 4.3-4.3" /></svg>;
     case "sliders":

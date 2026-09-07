@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { invoke } from "@airbench/tauri-invoke";
 import { AppIcon, type AppIconName } from "./AppIcon";
 import type { AirBenchPresentationState, Screen } from "./contracts";
@@ -15,8 +15,11 @@ import { maySendConsequentialCommand, TaskEventSynchronizer, type EventSyncState
 import { loadPresentationPreferences, savePresentationPreferences, type PresentationPreferences } from "./presentationPreferences";
 import { mayLaunchFromShortcut, sourceStatus, unavailableRoutingPreference } from "./launchpadPolicy";
 import { buildWorkTrace, formatTraceTime, type WorkTraceActivity, type WorkTraceStage } from "./workTrace";
+import { buildShellCommands, shellShortcut, type ShellCommandId } from "./commandPalette";
+import { WorkspaceCommandDialog } from "./WorkspaceCommandDialog";
 import { OperatorQuestionCard } from "./OperatorQuestionCard";
 import { ProofInspectorPanel, type ArtifactPreviewState } from "./ProofInspectorPanel";
+import { TaskEmptyView } from "./TaskEmptyView";
 import { formatProvenanceLocation, type ProofSelection } from "./proofInspector";
 import type { TaskProjection } from "./protocol";
 
@@ -38,6 +41,7 @@ function App() {
   const [state, setState] = useState<AirBenchPresentationState>(initialPresentationState);
   const [presentation, setPresentation] = useState<PresentationPreferences>(() => loadPresentationPreferences());
   const [showAppearanceMenu, setShowAppearanceMenu] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [connection, setConnection] = useState<NodeConnectionView>({
     state: "not_connected", profileId: null, nodeIdentity: null, protocolVersion: null,
     clearanceContext: null, authenticatedSubject: null, domainPackRef: null, sovereignty: "unknown", ledgerEventRef: null, failure: null,
@@ -75,6 +79,9 @@ function App() {
   const [taskArtifactDownloadState, setTaskArtifactDownloadState] = useState<"idle" | "downloading" | "downloaded" | "failed">("idle");
   const [taskArtifactDownloadReceipt, setTaskArtifactDownloadReceipt] = useState<DownloadReceipt | null>(null);
   const synchronizerRef = useRef<TaskEventSynchronizer | null>(null);
+  const outcomeInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const commandMenuReturnFocusRef = useRef<HTMLElement | null>(null);
+  const commandMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [creatingTask, setCreatingTask] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const controller = useMemo(() => new NodeConnectionController(), []);
@@ -86,9 +93,53 @@ function App() {
 
   const selectScreen = (screen: Screen) => setState((current) => ({ ...current, screen }));
 
+  const focusOutcomeInput = useCallback(() => window.requestAnimationFrame(() => outcomeInputRef.current?.focus()), []);
+
+  const openNewTask = useCallback(() => {
+    setShowCommandPalette(false);
+    setShowAppearanceMenu(false);
+    setState((current) => ({ ...current, screen: "home" }));
+    focusOutcomeInput();
+  }, [focusOutcomeInput]);
+
+  const openCommandPalette = useCallback((returnFocus: EventTarget | null) => {
+    commandMenuReturnFocusRef.current = returnFocus instanceof HTMLElement ? returnFocus : commandMenuTriggerRef.current;
+    setShowAppearanceMenu(false);
+    setShowCommandPalette(true);
+  }, []);
+
+  const closeCommandPalette = useCallback(() => {
+    setShowCommandPalette(false);
+    window.requestAnimationFrame(() => commandMenuReturnFocusRef.current?.focus());
+  }, []);
+
   useEffect(() => {
     savePresentationPreferences(presentation);
   }, [presentation]);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const shortcut = shellShortcut(event);
+      if (shortcut === "open_command_palette") {
+        event.preventDefault();
+        if (showCommandPalette) closeCommandPalette();
+        else openCommandPalette(event.target);
+        return;
+      }
+      if (shortcut === "new_task") {
+        event.preventDefault();
+        openNewTask();
+        return;
+      }
+      if (event.key === "Escape" && showAppearanceMenu) {
+        event.preventDefault();
+        setShowAppearanceMenu(false);
+      }
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [closeCommandPalette, openCommandPalette, openNewTask, showAppearanceMenu, showCommandPalette]);
 
   useEffect(() => {
     if (state.screen !== "node" || profilesState !== "idle") return;
@@ -381,12 +432,30 @@ function App() {
   const nodeLabel = nodeConnected ? (profiles.find((profile) => profile.profileId === connection.profileId)?.displayName ?? "Node connected") : connection.state === "connecting" ? "Connecting to Node" : "Node not connected";
   const nodeDetail = nodeConnected ? "Verified and ready" : connection.state === "failed" ? "Connection blocked" : "Choose an approved Node";
   const sovereigntyLabel = nodeConnected && connection.sovereignty === "verified" ? "Verified internal path" : "No verified Node path";
+  const shellCommands = useMemo(() => buildShellCommands(taskProjection !== null), [taskProjection]);
+
+  const runShellCommand = (commandId: ShellCommandId) => {
+    setShowCommandPalette(false);
+    if (commandId === "new_task") {
+      openNewTask();
+      return;
+    }
+    if (commandId === "current_task") {
+      if (taskProjection) selectScreen("tasks");
+      return;
+    }
+    if (commandId === "node_settings") {
+      selectScreen("node");
+      return;
+    }
+    setShowAppearanceMenu(true);
+  };
 
   return (
     <div className="app-shell" data-theme={presentation.theme} data-density={presentation.density} data-contrast={presentation.highContrast ? "high" : "standard"}>
       <aside className="sidebar" aria-label="AirBench navigation">
         <div className="brand-lockup"><div className="brand-mark"><AppIcon name="airbench" size={19} /></div><div><div className="brand-name">AirBench</div><div className="brand-subtitle">Sovereign task command</div></div></div>
-        <button className="new-task-button" onClick={() => selectScreen("home")}><AppIcon name="plus" size={17} /><span>New task</span><kbd>Ctrl N</kbd></button>
+        <button className="new-task-button" onClick={openNewTask}><AppIcon name="plus" size={17} /><span>New task</span><kbd>Ctrl N</kbd></button>
         <nav className="nav-groups"><NavGroup title="Work" items={primaryNav} active={state.screen} onSelect={selectScreen} /><NavGroup title="Records" items={recordNav} active={state.screen} onSelect={selectScreen} /></nav>
         <div className="sidebar-spacer" />
         <button className="node-chip" data-testid="node-chip" onClick={() => selectScreen("node")} aria-label="Open Node and settings"><span className={`status-dot ${nodeConnected ? "status-dot-connected" : ""}`} aria-hidden="true" /><span className="node-chip-copy"><strong>{nodeLabel}</strong><small>{nodeDetail}</small></span><AppIcon name="chevron-down" size={15} /></button>
@@ -395,15 +464,16 @@ function App() {
       </aside>
 
       <main className="main-area">
-        <header className="topbar"><div className="breadcrumb"><span>AirBench</span><span className="breadcrumb-slash">/</span><strong>{screenTitle}</strong></div><div className="topbar-actions"><button className={`sovereignty-status ${nodeConnected ? "is-verified" : ""}`} onClick={() => selectScreen("node")} aria-label="Open Node and settings"><AppIcon name={nodeConnected ? "shield" : "node"} size={16} /><span><small>Node path</small><strong>{sovereigntyLabel}</strong></span></button><div className="appearance-control"><button className="appearance-button" type="button" onClick={() => setShowAppearanceMenu((open) => !open)} aria-expanded={showAppearanceMenu} aria-controls="appearance-preferences"><AppIcon name="display" size={16} /><span>Display</span><AppIcon name="chevron-down" size={14} /></button>{showAppearanceMenu && <AppearanceMenu preferences={presentation} onChange={setPresentation} onClose={() => setShowAppearanceMenu(false)} />}</div></div></header>
+        <header className="topbar"><div className="breadcrumb"><span>AirBench</span><span className="breadcrumb-slash">/</span><strong>{screenTitle}</strong></div><div className="topbar-actions"><button ref={commandMenuTriggerRef} className="command-menu-button" type="button" onClick={(event) => openCommandPalette(event.currentTarget)} aria-haspopup="dialog" aria-expanded={showCommandPalette} aria-controls="workspace-command-palette"><AppIcon name="search" size={16} /><span>Command</span><kbd>Ctrl K</kbd></button><button className={`sovereignty-status ${nodeConnected ? "is-verified" : ""}`} onClick={() => selectScreen("node")} aria-label="Open Node and settings"><AppIcon name={nodeConnected ? "shield" : "node"} size={16} /><span><small>Node path</small><strong>{sovereigntyLabel}</strong></span></button><div className="appearance-control"><button className="appearance-button" type="button" onClick={() => setShowAppearanceMenu((open) => !open)} aria-expanded={showAppearanceMenu} aria-controls="appearance-preferences"><AppIcon name="display" size={16} /><span>Display</span><AppIcon name="chevron-down" size={14} /></button>{showAppearanceMenu && <AppearanceMenu preferences={presentation} onChange={setPresentation} onClose={() => setShowAppearanceMenu(false)} />}</div></div></header>
         <div className="content-wrap">
-          {state.screen === "home" && <HomeView taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} notice={notice} canStart={canStart} creatingTask={creatingTask} nodeConnected={nodeConnected} nodeLabel={nodeLabel} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={() => setShowConnectionHelp(true)} onOpenNode={() => selectScreen("node")} />}
+          {state.screen === "home" && <HomeView outcomeInputRef={outcomeInputRef} taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} notice={notice} canStart={canStart} creatingTask={creatingTask} nodeConnected={nodeConnected} nodeLabel={nodeLabel} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={() => setShowConnectionHelp(true)} onOpenNode={() => selectScreen("node")} />}
           {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesState("idle"); }} onHome={() => selectScreen("home")} />}
-          {state.screen === "tasks" && taskProjection && <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={() => selectScreen("home")} />}
+          {state.screen === "tasks" && (taskProjection ? <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={openNewTask} /> : <TaskEmptyView nodeConnected={nodeConnected} onNewTask={openNewTask} onOpenNode={() => selectScreen("node")} />)}
           {state.screen !== "home" && state.screen !== "node" && state.screen !== "tasks" && <RecordView screen={screenTitle} onHome={() => selectScreen("home")} />}
         </div>
       </main>
       {showConnectionHelp && <ConnectionHelp onClose={() => setShowConnectionHelp(false)} onOpenNode={() => { setShowConnectionHelp(false); selectScreen("node"); }} />}
+      {showCommandPalette && <WorkspaceCommandDialog commands={shellCommands} onClose={closeCommandPalette} onSelect={runShellCommand} />}
     </div>
   );
 }
@@ -414,7 +484,6 @@ function NavGroup({ title, items, active, onSelect }: { title: string; items: Ar
     {items.map((item) => <button key={item.id} className={`nav-item ${active === item.id ? "active" : ""}`} onClick={() => onSelect(item.id)}>
       <span className="nav-icon"><AppIcon name={item.icon} size={16} /></span>
       <span>{item.label}</span>
-      {item.id === "review" && <span className="nav-count">0</span>}
     </button>)}
   </div>;
 }
@@ -462,7 +531,7 @@ const outputContractOptions = [
   { value: "code", label: "Code", detail: "A working, verifiable code artifact" },
 ] as const;
 
-function HomeView({ taskText, setTaskText, taskTitle, setTaskTitle, projectRef, setProjectRef, outputContract, setOutputContract, priority, setPriority, deadline, setDeadline, selectedFile, intakeState, intakeManifest, safePreview, artifactPreview, downloadState, downloadReceipt, taskResult, planReview, planLoading, planApprovalResult, approvingPlan, notice, canStart, creatingTask, nodeConnected, nodeLabel, onAttach, onUpload, onDownload, onStart, onApprovePlan, onRemoveFile, onHelp, onOpenNode }: { taskText: string; setTaskText: (value: string) => void; taskTitle: string; setTaskTitle: (value: string) => void; projectRef: string; setProjectRef: (value: string) => void; outputContract: string; setOutputContract: (value: string) => void; priority: string; setPriority: (value: string) => void; deadline: string; setDeadline: (value: string) => void; selectedFile: SelectedFile | null; intakeState: "idle" | "uploading" | "ready" | "failed"; intakeManifest: IntakeManifest | null; safePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; downloadState: "idle" | "downloading" | "downloaded" | "failed"; downloadReceipt: DownloadReceipt | null; taskResult: CreateTaskResponse | null; planReview: TaskPlanReview | null; planLoading: boolean; planApprovalResult: NodeCommandResult | null; approvingPlan: boolean; notice: string | null; canStart: boolean; creatingTask: boolean; nodeConnected: boolean; nodeLabel: string; onAttach: () => void; onUpload: () => void; onDownload: () => void; onStart: () => void; onApprovePlan: () => void; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void }) {
+function HomeView({ outcomeInputRef, taskText, setTaskText, taskTitle, setTaskTitle, projectRef, setProjectRef, outputContract, setOutputContract, priority, setPriority, deadline, setDeadline, selectedFile, intakeState, intakeManifest, safePreview, artifactPreview, downloadState, downloadReceipt, taskResult, planReview, planLoading, planApprovalResult, approvingPlan, notice, canStart, creatingTask, nodeConnected, nodeLabel, onAttach, onUpload, onDownload, onStart, onApprovePlan, onRemoveFile, onHelp, onOpenNode }: { outcomeInputRef: RefObject<HTMLTextAreaElement | null>; taskText: string; setTaskText: (value: string) => void; taskTitle: string; setTaskTitle: (value: string) => void; projectRef: string; setProjectRef: (value: string) => void; outputContract: string; setOutputContract: (value: string) => void; priority: string; setPriority: (value: string) => void; deadline: string; setDeadline: (value: string) => void; selectedFile: SelectedFile | null; intakeState: "idle" | "uploading" | "ready" | "failed"; intakeManifest: IntakeManifest | null; safePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; downloadState: "idle" | "downloading" | "downloaded" | "failed"; downloadReceipt: DownloadReceipt | null; taskResult: CreateTaskResponse | null; planReview: TaskPlanReview | null; planLoading: boolean; planApprovalResult: NodeCommandResult | null; approvingPlan: boolean; notice: string | null; canStart: boolean; creatingTask: boolean; nodeConnected: boolean; nodeLabel: string; onAttach: () => void; onUpload: () => void; onDownload: () => void; onStart: () => void; onApprovePlan: () => void; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void }) {
   const [openPanel, setOpenPanel] = useState<LaunchpadPanel | null>(null);
   const outputLabel = outputContractOptions.find((option) => option.value === outputContract)?.label ?? "Deliverable";
   const selectedSourceStatus = sourceStatus(Boolean(selectedFile), intakeState);
@@ -475,7 +544,7 @@ function HomeView({ taskText, setTaskText, taskTitle, setTaskTitle, projectRef, 
     <section className="welcome-block launchpad-intro"><p className="eyebrow">NEW TASK</p><h1>What do you want AirBench to complete?</h1><p className="lead">Describe the finished result. Add sources and only the context that matters.</p></section>
     <section className="composer-card launchpad-card" data-testid="task-composer" aria-label="Task launchpad">
       <div className="launchpad-prompt">
-        <textarea value={taskText} onChange={(event) => setTaskText(event.target.value)} onKeyDown={(event) => { if (mayLaunchFromShortcut(event, canStart)) { event.preventDefault(); onStart(); } }} placeholder="For example: Review the scanned inspection report and draft an approval note with the key findings and required actions." rows={3} aria-label="Task outcome" aria-describedby="launchpad-prompt-hint" />
+        <textarea ref={outcomeInputRef} value={taskText} onChange={(event) => setTaskText(event.target.value)} onKeyDown={(event) => { if (mayLaunchFromShortcut(event, canStart)) { event.preventDefault(); onStart(); } }} placeholder="For example: Review the scanned inspection report and draft an approval note with the key findings and required actions." rows={3} aria-label="Task outcome" aria-describedby="launchpad-prompt-hint" />
         <p id="launchpad-prompt-hint">Describe the outcome, relevant constraints, and what a complete result should contain. Longer briefs scroll inside this field.</p>
       </div>
       <div className="launchpad-context-bar" aria-label="Task context">
