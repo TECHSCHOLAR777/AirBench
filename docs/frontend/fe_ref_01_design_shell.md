@@ -12,6 +12,8 @@ Establish a professional, offline-safe desktop shell before rebuilding task-spec
 - `Obsidian Signal` is the default dark theme.
 - `Ledger Paper` is the warm beige and orange alternative.
 - Both themes use the same semantic colors for verified, active, attention, failed, and stopped state.
+- The desktop shell uses restrained translucent navigation, top-bar, and elevated task surfaces over a local ambient background. The visual treatment is hierarchy only and does not claim that a task is active, verified, or sovereign.
+- The Launchpad outcome field rests at three lines. Longer requests scroll inside the native textarea instead of stretching the task canvas. Its focused border and glow are presentation-only focus feedback.
 - The left rail, Node status, sovereignty control, display control, task canvas, previews, plan review, task workspace, and Node settings use one token foundation.
 - Static local SVG icons replace letter placeholders in the navigation and shell.
 - A local Display menu offers theme, comfortable or compact density, and high contrast.
@@ -48,4 +50,4 @@ On 2026-09-07:
 
 ## Remaining gate
 
-This is a source and local-build implementation slice. Full visual baselines for both themes, a desktop accessibility run, and packaged Tauri WebDriver evidence remain in [#111](https://github.com/TECHSCHOLAR777/AirBench/issues/111). A browser surface was not available in this agent session, so no screenshot result is claimed.
+This is a source and local-build implementation slice. `npm run tauri:dev` has compiled and launched the local `target/debug/airbench-desktop.exe` shell against the current bundle. Full visual baselines for both themes, a desktop accessibility run, and packaged Tauri WebDriver evidence remain in [#111](https://github.com/TECHSCHOLAR777/AirBench/issues/111). A local browser render can inspect presentation but is not packaged desktop evidence.

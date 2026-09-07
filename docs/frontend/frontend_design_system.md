@@ -95,6 +95,8 @@ Color never carries meaning alone. Status text, an icon, shape, or layout positi
 - No excessive pills. Use pills only for compact status or capability labels.
 - Use a low-opacity shadow for elevated drawers and document pages, not for every card.
 - Borders should carry hierarchy; shadows should not become the hierarchy.
+- Glass is a depth cue, not decoration: use translucent, blurred layers for the navigation shell, top bar, Launchpad, menus, drawers, and other elevated task surfaces. Keep ordinary content calm and readable.
+- Ambient blue or warm highlights may establish hierarchy, but they must not imply task activity, network status, verification, or security proof.
 
 ## 4. Component vocabulary
 
@@ -167,6 +169,7 @@ The task entry surface is a Launchpad, not a settings form. The outcome prompt r
 - The source panel identifies File Intake and untrusted-data treatment before the operator sends a file.
 - The review panel explains the Node decision boundary without predicting whether approval will be required.
 - The follow-up composer and question cards appear only when the Node has supplied their typed task command contract.
+- The resting outcome field is a compact three-line surface. A longer brief scrolls inside the native textarea; it does not expand the task canvas, change task state, or imply that the Node has accepted the request.
 
 ### 4.2 Live Work Trace pattern
 

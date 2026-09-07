@@ -98,7 +98,7 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **User outcome**: submit a bounded outcome and a complete input manifest.
 
-**Launchpad core**: one outcome prompt with a concise row of progressive controls for Sources, Deliverable, Auto route, Task details, and Review. The operator should not have to configure implementation details to begin useful work.
+**Launchpad core**: one compact, scrollable outcome prompt with a concise row of progressive controls for Sources, Deliverable, Auto route, Task details, and Review. The operator should not have to configure implementation details to begin useful work. A long brief scrolls inside the prompt field rather than expanding the task canvas.
 
 **Outcome**: a bounded result request, plus optional project, title, priority, and deadline fields that already exist in the typed task-create envelope.
 

@@ -423,8 +423,8 @@ function HomeView({ taskText, setTaskText, taskTitle, setTaskTitle, projectRef, 
     <section className="welcome-block launchpad-intro"><p className="eyebrow">NEW TASK</p><h1>What do you want AirBench to complete?</h1><p className="lead">Describe the finished result. Add sources and only the context that matters.</p></section>
     <section className="composer-card launchpad-card" data-testid="task-composer" aria-label="Task launchpad">
       <div className="launchpad-prompt">
-        <textarea value={taskText} onChange={(event) => setTaskText(event.target.value)} onKeyDown={(event) => { if (mayLaunchFromShortcut(event, canStart)) { event.preventDefault(); onStart(); } }} placeholder="For example: Review the scanned inspection report and draft an approval note with the key findings and required actions." rows={5} aria-label="Task outcome" />
-        <p>Describe the outcome, relevant constraints, and what a complete result should contain.</p>
+        <textarea value={taskText} onChange={(event) => setTaskText(event.target.value)} onKeyDown={(event) => { if (mayLaunchFromShortcut(event, canStart)) { event.preventDefault(); onStart(); } }} placeholder="For example: Review the scanned inspection report and draft an approval note with the key findings and required actions." rows={3} aria-label="Task outcome" aria-describedby="launchpad-prompt-hint" />
+        <p id="launchpad-prompt-hint">Describe the outcome, relevant constraints, and what a complete result should contain. Longer briefs scroll inside this field.</p>
       </div>
       <div className="launchpad-context-bar" aria-label="Task context">
         <button type="button" className={`launchpad-context-trigger ${openPanel === "sources" ? "is-open" : ""}`} aria-expanded={openPanel === "sources"} aria-controls="launchpad-sources" onClick={() => togglePanel("sources")}><AppIcon name="attachment" size={16} /><span><strong>Sources</strong><small>{selectedSourceStatus}</small></span></button>
