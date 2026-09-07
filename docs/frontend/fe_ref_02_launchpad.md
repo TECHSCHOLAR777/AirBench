@@ -16,6 +16,8 @@ The Launchpad does not act as a second orchestrator, model router, policy editor
 
 The default view has one primary prompt, `What do you want AirBench to complete?`, followed by five compact context controls:
 
+The prompt rests at three visible lines and uses the native textarea scrollbar for longer work briefs. It does not auto-grow the Launchpad or turn prompt length into a status signal. The translucent Launchpad and its focused border are presentation-only hierarchy; they neither claim task acceptance nor change the typed request envelope.
+
 | Control | What it lets the user do now | What remains Node-authoritative |
 | --- | --- | --- |
 | Sources | Choose a local file, remove it before submission, and send its native selection token to File Intake | Parsing, OCR, image understanding, manifest creation, clearance, taint, safe preview, and source acceptance |
