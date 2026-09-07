@@ -1,16 +1,20 @@
 import { AppIcon } from "./AppIcon";
 import type { ArtifactPreview, DownloadReceipt } from "./intakeBridge";
 import {
+  artifactDownloadBoundaryState,
+  artifactPreviewBoundaryState,
   artifactPreviewDetails,
   proofDetails,
   proofSelectionDescription,
   proofSelectionTitle,
   sourcePreviewAvailability,
+  type ArtifactPreviewRequestState,
+  type BoundaryState,
   type ProofDetail,
   type ProofSelection,
 } from "./proofInspector";
 
-export type ArtifactPreviewState = "idle" | "loading" | "ready" | "failed";
+export type ArtifactPreviewState = ArtifactPreviewRequestState;
 
 interface ProofInspectorPanelProps {
   selection: ProofSelection | null;
@@ -84,7 +88,7 @@ function InspectorSelection({
     </div>
 
     {selection.kind === "source_preview" && <section className="proof-preview-safe" aria-label="Node-generated safe source preview">
-      <span>Node-generated safe preview</span>
+      <PreviewBoundary tone="active" label="Read-only Node preview" detail="This is Node-returned data from a query upload. It remains untrusted data and is not an instruction." />
       <pre>{selection.preview.text}</pre>
       <small>Preview content remains data and is not executed by the desktop app.</small>
     </section>}
@@ -114,19 +118,37 @@ function ArtifactPreviewPanel({ preview, state, error, downloadState, downloadRe
   downloadReceipt: DownloadReceipt | null;
   onDownload: () => void;
 }) {
-  if (state === "loading") return <div className="proof-preview-loading" role="status"><span className="status-dot" aria-hidden="true" /> Requesting the typed preview from the approved Node.</div>;
-  if (state === "failed") return <div className="proof-preview-failed" role="alert"><strong>Preview unavailable</strong><p>{error ?? "The approved Node did not return a safe artifact preview."}</p><small>No original document content was opened in the desktop app.</small></div>;
-  if (!preview) return <div className="proof-preview-empty">The selected artifact has no safe preview in this local projection yet.</div>;
+  const previewBoundary = artifactPreviewBoundaryState(state, Boolean(preview));
+  if (state !== "ready" || !preview) return <div className={`proof-preview-state proof-preview-state-${previewBoundary.tone}`} role={state === "loading" ? "status" : state === "failed" ? "alert" : undefined}>
+    <PreviewBoundary {...previewBoundary} />
+    {state === "failed" && <>
+      <p>{error ?? previewBoundary.detail}</p>
+      <small>No original document content was opened in the desktop app.</small>
+    </>}
+  </div>;
+
+  const downloadBoundary = artifactDownloadBoundaryState(downloadState);
 
   return <section className="proof-artifact-preview" aria-label="Node-generated artifact preview">
-    <div className="proof-artifact-preview-head"><span>Node-generated artifact preview</span><strong>{preview.title}</strong></div>
+    <PreviewBoundary {...previewBoundary} />
+    <div className="proof-artifact-preview-head"><span>Preview content</span><strong>{preview.title}</strong></div>
     <div className="proof-artifact-blocks">{preview.blocks.map((block, index) => <div key={`${block.kind}-${index}`}><span>{block.kind}</span><p>{block.text}</p></div>)}</div>
     <div className="proof-artifact-actions">
-      <button className="secondary-button compact-button" type="button" onClick={onDownload} disabled={downloadState === "downloading"}>{downloadState === "downloading" ? "Verifying download..." : downloadState === "downloaded" ? "Download again" : "Download if permitted"}</button>
-      {downloadReceipt && <small>Saved {downloadReceipt.byte_size} bytes. Ledger {downloadReceipt.ledger_event_ref}.</small>}
-      {downloadState === "failed" && <small className="proof-download-failed">The Node did not authorize or complete the download.</small>}
+      <div className={`proof-download-state proof-download-state-${downloadBoundary.tone}`} role={downloadState === "failed" ? "alert" : downloadState === "downloading" ? "status" : undefined}>
+        <AppIcon name={downloadState === "failed" ? "shield" : "document"} size={14} />
+        <div><strong>{downloadBoundary.label}</strong><span>{downloadBoundary.detail}</span></div>
+      </div>
+      <button className="secondary-button compact-button" type="button" onClick={onDownload} disabled={downloadState === "downloading"}>{downloadState === "downloading" ? "Checking permission..." : downloadState === "downloaded" ? "Request again" : "Request permitted download"}</button>
+      {downloadReceipt && <small>Local save: {downloadReceipt.byte_size} bytes. Ledger {downloadReceipt.ledger_event_ref}.</small>}
     </div>
   </section>;
+}
+
+function PreviewBoundary({ tone, label, detail }: BoundaryState) {
+  return <div className={`proof-preview-boundary proof-preview-boundary-${tone}`}>
+    <AppIcon name={tone === "blocked" ? "shield" : "document"} size={14} />
+    <div><strong>{label}</strong><p>{detail}</p></div>
+  </div>;
 }
 
 function ProofDetails({ details }: { details: ProofDetail[] }) {
