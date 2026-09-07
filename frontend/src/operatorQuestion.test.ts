@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { operatorQuestionPresentation } from "./operatorQuestion";
+import { operatorQuestionAnnouncement, operatorQuestionPresentation } from "./operatorQuestion";
 
 describe("operator question presentation", () => {
   it("shows a waiting state without inventing a response action", () => {
@@ -23,5 +23,12 @@ describe("operator question presentation", () => {
 
     expect(presentation.state).toContain("not current");
     expect(presentation.action).toContain("No response control");
+  });
+
+  it("keeps the live announcement bounded to the decision state", () => {
+    const presentation = operatorQuestionPresentation("needs_review", "approval", true);
+
+    expect(operatorQuestionAnnouncement(presentation)).toBe("The Node is waiting for an authorized response");
+    expect(operatorQuestionAnnouncement(presentation)).not.toContain("typed, sequence-aware command");
   });
 });

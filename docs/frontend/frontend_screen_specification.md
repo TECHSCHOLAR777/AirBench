@@ -153,6 +153,8 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **Rules**: no guessed completion, timer, typing indicator, raw model reasoning, raw event payload, or optimistic stop or approval. Reconnect by cursor replay or snapshot. The desktop shows an unavailable routing target or fallback as not supplied, never as a local estimate.
 
+**Current question state**: a Node-reported question is a labeled, read-only region. Its decision-state title is announced politely and separately from the question content. Options, free-text answers, pause, resume, stop, and revision controls remain absent until the Node provides bounded, sequence-aware commands.
+
 ### S05 Evidence and Sources
 
 **User outcome**: trace a finding to its source and understand its reliability.

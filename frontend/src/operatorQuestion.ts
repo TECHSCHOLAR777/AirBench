@@ -8,6 +8,10 @@ export interface OperatorQuestionPresentation {
   action: string;
 }
 
+export function operatorQuestionAnnouncement(presentation: OperatorQuestionPresentation): string {
+  return presentation.title;
+}
+
 export function operatorQuestionPresentation(
   taskStatus: TaskStatus,
   phase: string,
