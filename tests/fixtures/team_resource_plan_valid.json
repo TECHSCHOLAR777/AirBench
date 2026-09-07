@@ -11,5 +11,37 @@
   "verifier_capacity": 1,
   "admission": "admitted",
   "reason": "all reservations fit measured profile",
-  "task_id": "task.inspection-001"
+  "task_id": "task.inspection-001",
+  "plan_id": "plan.inspection-001",
+  "hardware_profile_id": "hardware.96gb-vram-001",
+  "plan_version": "1",
+  "created_at": "2026-01-01T00:00:00Z",
+  "requested_mode": "auto",
+  "admitted_mode": "parallel",
+  "admission_reason": "all reservations fit measured profile",
+  "dependency_graph": {
+    "worker.vision-001": [],
+    "worker.verify-001": ["worker.vision-001"]
+  },
+  "scheduling": {
+    "queue_class": "interactive_high_consequence",
+    "preemption_policy": "cooperative",
+    "cancellation_policy": "release worker leases",
+    "retry_policy": "bounded",
+    "unload_policy": "load_on_demand",
+    "barrier_policy": "join_all"
+  },
+  "safety_invariants": {
+    "verifier_required": true,
+    "review_required": true,
+    "qualified_targets_only": true,
+    "provenance_required": true
+  },
+  "provenance": {
+    "hardware_profile_hash": "a"
+  },
+  "residency_requests": {
+    "worker.vision-001": "load_on_demand",
+    "worker.verify-001": "evictable"
+  }
 }

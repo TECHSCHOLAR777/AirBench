@@ -7,10 +7,14 @@ contracts:
   - WorkerAssignment
   - WorkPacket
   - WorkerResult
+  - HandoffSubmission
+  - JoinBarrier
   - CompletionRecord
   - ModelCallRequest
   - RoutingDecision
   - TeamResourcePlan
+  - ResourceReservation
+  - ResourceLease
   - HardwareProfile
   - ToolAction
   - FactEnvelope

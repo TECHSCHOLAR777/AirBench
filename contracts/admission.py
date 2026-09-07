@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .ids import idempotency_key, stable_id
-from .models import PRIORITY_CLASSES, HardwareProfile, TeamResourcePlan
+from .models import Clearance, PRIORITY_CLASSES, Taint, HardwareProfile, TeamResourcePlan
 
 # ── Priority ordering (lower number = higher priority) ────────────────────────
 _PRIORITY_ORDER: dict[str, int] = {
@@ -75,17 +75,42 @@ class HardwareMeasurement:
     latency_ms: tuple[tuple[str, float], ...]
     # Per-target measured throughput: (target_id, tokens_per_second)
     throughput_tokens_per_second: tuple[tuple[str, float], ...]
+    # Optional per-device VRAM headroom.  When omitted, a single-GPU profile
+    # may use available_vram_bytes; multi-GPU admission must have this map.
     # Per-sandbox limit: (limit_name, value)
     sandbox_limits: tuple[tuple[str, int], ...]
     max_concurrency: int
     egress_verified: bool
+    available_vram_by_gpu: tuple[tuple[int, int], ...] = ()
+    # M4.2 may consume richer live measurements when available.  ``None``
+    # means that the profile capacity is the only trusted upper bound.  This
+    # keeps existing M5.2 fixtures valid without treating zero as "unknown".
+    available_cpu_millicores: int | None = None
+    available_context_tokens: int | None = None
+    available_scratch_bytes: int | None = None
+    available_slots: int | None = None
 
     def __post_init__(self) -> None:
         for name in ("available_vram_bytes", "available_ram_bytes", "kv_cache_bytes", "max_concurrency"):
             if type(getattr(self, name)) is not int or getattr(self, name) < 0:
                 raise AdmissionError(f"{name} must be a non-negative integer")
+        for name in ("available_cpu_millicores", "available_context_tokens", "available_scratch_bytes", "available_slots"):
+            value = getattr(self, name)
+            if value is not None and (type(value) is not int or value < 0):
+                raise AdmissionError(f"{name} must be a non-negative integer or None")
+        if self.available_slots is not None and self.available_slots < 1:
+            raise AdmissionError("hardware must have at least one available slot")
         if self.max_concurrency < 1:
             raise AdmissionError("hardware must have at least one concurrency slot")
+        seen_gpu_indices: set[int] = set()
+        for gpu_index, available in self.available_vram_by_gpu:
+            if type(gpu_index) is not int or gpu_index < 0:
+                raise AdmissionError("available_vram_by_gpu indices must be non-negative integers")
+            if gpu_index in seen_gpu_indices:
+                raise AdmissionError("available_vram_by_gpu cannot contain duplicate GPU indices")
+            if type(available) is not int or available < 0:
+                raise AdmissionError("available_vram_by_gpu values must be non-negative integers")
+            seen_gpu_indices.add(gpu_index)
         if not self.egress_verified:
             raise AdmissionError(
                 "hardware must have a verified no-egress status before consequential admission"
@@ -114,6 +139,22 @@ class AdmissionRequest:
     priority: str = "interactive_normal"
     background: bool = False           # True ↔ task is a background ingestion job
     degraded_allowed: bool = False     # True ↔ caller has a qualified lower-VRAM fallback
+    worker_roles: tuple[tuple[str, str], ...] = ()
+    gpu_indices: tuple[tuple[str, tuple[int, ...]], ...] = ()
+    requested_mode: str = "auto"
+    dependency_graph: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    worker_stages: tuple[tuple[str, str], ...] = ()
+    pipeline_stages: tuple[str, ...] = ()
+    residency_requests: tuple[tuple[str, str], ...] = ()
+    model_targets: tuple[tuple[str, str], ...] = ()
+    qualification_refs: tuple[tuple[str, str], ...] = ()
+    clearance: Clearance = Clearance.internal
+    taint: Taint = Taint.clean
+    policy_version_hash: str = "policy.m4.2"
+    plan_version: str = "1"
+    concurrency_ceiling: int | None = None
+    start_deadline: str | None = None
+    execution_deadline: str | None = None
 
     def __post_init__(self) -> None:
         normalized = _normalize_priority(self.priority)
@@ -128,10 +169,71 @@ class AdmissionRequest:
             raise AdmissionError("verifier_worker_id is required")
         if not self.reservations:
             raise AdmissionError("reservations cannot be empty")
+        if self.requested_mode not in {"auto", "parallel", "pipelined", "serial_virtual_team"}:
+            raise AdmissionError(f"unsupported requested execution mode: {self.requested_mode!r}")
+        if not isinstance(self.clearance, Clearance):
+            try:
+                object.__setattr__(self, "clearance", Clearance(self.clearance))
+            except ValueError as exc:
+                raise AdmissionError("clearance must be a valid Clearance") from exc
+        if not isinstance(self.taint, Taint):
+            try:
+                object.__setattr__(self, "taint", Taint(self.taint))
+            except ValueError as exc:
+                raise AdmissionError("taint must be a valid Taint") from exc
+        if self.taint != Taint.clean:
+            raise AdmissionError("resource admission requires clean, policy-cleared task input")
+        if not self.policy_version_hash.strip() or not self.plan_version.strip():
+            raise AdmissionError("policy_version_hash and plan_version are required")
+        if self.concurrency_ceiling is not None and (type(self.concurrency_ceiling) is not int or self.concurrency_ceiling < 1):
+            raise AdmissionError("concurrency_ceiling must be a positive integer or None")
+
+        # Accept mappings at the Python boundary while storing deterministic
+        # immutable tuples for replay and hashing.
+        reservations = self.reservations
+        if isinstance(reservations, dict):
+            reservations = tuple((worker, tuple(values.items())) for worker, values in sorted(reservations.items()))
+            object.__setattr__(self, "reservations", reservations)
+        capabilities = self.worker_capabilities
+        if isinstance(capabilities, dict):
+            object.__setattr__(self, "worker_capabilities", tuple(sorted(capabilities.items())))
+        roles = self.worker_roles
+        if isinstance(roles, dict):
+            object.__setattr__(self, "worker_roles", tuple(sorted(roles.items())))
+        else:
+            object.__setattr__(self, "worker_roles", tuple(roles))
+        graph = self.dependency_graph
+        if isinstance(graph, dict):
+            object.__setattr__(self, "dependency_graph", tuple(
+                (worker, tuple(dependencies)) for worker, dependencies in sorted(graph.items())
+            ))
+        for field_name in ("worker_stages", "residency_requests", "model_targets", "qualification_refs"):
+            pairs = getattr(self, field_name)
+            if isinstance(pairs, dict):
+                object.__setattr__(self, field_name, tuple(sorted(pairs.items())))
+            else:
+                object.__setattr__(self, field_name, tuple(pairs))
+        gpu_indices = self.gpu_indices
+        if isinstance(gpu_indices, dict):
+            gpu_indices = tuple((worker, tuple(indices)) for worker, indices in sorted(gpu_indices.items()))
+        else:
+            gpu_indices = tuple((worker, tuple(indices)) for worker, indices in gpu_indices)
+        object.__setattr__(self, "gpu_indices", gpu_indices)
+        if isinstance(self.pipeline_stages, list):
+            object.__setattr__(self, "pipeline_stages", tuple(self.pipeline_stages))
 
     def reservation_map(self) -> dict[str, dict[str, int]]:
         """Return reservations as a plain mutable dict for arithmetic."""
         return {worker: dict(values) for worker, values in self.reservations}
+
+    def worker_capability_map(self) -> dict[str, str]:
+        return dict(self.worker_capabilities)
+
+    def dependency_map(self) -> dict[str, tuple[str, ...]]:
+        return {worker: tuple(dependencies) for worker, dependencies in self.dependency_graph}
+
+    def pair_map(self, name: str) -> dict[str, str]:
+        return dict(getattr(self, name))
 
     @property
     def priority_rank(self) -> int:
