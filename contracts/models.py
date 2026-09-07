@@ -17,7 +17,7 @@ _ID = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 LEDGER_EVENT_TYPES = {
     # ── Core task lifecycle ────────────────────────────────────────────────────
     "task.created", "task.authorized", "task.plan.committed", "task.plan.approved", "task.checkpoint.committed", "task.cancelled", "task.failed",
-    "team.created", "worker.assigned", "worker.started", "worker.completed", "worker.failed", "worker.handoff",
+    "team.created", "worker.assigned", "worker.started", "worker.completed", "worker.failed", "worker.handoff", "worker.handoff.rejected", "worker.handoff.late",
     "model.requested", "routing.decided", "model.responded", "model.failed", "tool.requested", "tool.authorized", "tool.denied", "tool.result",
     "evidence.created", "fact.candidate", "fact.committed", "verification.completed", "retry.started", "fallback.selected",
     "resource.plan.admitted", "resource.plan.queued", "barrier.waiting", "barrier.completed", "artifact.staged", "artifact.checked",
@@ -79,9 +79,16 @@ LEDGER_EVENT_TYPES = {
     "resource.exhaustion.detected",   # VRAM/RAM/KV-cache exhaustion detected
     "resource.recovered",             # resource state confirmed clean after failure/reset
     "resource.lease.granted",         # resource lease issued to a worker
+    "resource.lease.activated",       # worker started consuming a granted lease
     "resource.lease.released",        # resource lease returned after worker completes
+    "resource.lease.expired",         # resource lease reached its deadline
+    "resource.lease.cancelled",       # resource lease cancelled by task policy
+    "resource.lease.failed",          # resource lease transition failed
+    "team.resource_plan.released",    # the team's committed resource envelope returned
+    "team.resource_plan.cancelled",   # the team's resource plan was cancelled
     "resource.admission.degraded",    # admission fell back to degraded mode
     "resource.queue.updated",         # admission queue position updated
+    "join_barrier.resolved",          # non-completed barrier outcome
 }
 
 
@@ -285,6 +292,8 @@ def _normalize(value: Any, expected: Any) -> Any:
         return [_normalize(x, get_args(expected)[0]) for x in value]
     if origin is dict and isinstance(value, dict) and len(get_args(expected)) == 2:
         return {k: _normalize(v, get_args(expected)[1]) for k, v in value.items()}
+    if isinstance(expected, type) and issubclass(expected, Contract) and isinstance(value, dict):
+        return expected.from_dict(value)
     if isinstance(expected, type) and issubclass(expected, Enum) and isinstance(value, str):
         try:
             return expected(value)
@@ -430,7 +439,23 @@ class WorkPacket(Contract):
             issues.append(ValidationIssue("checks", "type", "check results must be boolean"))
         if self.taint == Taint.clean and (self.fact_refs or self.evidence_refs):
             issues.append(ValidationIssue("taint", "provenance", "packet carrying worker evidence cannot silently become clean"))
+        if self.packet_hash != work_packet_hash(self):
+            issues.append(ValidationIssue("packet_hash", "integrity", "packet hash does not match canonical packet content"))
         return issues
+
+
+def work_packet_hash(packet: Any) -> str:
+    """Return the canonical SHA-256 hash of a packet without its hash field."""
+
+    payload = packet.to_dict() if isinstance(packet, Contract) else {
+        "schema_version": SCHEMA_VERSION,
+        "compatibility_id": COMPATIBILITY_ID,
+        **dict(packet),
+    }
+    payload.pop("packet_hash", None)
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -446,6 +471,288 @@ class WorkerResult(Contract):
             issues.append(ValidationIssue("output", "required", "result requires output or packet reference"))
         if isinstance(self.output, dict) and any(key in self.output for key in ("complete", "completion", "authority_decision")):
             issues.append(ValidationIssue("output", "authority", "worker results cannot mark completion or grant authority"))
+        return issues
+
+
+@dataclass(frozen=True)
+class ResourceReservation(Contract):
+    """Immutable per-worker reservation recorded in an authoritative plan.
+
+    The legacy ``TeamResourcePlan.reservations`` mapping remains available for
+    compatibility with the M5.2 fixtures.  M4.2 plans additionally carry this
+    typed record so scheduling metadata cannot be lost at the plan boundary.
+    """
+
+    worker_id: str
+    role: str
+    capability: str
+    model_target_id: str
+    qualification_id: str
+    gpu_indices: tuple[int, ...]
+    vram_reserved_bytes: int
+    cpu_reserved_millicores: int
+    ram_reserved_bytes: int
+    scratch_reserved_bytes: int
+    context_tokens_reserved: int
+    kv_cache_reserved_bytes: int
+    residency: str
+    slots_reserved: int = 1
+    start_deadline: str | None = None
+    execution_deadline: str | None = None
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if not self.role.strip():
+            issues.append(ValidationIssue("role", "required", "worker role is required"))
+        if not self.capability.strip():
+            issues.append(ValidationIssue("capability", "required", "worker capability is required"))
+        if self.residency not in {"resident", "load_on_demand", "evictable"}:
+            issues.append(ValidationIssue("residency", "enum", "invalid model residency request"))
+        for name in (
+            "vram_reserved_bytes", "cpu_reserved_millicores", "ram_reserved_bytes",
+            "scratch_reserved_bytes", "context_tokens_reserved", "kv_cache_reserved_bytes",
+            "slots_reserved",
+        ):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                issues.append(ValidationIssue(name, "resource", "must be a non-negative integer"))
+        if type(self.slots_reserved) is int and self.slots_reserved < 1:
+            issues.append(ValidationIssue("slots_reserved", "resource", "at least one slot is required"))
+        if any(type(index) is not int or index < 0 for index in self.gpu_indices):
+            issues.append(ValidationIssue("gpu_indices", "resource", "GPU indices must be non-negative integers"))
+        if not any(getattr(self, name) > 0 for name in (
+            "vram_reserved_bytes", "cpu_reserved_millicores", "ram_reserved_bytes",
+            "scratch_reserved_bytes", "context_tokens_reserved", "kv_cache_reserved_bytes",
+        )):
+            issues.append(ValidationIssue("reservation", "resource", "reservation must request at least one resource"))
+        for name in ("start_deadline", "execution_deadline"):
+            value = getattr(self, name)
+            if value is None:
+                continue
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    issues.append(ValidationIssue(name, "timezone", "deadline must include timezone"))
+            except (AttributeError, ValueError):
+                issues.append(ValidationIssue(name, "timestamp", "deadline must be RFC3339"))
+        return issues
+
+
+class LeaseStatus(str, Enum):
+    requested = "requested"
+    granted = "granted"
+    active = "active"
+    released = "released"
+    expired = "expired"
+    cancelled = "cancelled"
+    revoked = "revoked"
+    failed = "failed"
+
+
+class BarrierStatus(str, Enum):
+    waiting = "waiting"
+    completed = "completed"
+    missing = "missing"
+    conflicting = "conflicting"
+    timed_out = "timed_out"
+    cancelled = "cancelled"
+    needs_review = "needs_review"
+
+
+@dataclass(frozen=True)
+class ResourceLease(Contract):
+    """Immutable, identity-bound permission to consume one worker reservation."""
+
+    lease_id: str
+    task_id: str
+    team_id: str
+    plan_id: str
+    worker_id: str
+    role: str
+    capability: str
+    hardware_profile_ref: str
+    measurement_id: str
+    reservation: tuple[tuple[str, int], ...]
+    residency: str
+    clearance: Clearance
+    taint: Taint
+    policy_version_hash: str
+    idempotency_key: str
+    issued_at: str
+    expires_at: str
+    status: LeaseStatus
+    model_target_id: str | None = None
+    qualification_id: str | None = None
+    version: int = 1
+    provenance_refs: tuple[str, ...] = ()
+    gpu_indices: tuple[int, ...] = ()
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        allowed_dimensions = {
+            "vram_bytes", "ram_bytes", "cpu_millicores", "kv_cache_bytes",
+            "context_tokens", "scratch_bytes", "slots",
+        }
+        seen: set[str] = set()
+        total = 0
+        for item in self.reservation:
+            if not isinstance(item, tuple) or len(item) != 2:
+                issues.append(ValidationIssue("reservation", "type", "reservation entries must be name/value pairs"))
+                continue
+            name, value = item
+            if name not in allowed_dimensions:
+                issues.append(ValidationIssue("reservation", "enum", f"unknown resource dimension: {name!r}"))
+            if name in seen:
+                issues.append(ValidationIssue("reservation", "duplicate", f"duplicate resource dimension: {name!r}"))
+            seen.add(name)
+            if type(value) is not int or value < 0:
+                issues.append(ValidationIssue(f"reservation.{name}", "resource", "must be a non-negative integer"))
+            elif value > 0:
+                total += value
+        if total == 0:
+            issues.append(ValidationIssue("reservation", "resource", "lease must carry a non-zero reservation"))
+        if self.residency not in {"resident", "load_on_demand", "evictable"}:
+            issues.append(ValidationIssue("residency", "enum", "invalid model residency request"))
+        if any(type(index) is not int or index < 0 for index in self.gpu_indices):
+            issues.append(ValidationIssue("gpu_indices", "resource", "GPU indices must be non-negative integers"))
+        if self.taint != Taint.clean:
+            issues.append(ValidationIssue("taint", "security", "resource leases require policy-cleared task input"))
+        if not self.policy_version_hash.strip():
+            issues.append(ValidationIssue("policy_version_hash", "required", "lease policy identity is required"))
+        if not self.idempotency_key.strip():
+            issues.append(ValidationIssue("idempotency_key", "required", "lease idempotency key is required"))
+        if type(self.version) is not int or self.version < 1:
+            issues.append(ValidationIssue("version", "range", "lease version must be positive"))
+        try:
+            issued = datetime.fromisoformat(self.issued_at.replace("Z", "+00:00"))
+            expires = datetime.fromisoformat(self.expires_at.replace("Z", "+00:00"))
+            if issued.tzinfo is None or expires.tzinfo is None:
+                issues.append(ValidationIssue("issued_at", "timezone", "lease timestamps must include timezone"))
+            elif expires <= issued:
+                issues.append(ValidationIssue("expires_at", "range", "lease must expire after it is issued"))
+        except (AttributeError, ValueError):
+            issues.append(ValidationIssue("issued_at", "timestamp", "lease timestamps must be RFC3339"))
+        return issues
+
+
+@dataclass(frozen=True)
+class HandoffSubmission(Contract):
+    """Immutable request to transfer one worker packet to one assignment."""
+
+    handoff_id: str
+    task_id: str
+    team_id: str
+    source_assignment_id: str
+    source_worker_id: str
+    destination_assignment_id: str
+    destination_stage: str
+    packet: WorkPacket
+    packet_hash: str
+    barrier_id: str
+    barrier_version: int
+    source_lease_id: str
+    plan_version: str
+    policy_version_hash: str
+    clearance: Clearance
+    taint: Taint
+    submitted_at: str
+    deadline: str
+    idempotency_key: str
+    artifact_hashes: tuple[tuple[str, str], ...] = ()
+    attempt: int = 1
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.packet.task_id != self.task_id or self.packet.team_id != self.team_id:
+            issues.append(ValidationIssue("packet", "identity", "packet task and team must match handoff"))
+        if self.packet.source_worker_id != self.source_worker_id:
+            issues.append(ValidationIssue("source_worker_id", "identity", "handoff source does not match packet source"))
+        if self.packet.destination_stage != self.destination_stage:
+            issues.append(ValidationIssue("destination_stage", "identity", "handoff destination stage does not match packet"))
+        if self.packet_hash != self.packet.packet_hash:
+            issues.append(ValidationIssue("packet_hash", "integrity", "handoff packet hash does not match packet"))
+        if self.barrier_version < 1:
+            issues.append(ValidationIssue("barrier_version", "range", "barrier version must be positive"))
+        if self.attempt < 1:
+            issues.append(ValidationIssue("attempt", "range", "handoff attempt must be positive"))
+        if not self.source_lease_id.strip() or not self.plan_version.strip() or not self.policy_version_hash.strip():
+            issues.append(ValidationIssue("identity", "required", "lease, plan, and policy identities are required"))
+        if not self.idempotency_key.strip():
+            issues.append(ValidationIssue("idempotency_key", "required", "handoff idempotency key is required"))
+        for name in ("submitted_at", "deadline"):
+            try:
+                parsed = datetime.fromisoformat(getattr(self, name).replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    issues.append(ValidationIssue(name, "timezone", "timestamp must include timezone"))
+            except (AttributeError, ValueError):
+                issues.append(ValidationIssue(name, "timestamp", "timestamp must be RFC3339"))
+        return issues
+
+
+@dataclass(frozen=True)
+class JoinBarrier(Contract):
+    """Versioned orchestrator-owned synchronization state."""
+
+    barrier_id: str
+    task_id: str
+    team_id: str
+    destination_assignment_id: str
+    destination_stage: str
+    plan_version: str
+    barrier_version: int
+    required_predecessor_assignment_ids: tuple[str, ...]
+    accepted_handoff_ids: tuple[str, ...]
+    accepted_packet_hashes: tuple[tuple[str, str], ...]
+    missing_assignment_ids: tuple[str, ...]
+    conflict_packet_refs: tuple[tuple[str, str], ...]
+    deadline: str
+    join_policy: str
+    status: BarrierStatus
+    clearance: Clearance
+    taint: Taint
+    policy_version_hash: str
+    idempotency_key: str
+    created_at: str
+    unresolved_questions: tuple[str, ...] = ()
+    lease_refs: tuple[str, ...] = ()
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.barrier_version < 1:
+            issues.append(ValidationIssue("barrier_version", "range", "barrier version must be positive"))
+        if not self.required_predecessor_assignment_ids:
+            issues.append(ValidationIssue("required_predecessor_assignment_ids", "required", "join barrier needs a predecessor set"))
+        if self.join_policy not in {"join_all"}:
+            issues.append(ValidationIssue("join_policy", "enum", "only join_all is supported by this slice"))
+        if self.status not in set(BarrierStatus):
+            issues.append(ValidationIssue("status", "enum", "invalid barrier status"))
+        if not self.plan_version.strip() or not self.policy_version_hash.strip() or not self.idempotency_key.strip():
+            issues.append(ValidationIssue("identity", "required", "barrier plan, policy, and idempotency identities are required"))
+        for name in ("deadline", "created_at"):
+            try:
+                parsed = datetime.fromisoformat(getattr(self, name).replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    issues.append(ValidationIssue(name, "timezone", "timestamp must include timezone"))
+            except (AttributeError, ValueError):
+                issues.append(ValidationIssue(name, "timestamp", "timestamp must be RFC3339"))
+        required = set(self.required_predecessor_assignment_ids)
+        accepted_sources = {source for source, _ in self.accepted_packet_hashes}
+        if len(required) != len(self.required_predecessor_assignment_ids):
+            issues.append(ValidationIssue("required_predecessor_assignment_ids", "duplicate", "predecessor IDs must be unique"))
+        if len(set(self.accepted_handoff_ids)) != len(self.accepted_handoff_ids):
+            issues.append(ValidationIssue("accepted_handoff_ids", "duplicate", "accepted handoff IDs must be unique"))
+        if len(accepted_sources) != len(self.accepted_packet_hashes):
+            issues.append(ValidationIssue("accepted_packet_hashes", "duplicate", "accepted packet sources must be unique"))
+        if not set(self.missing_assignment_ids).issubset(required):
+            issues.append(ValidationIssue("missing_assignment_ids", "consistency", "missing set must be a subset of required predecessors"))
+        if set(accepted_sources) & set(self.missing_assignment_ids):
+            issues.append(ValidationIssue("missing_assignment_ids", "consistency", "a predecessor cannot be both accepted and missing"))
+        if accepted_sources | set(self.missing_assignment_ids) != required:
+            issues.append(ValidationIssue("accepted_packet_hashes", "consistency", "accepted and missing predecessors must cover the required set"))
+        if self.status == BarrierStatus.completed and (accepted_sources != required or self.missing_assignment_ids or self.unresolved_questions):
+            issues.append(ValidationIssue("status", "consistency", "completed barrier cannot have missing or unresolved work"))
+        if accepted_sources and not set(accepted_sources).issubset(required):
+            issues.append(ValidationIssue("accepted_packet_hashes", "consistency", "accepted packet sources must be required predecessors"))
         return issues
 
 
@@ -502,6 +809,19 @@ class RoutingDecision(Contract):
 class TeamResourcePlan(Contract):
     team_id: str; hardware_profile_ref: str; worker_capabilities: dict[str, str]; reservations: dict[str, dict[str, int]]; concurrency_ceiling: int; execution_mode: str; priority: str; verifier_capacity: int; admission: str; reason: str
     task_id: str = ""
+    plan_id: str = ""
+    hardware_profile_id: str = ""
+    plan_version: str = "1"
+    created_at: str = field(default_factory=_now)
+    requested_mode: str = "auto"
+    admitted_mode: str = ""
+    admission_reason: str = ""
+    dependency_graph: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    scheduling: dict[str, str] = field(default_factory=dict)
+    safety_invariants: dict[str, bool | str] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
+    residency_requests: dict[str, str] = field(default_factory=dict)
+    reservation_records: tuple[ResourceReservation, ...] = ()
     def _validate(self, hints):
         issues = super()._validate(hints)
         if not self.task_id.strip(): issues.append(ValidationIssue("task_id", "required", "resource plan must identify its task"))
@@ -513,6 +833,32 @@ class TeamResourcePlan(Contract):
             for worker, reservation in self.reservations.items():
                 if not isinstance(reservation, dict) or any(type(value) is not int or value < 0 for value in reservation.values()):
                     issues.append(ValidationIssue(f"reservations.{worker}", "resource", "reservations must contain non-negative integer values"))
+        if self.requested_mode not in {"auto", "parallel", "pipelined", "serial_virtual_team"}:
+            issues.append(ValidationIssue("requested_mode", "enum", "invalid requested execution mode"))
+        if self.plan_id:
+            if not self.hardware_profile_id.strip() or self.hardware_profile_id != self.hardware_profile_ref:
+                issues.append(ValidationIssue("hardware_profile_id", "identity", "authoritative plan profile IDs must match"))
+            if not self.plan_version.strip():
+                issues.append(ValidationIssue("plan_version", "required", "authoritative plan version is required"))
+            if not self.admission_reason.strip():
+                issues.append(ValidationIssue("admission_reason", "required", "authoritative plan reason is required"))
+            valid_admitted_modes = {"parallel", "pipelined", "serial_virtual_team", "queued", "stopped"}
+            if self.admitted_mode not in valid_admitted_modes:
+                issues.append(ValidationIssue("admitted_mode", "enum", "invalid admitted execution mode"))
+            if self.admission in {"admitted", "degraded_needs_review"} and self.admitted_mode != self.execution_mode:
+                issues.append(ValidationIssue("admitted_mode", "consistency", "admitted mode must match execution mode"))
+            if self.admission == "queued" and self.admitted_mode != "queued":
+                issues.append(ValidationIssue("admitted_mode", "consistency", "queued plans must declare queued mode"))
+            if self.admission in {"rejected", "stopped"} and self.admitted_mode != "stopped":
+                issues.append(ValidationIssue("admitted_mode", "consistency", "stopped plans must declare stopped mode"))
+            required_safety = {"verifier_required", "review_required", "qualified_targets_only", "provenance_required"}
+            if not required_safety.issubset(self.safety_invariants):
+                issues.append(ValidationIssue("safety_invariants", "safety", "authoritative plan must declare all safety invariants"))
+            elif any(self.safety_invariants[name] is not True for name in required_safety):
+                issues.append(ValidationIssue("safety_invariants", "safety", "authoritative plan safety invariants cannot be weakened"))
+            record_workers = {record.worker_id for record in self.reservation_records}
+            if record_workers and record_workers != set(self.reservations):
+                issues.append(ValidationIssue("reservation_records", "consistency", "typed records must match reservation workers"))
         return issues
 
 

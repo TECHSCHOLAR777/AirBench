@@ -26,10 +26,14 @@ CONTRACT_NAMES = (
     "WorkerAssignment",
     "WorkPacket",
     "WorkerResult",
+    "HandoffSubmission",
+    "JoinBarrier",
     "CompletionRecord",
     "ModelCallRequest",
     "RoutingDecision",
     "TeamResourcePlan",
+    "ResourceReservation",
+    "ResourceLease",
     "HardwareProfile",
     "ToolAction",
     "FactEnvelope",
@@ -97,7 +101,7 @@ def generate() -> str:
         f'export const CORE_CONTRACT_COMPATIBILITY_ID = {json.dumps(models.COMPATIBILITY_ID)} as const;',
         "",
     ]
-    for enum in (models.Clearance, models.Taint, models.ContractStatus):
+    for enum in (models.Clearance, models.Taint, models.ContractStatus, models.LeaseStatus, models.BarrierStatus):
         lines.append(_enum_block(enum))
     lines.extend([
         "",

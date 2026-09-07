@@ -1,19 +1,28 @@
-states: [created, proposed, queued, running, needs_review, verified, completed, failed, cancelled]
+states: [created, authorized, planned, executing, awaiting_check, awaiting_review, rendering, deliverable_verified, complete, needs_review, blocked, failed, cancelled]
 rules:
   - from: created
-    to: proposed
+    to: authorized
     owner: orchestrator
-  - from: proposed
-    to: queued
+  - from: authorized
+    to: planned
     owner: orchestrator
-  - from: queued
-    to: running
+  - from: planned
+    to: executing
     owner: orchestrator
-  - from: running
-    to: [needs_review, verified, failed, cancelled]
+  - from: executing
+    to: [executing, awaiting_check, awaiting_review, rendering, deliverable_verified, needs_review, blocked, failed, cancelled]
+    owner: orchestrator
+  - from: awaiting_check
+    to: [executing, deliverable_verified, needs_review, blocked, failed, cancelled]
     owner: orchestrator_or_deterministic_checker
-  - from: verified
-    to: completed
+  - from: awaiting_review
+    to: [deliverable_verified, needs_review, failed, cancelled]
+    owner: human_or_orchestrator
+  - from: rendering
+    to: [deliverable_verified, awaiting_review, needs_review, failed, cancelled]
+    owner: orchestrator_or_deterministic_checker
+  - from: deliverable_verified
+    to: complete
     owner: orchestrator
     requires: all_completion_criteria_and_ledger_commit
-terminal: [completed, failed, cancelled]
+terminal: [complete, failed, cancelled]

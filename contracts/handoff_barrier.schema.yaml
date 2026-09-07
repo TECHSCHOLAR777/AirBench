@@ -1,0 +1,134 @@
+# M4.3 typed synchronization payloads.
+#
+# These records are core orchestration contracts. They carry worker outputs by
+# reference and never interpret sector content or execute a worker operation.
+
+schema_id: airbench.handoff_barrier.v1
+schema_version: "1.0"
+description: >
+  Immutable work packets, handoff submissions, and join-barrier snapshots for
+  deterministic virtual-team execution and replay.
+
+contracts:
+  WorkPacket:
+    required:
+      - packet_id
+      - task_id
+      - team_id
+      - source_worker_id
+      - destination_stage
+      - fact_refs
+      - evidence_refs
+      - artifact_refs
+      - checks
+      - unresolved_questions
+      - proposed_next_result
+      - clearance
+      - taint
+      - packet_hash
+    fields:
+      packet_hash:
+        type: string
+        format: sha256
+        description: Canonical hash of the packet with packet_hash omitted.
+      fact_refs: {type: array, items: {type: string}}
+      evidence_refs: {type: array, items: {type: string}}
+      artifact_refs: {type: array, items: {type: string}}
+      checks: {type: object, values: boolean}
+      clearance: {type: string, enum: [public, internal, restricted, secret]}
+      taint: {type: string, enum: [clean, untrusted, contaminated]}
+    rules:
+      - at least one fact_refs or evidence_refs entry is required
+      - evidence-bearing packets cannot have clean taint
+
+  HandoffSubmission:
+    required:
+      - handoff_id
+      - task_id
+      - team_id
+      - source_assignment_id
+      - source_worker_id
+      - destination_assignment_id
+      - destination_stage
+      - packet
+      - packet_hash
+      - barrier_id
+      - barrier_version
+      - source_lease_id
+      - plan_version
+      - policy_version_hash
+      - clearance
+      - taint
+      - submitted_at
+      - deadline
+      - idempotency_key
+    fields:
+      packet: {type: WorkPacket}
+      packet_hash: {type: string, format: sha256}
+      barrier_version: {type: integer, minimum: 1}
+      artifact_hashes:
+        type: array
+        item_fields:
+          artifact_id: {type: string}
+          content_hash: {type: string, format: sha256}
+      attempt: {type: integer, minimum: 1}
+      clearance: {type: string, enum: [public, internal, restricted, secret]}
+      taint: {type: string, enum: [clean, untrusted, contaminated]}
+      submitted_at: {type: string, format: rfc3339}
+      deadline: {type: string, format: rfc3339}
+    rules:
+      - packet_hash must equal packet.packet_hash
+      - task, team, source, destination, plan, policy, and lease identities must match resolved records
+      - submitted_at cannot be in the future and deadline must equal the barrier deadline
+      - references must resolve at the destination clearance without taint downgrade
+
+  JoinBarrier:
+    required:
+      - barrier_id
+      - task_id
+      - team_id
+      - destination_assignment_id
+      - destination_stage
+      - plan_version
+      - barrier_version
+      - required_predecessor_assignment_ids
+      - accepted_handoff_ids
+      - accepted_packet_hashes
+      - missing_assignment_ids
+      - conflict_packet_refs
+      - deadline
+      - join_policy
+      - status
+      - clearance
+      - taint
+      - policy_version_hash
+      - idempotency_key
+      - created_at
+    fields:
+      join_policy: {type: string, enum: [join_all]}
+      status:
+        type: string
+        enum: [waiting, completed, missing, conflicting, timed_out, cancelled, needs_review]
+      barrier_version: {type: integer, minimum: 1}
+      deadline: {type: string, format: rfc3339}
+      created_at: {type: string, format: rfc3339}
+      clearance: {type: string, enum: [public, internal, restricted, secret]}
+      taint: {type: string, enum: [clean, untrusted, contaminated]}
+    rules:
+      - required predecessors must match the committed dependency graph
+      - accepted and missing predecessor sets must be disjoint and cover the required set
+      - completed requires every predecessor accepted and no unresolved questions
+      - every version is immutable and every state change is ledger committed
+
+ledger_events:
+  accepted_handoff: worker.handoff
+  rejected_handoff: worker.handoff.rejected
+  late_handoff: worker.handoff.late
+  waiting_barrier: join_barrier.waiting
+  completed_barrier: join_barrier.completed
+  resolved_barrier: join_barrier.resolved
+
+validation_rules:
+  - validate before mutating coordinator state
+  - append all events for one transition atomically
+  - replay only committed snapshots and never invoke a worker during reconciliation

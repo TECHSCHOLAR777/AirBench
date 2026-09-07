@@ -7,6 +7,8 @@ export const CORE_CONTRACT_COMPATIBILITY_ID = "airbench-core-contracts" as const
 export type Clearance = "public" | "internal" | "restricted" | "secret";
 export type Taint = "clean" | "untrusted" | "contaminated";
 export type ContractStatus = "proposed" | "accepted" | "rejected" | "failed" | "needs_review" | "queued" | "cancelled" | "verified";
+export type LeaseStatus = "requested" | "granted" | "active" | "released" | "expired" | "cancelled" | "revoked" | "failed";
+export type BarrierStatus = "waiting" | "completed" | "missing" | "conflicting" | "timed_out" | "cancelled" | "needs_review";
 
 export const LEDGER_EVENT_TYPES = [
   "artifact.checked",
@@ -38,6 +40,7 @@ export const LEDGER_EVENT_TYPES = [
   "human.review.required",
   "human.signoff",
   "join_barrier.completed",
+  "join_barrier.resolved",
   "join_barrier.waiting",
   "model.artifact.integrity.verified",
   "model.benchmark.completed",
@@ -67,6 +70,10 @@ export const LEDGER_EVENT_TYPES = [
   "recovery.resumed",
   "resource.admission.degraded",
   "resource.exhaustion.detected",
+  "resource.lease.activated",
+  "resource.lease.cancelled",
+  "resource.lease.expired",
+  "resource.lease.failed",
   "resource.lease.granted",
   "resource.lease.released",
   "resource.plan.admitted",
@@ -93,10 +100,12 @@ export const LEDGER_EVENT_TYPES = [
   "task.plan.committed",
   "team.created",
   "team.resource_plan.admitted",
+  "team.resource_plan.cancelled",
   "team.resource_plan.created",
   "team.resource_plan.degraded_needs_review",
   "team.resource_plan.queued",
   "team.resource_plan.rejected",
+  "team.resource_plan.released",
   "tool.authorized",
   "tool.denied",
   "tool.requested",
@@ -109,6 +118,8 @@ export const LEDGER_EVENT_TYPES = [
   "worker.completed",
   "worker.failed",
   "worker.handoff",
+  "worker.handoff.late",
+  "worker.handoff.rejected",
   "worker.preempted",
   "worker.resource_reserved",
   "worker.started",
@@ -232,6 +243,55 @@ export interface WorkerResult extends ContractEnvelope {
   completed_at?: string;
 }
 
+export interface HandoffSubmission extends ContractEnvelope {
+  handoff_id: string;
+  task_id: string;
+  team_id: string;
+  source_assignment_id: string;
+  source_worker_id: string;
+  destination_assignment_id: string;
+  destination_stage: string;
+  packet: WorkPacket;
+  packet_hash: string;
+  barrier_id: string;
+  barrier_version: number;
+  source_lease_id: string;
+  plan_version: string;
+  policy_version_hash: string;
+  clearance: Clearance;
+  taint: Taint;
+  submitted_at: string;
+  deadline: string;
+  idempotency_key: string;
+  artifact_hashes?: Array<[string, string]>;
+  attempt?: number;
+}
+
+export interface JoinBarrier extends ContractEnvelope {
+  barrier_id: string;
+  task_id: string;
+  team_id: string;
+  destination_assignment_id: string;
+  destination_stage: string;
+  plan_version: string;
+  barrier_version: number;
+  required_predecessor_assignment_ids: Array<string>;
+  accepted_handoff_ids: Array<string>;
+  accepted_packet_hashes: Array<[string, string]>;
+  missing_assignment_ids: Array<string>;
+  conflict_packet_refs: Array<[string, string]>;
+  deadline: string;
+  join_policy: string;
+  status: BarrierStatus;
+  clearance: Clearance;
+  taint: Taint;
+  policy_version_hash: string;
+  idempotency_key: string;
+  created_at: string;
+  unresolved_questions?: Array<string>;
+  lease_refs?: Array<string>;
+}
+
 export interface CompletionRecord extends ContractEnvelope {
   completion_id: string;
   task_id: string;
@@ -294,6 +354,64 @@ export interface TeamResourcePlan extends ContractEnvelope {
   admission: string;
   reason: string;
   task_id?: string;
+  plan_id?: string;
+  hardware_profile_id?: string;
+  plan_version?: string;
+  created_at?: string;
+  requested_mode?: string;
+  admitted_mode?: string;
+  admission_reason?: string;
+  dependency_graph?: Record<string, Array<string>>;
+  scheduling?: Record<string, string>;
+  safety_invariants?: Record<string, boolean | string>;
+  provenance?: Record<string, unknown>;
+  residency_requests?: Record<string, string>;
+  reservation_records?: Array<ResourceReservation>;
+}
+
+export interface ResourceReservation extends ContractEnvelope {
+  worker_id: string;
+  role: string;
+  capability: string;
+  model_target_id: string;
+  qualification_id: string;
+  gpu_indices: Array<number>;
+  vram_reserved_bytes: number;
+  cpu_reserved_millicores: number;
+  ram_reserved_bytes: number;
+  scratch_reserved_bytes: number;
+  context_tokens_reserved: number;
+  kv_cache_reserved_bytes: number;
+  residency: string;
+  slots_reserved?: number;
+  start_deadline?: string | null;
+  execution_deadline?: string | null;
+}
+
+export interface ResourceLease extends ContractEnvelope {
+  lease_id: string;
+  task_id: string;
+  team_id: string;
+  plan_id: string;
+  worker_id: string;
+  role: string;
+  capability: string;
+  hardware_profile_ref: string;
+  measurement_id: string;
+  reservation: Array<[string, number]>;
+  residency: string;
+  clearance: Clearance;
+  taint: Taint;
+  policy_version_hash: string;
+  idempotency_key: string;
+  issued_at: string;
+  expires_at: string;
+  status: LeaseStatus;
+  model_target_id?: string | null;
+  qualification_id?: string | null;
+  version?: number;
+  provenance_refs?: Array<string>;
+  gpu_indices?: Array<number>;
 }
 
 export interface HardwareProfile extends ContractEnvelope {

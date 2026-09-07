@@ -1,0 +1,18 @@
+[
+  {
+    "evidence_ref": "evidence.one",
+    "source_ref": "intake:inspection-report-001#page=1",
+    "confidence": 0.91,
+    "clearance": "internal",
+    "taint": "untrusted",
+    "content_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  {
+    "evidence_ref": "evidence.two",
+    "source_ref": "retrieval:sop-002#chunk=4",
+    "confidence": 0.84,
+    "clearance": "internal",
+    "taint": "untrusted",
+    "content_hash": "2222222222222222222222222222222222222222222222222222222222222222"
+  }
+]

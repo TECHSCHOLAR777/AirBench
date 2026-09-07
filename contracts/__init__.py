@@ -8,9 +8,9 @@ from .ledger import (EVENT_TYPES, Checkpoint, CommittedTransaction, EventLedger,
                      StorageFailure, TransitionRejected, build_event)
 from .models import *
 from .models import (TaskEnvelope, TeamPlan, TaskPlanReview, WorkerAssignment, WorkPacket, WorkerResult,
-                     CompletionRecord, ModelCallRequest, RoutingDecision, TeamResourcePlan, HardwareProfile,
+                     CompletionRecord, HandoffSubmission, JoinBarrier, ModelCallRequest, RoutingDecision, TeamResourcePlan, HardwareProfile,
                      ToolAction, FactEnvelope, UntrustedEvidence, LedgerEventEnvelope,
-                     NodeCommandEnvelope, NodeCommandResult)
+                     NodeCommandEnvelope, NodeCommandResult, BarrierStatus, LeaseStatus, work_packet_hash)
 from .projections import ProjectionBuilder, ProjectionSnapshot
 from .recovery import RecoveryManager, RecoveryPoint, RetryRecord, SideEffectUncertain
 from .verification import verify_projection_export, verify_signed_export
@@ -21,15 +21,19 @@ from .authorization import AuthorizationDecision, AuthorizationError, Authorizat
 from .planning import PlanProposal, PlanStep, PlanValidationError, PlanValidator
 from .model_registry import ModelRegistry, ModelTarget, RegistryError
 from .admission import AdmissionController, AdmissionDecision, AdmissionError, AdmissionRequest, HardwareMeasurement
+from .scheduler import (LeaseUnavailable, ResourceScheduler, ScheduleDecision, SchedulerError,
+                         SchedulingRejected)
 from .backend import (BackendAdapter, BackendCallError, BackendCapabilities, BackendChunk, BackendContent,
                       BackendErrorCode, BackendFailure, BackendHealth, BackendMessage, BackendOutputSpec,
                       BackendReadiness, BackendRequest, BackendResponse, BackendTool, BackendToolCall,
                       BackendUsage, CancellationToken, FakeBackend, ResponseProvenance)
 from .router import ModelRouter, ResourceAdmission, RouteResult, RoutingError, RoutingRejected
+from .handoffs import (BarrierDecision, HandoffCoordinator, HandoffDecision,
+                       HandoffRejected, HandoffReplayError, InMemoryRecordResolver)
 
 __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "stable_id",
            "TaskEnvelope", "TeamPlan", "TaskPlanReview", "WorkerAssignment", "WorkPacket", "WorkerResult",
-           "CompletionRecord", "ModelCallRequest", "RoutingDecision", "TeamResourcePlan", "HardwareProfile",
+           "CompletionRecord", "HandoffSubmission", "JoinBarrier", "ModelCallRequest", "RoutingDecision", "TeamResourcePlan", "HardwareProfile",
            "ToolAction", "FactEnvelope", "UntrustedEvidence", "LedgerEventEnvelope",
            "NodeCommandEnvelope", "NodeCommandResult",
            "EVENT_TYPES", "Checkpoint", "CommittedTransaction", "EventLedger",
@@ -44,9 +48,11 @@ __all__ += ["AuthorizationRejected", "OrchestrationError", "Orchestrator", "Plan
             "PrincipalRecord", "SignedReference", "PlanProposal", "PlanStep", "PlanValidationError", "PlanValidator"]
 __all__ += ["sign_reference"]
 __all__ += ["ModelRegistry", "ModelTarget", "RegistryError", "AdmissionController", "AdmissionDecision", "AdmissionError", "AdmissionRequest", "HardwareMeasurement"]
+__all__ += ["LeaseUnavailable", "ResourceScheduler", "ScheduleDecision", "SchedulerError", "SchedulingRejected"]
 __all__ += ["BackendAdapter", "BackendCallError", "BackendCapabilities", "BackendChunk", "BackendContent",
             "BackendErrorCode", "BackendFailure", "BackendHealth", "BackendMessage", "BackendOutputSpec",
             "BackendReadiness", "BackendRequest", "BackendResponse", "BackendTool", "BackendToolCall",
             "BackendUsage", "CancellationToken", "FakeBackend", "ResponseProvenance"]
 __all__ += ["ModelRouter", "ResourceAdmission", "RouteResult", "RoutingError", "RoutingRejected"]
 __all__ += ["ModelCallExecution"]
+__all__ += ["BarrierStatus", "LeaseStatus", "work_packet_hash", "BarrierDecision", "HandoffCoordinator", "HandoffDecision", "HandoffRejected", "HandoffReplayError", "InMemoryRecordResolver"]

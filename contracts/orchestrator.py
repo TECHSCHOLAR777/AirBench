@@ -13,7 +13,7 @@ from .ids import idempotency_key, stable_id
 from .authorization import AuthorizationService
 from .ledger import (CommittedTransaction, EventLedger, LedgerError, SQLiteLedgerStore,
                      StorageFailure, TransitionRejected, build_event)
-from .models import Clearance, ContractStatus, ModelCallRequest, TaskEnvelope, TeamPlan
+from .models import Clearance, ContractStatus, ModelCallRequest, TaskEnvelope, TeamPlan, WorkerAssignment
 from .planning import PlanProposal, PlanValidator
 from .router import ModelRouter, RouteResult
 
@@ -81,6 +81,8 @@ _TARGETS = {
     "task.authorized": "authorized",
     "task.plan.committed": "planned",
     "task.plan.approved": "planned",
+    "worker.assigned": "planned",
+    "worker.handoff": "executing",
     "resource.plan.admitted": "executing",
     "model.requested": "executing",
     "retrieval.requested": "executing",
@@ -88,6 +90,15 @@ _TARGETS = {
     "verification.requested": "executing",
     "tool.requested": "executing",
     "barrier.waiting": "awaiting_check",
+    "join_barrier.waiting": "awaiting_check",
+    "join_barrier.completed": "executing",
+    "join_barrier.resolved": {
+        "cancelled": "cancelled",
+        "missing": "needs_review",
+        "conflicting": "needs_review",
+        "timed_out": "needs_review",
+        "needs_review": "needs_review",
+    },
     "verification.completed": {"passed": "deliverable_verified", "needs_review": "needs_review", "failed": "blocked"},
     "human.review.required": "awaiting_review",
     "artifact.staged": "rendering",
@@ -101,12 +112,17 @@ _ALLOWED = {
     "task.authorized": {"created"},
     "task.plan.committed": {"authorized"},
     "task.plan.approved": {"planned"},
+    "worker.assigned": {"planned"},
+    "worker.handoff": {"executing", "awaiting_check"},
     "resource.plan.admitted": {"planned"},
     "model.requested": {"planned", "executing"},
     "retrieval.requested": {"planned", "executing"},
     "world_model.requested": {"planned", "executing"},
     "tool.requested": {"planned", "executing"},
     "barrier.waiting": {"executing"},
+    "join_barrier.waiting": {"executing", "awaiting_check"},
+    "join_barrier.completed": {"executing", "awaiting_check"},
+    "join_barrier.resolved": {"awaiting_check", "needs_review"},
     "verification.requested": {"executing", "awaiting_check"},
     "verification.completed": {"awaiting_check"},
     "human.review.required": {"deliverable_verified", "needs_review", "awaiting_review"},
@@ -200,6 +216,69 @@ class Orchestrator:
         if not any(event.task_id == task_id and event.event_type == "task.plan.committed" for event in self.store.events):
             raise PlanRejected("a committed plan is required before approval")
         return self.transition(task_id, "task.plan.approved", {"approval_ref": approval_ref}, command_metadata=command_metadata)
+
+    def assign_worker(self, assignment: WorkerAssignment,
+                      *, command_metadata: dict[str, str] | None = None) -> TransitionResult:
+        """Commit one validated worker assignment without starting the worker.
+
+        Assignment creation and context construction remain separate from this
+        state mutation.  The orchestrator only accepts an assignment that is
+        already a member of the committed TeamPlan and narrows the task's
+        evidence, tool, capability, and clearance envelope.
+        """
+
+        task = self._task(assignment.task_id)
+        plan_event = next(
+            (event for event in self.store.events
+             if event.task_id == assignment.task_id and event.event_type == "task.plan.committed"),
+            None,
+        )
+        if plan_event is None:
+            raise PlanRejected("a committed plan is required before worker assignment")
+        plan = TeamPlan.from_dict(plan_event.payload["plan"])
+        if plan.team_id != assignment.team_id or assignment.assignment_id not in plan.assignments:
+            raise PlanRejected("worker assignment is not declared by the committed team plan")
+        if _rank(assignment.clearance) > _rank(task.clearance):
+            raise PlanRejected("worker clearance exceeds task clearance")
+        if not set(assignment.evidence_refs).issubset(set(task.allowed_evidence_scope)):
+            raise PlanRejected("worker evidence scope exceeds task evidence scope")
+        if not set(assignment.allowed_tools).issubset(set(task.permitted_tools)):
+            raise PlanRejected("worker tools exceed task tools")
+        if assignment.capability_requirement not in task.permitted_worker_capabilities:
+            raise PlanRejected("worker capability is outside task authority")
+
+        existing = next(
+            (event for event in self.store.events
+             if event.task_id == assignment.task_id
+             and event.event_type == "worker.assigned"
+             and event.payload.get("assignment", {}).get("assignment_id") == assignment.assignment_id),
+            None,
+        )
+        if existing is not None:
+            if existing.payload.get("assignment_hash") != assignment.digest():
+                raise TransitionRejected("assignment identity was reused with different content")
+            key = existing.idempotency_key
+            return TransitionResult(
+                assignment.task_id,
+                existing.event_id,
+                "worker.assigned",
+                self.state(assignment.task_id),
+                existing.sequence,
+                key,
+                self._transaction_id(existing.event_id),
+            )
+
+        return self.transition(
+            assignment.task_id,
+            "worker.assigned",
+            {
+                "team_id": assignment.team_id,
+                "worker_id": assignment.worker_id,
+                "assignment": assignment.to_dict(),
+                "assignment_hash": assignment.digest(),
+            },
+            command_metadata=command_metadata,
+        )
 
     def commit_proposal(self, proposal: PlanProposal) -> TransitionResult:
         task = self._task(proposal.task_id)
