@@ -30,8 +30,8 @@ The #107 command menu is deliberately constrained to local presentation actions.
 
 | Issue | Build now | Explicit limit | Primary files |
 | --- | --- | --- | --- |
-| #79 FE-DEV-07 | Render Node-projected evidence and facts with source, confidence, clearance, taint, location, derivation, supersession, and ledger identity. Reuse the safe preview already returned through Rust when a permitted preview exists. | Exact source-region navigation and task-specific safe-preview fetch need a Node-provided preview reference. Reviewer-note commands need a Node command contract. | `frontend/src/ProofInspectorPanel.tsx`, `frontend/src/proofInspector.ts`, `frontend/src/App.tsx`, tests, styles |
-| #80 FE-DEV-08 | Open Node-generated artifact previews and controlled downloads through the existing Rust bridge. Distinguish the returned preview from an approved deliverable. | Artifact status, verification breakdown, deterministic value bindings, approval, return, comparison, and clarification need a typed artifact-review projection and command contract. | same proof components, `intakeBridge.ts`, tests, styles |
+| #79 FE-DEV-07 | Render Node-projected evidence and facts with source, confidence, clearance, taint, location, derivation, supersession, and ledger identity. Reuse the safe preview already returned through Rust when a permitted preview exists. Make the read-only and untrusted-data boundary visible before the preview content. | Exact source-region navigation and task-specific safe-preview fetch need a Node-provided preview reference. Reviewer-note commands need a Node command contract. | `frontend/src/ProofInspectorPanel.tsx`, `frontend/src/proofInspector.ts`, `frontend/src/App.tsx`, tests, styles |
+| #80 FE-DEV-08 | Open Node-generated artifact previews and controlled downloads through the existing Rust bridge. Distinguish read-only Node-returned content from an approved deliverable, and show download permission as a Node decision before the local save receipt. | Artifact status, verification breakdown, deterministic value bindings, approval, return, comparison, and clarification need a typed artifact-review projection and command contract. | same proof components, `intakeBridge.ts`, tests, styles |
 | #109 FE-REF-05 | Compose the evidence and artifact surfaces into an adaptive, keyboard-accessible right-side proof inspector. | Route detail, approval state, and unavailable previews stay explicitly unavailable until the Node contracts arrive. | same proof components, docs, visual tests |
 
 This lane is serialized because it shares the task workspace, safe-preview presentation, and proof component files.
@@ -80,7 +80,7 @@ The React client must never call the corresponding Python routes directly. Every
 
 ## Execution order
 
-1. Implement the view-only proof inspector and current safe artifact-preview pathway for #79, #80, and #109.
+1. Implement the view-only proof inspector and current safe artifact-preview pathway for #79, #80, and #109. Keep preview state, download state, and artifact approval state separate. Show the first two from the existing typed bridge and leave the third unavailable until its Node projection exists.
 2. Add a truthful unavailable question-card state for #108, without a response input or false action.
 3. Add focused failure, keyboard, contrast, reduced-motion, and no-egress tests as the components land. This contributes to #84 and #111 but does not close either issue.
 4. Diagnose #69 in a separate validation worktree or branch so its build tooling does not block user-visible work.

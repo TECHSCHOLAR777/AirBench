@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { ArtifactPreview, SafePreview } from "./intakeBridge";
 import type { EvidenceRef, FactEnvelope } from "./protocol";
-import { artifactPreviewDetails, formatFactValue, proofDetails, sourcePreviewAvailability } from "./proofInspector";
+import {
+  artifactDownloadBoundaryState,
+  artifactPreviewBoundaryState,
+  artifactPreviewDetails,
+  formatFactValue,
+  proofDetails,
+  sourcePreviewAvailability,
+} from "./proofInspector";
 
 const evidence: EvidenceRef = {
   evidenceId: "evidence-1",
@@ -95,5 +102,56 @@ describe("proof inspector projections", () => {
       { label: "Taint", value: "untrusted" },
       { label: "Ledger", value: "ledger-artifact-preview-1", technical: true },
     ]);
+  });
+
+  it("describes the artifact preview boundary without claiming artifact approval", () => {
+    expect(artifactPreviewBoundaryState("idle", false)).toEqual({
+      tone: "neutral",
+      label: "Preview not requested",
+      detail: "The desktop will show content only after the approved Node returns a safe, read-only preview.",
+    });
+    expect(artifactPreviewBoundaryState("loading", false)).toEqual({
+      tone: "active",
+      label: "Requesting a read-only preview",
+      detail: "The approved Node is preparing a preview. The original file is not opened by the desktop.",
+    });
+    expect(artifactPreviewBoundaryState("ready", true)).toEqual({
+      tone: "active",
+      label: "Read-only Node preview",
+      detail: "This is Node-returned data, not the original document and not an approval decision.",
+    });
+    expect(artifactPreviewBoundaryState("ready", false)).toEqual({
+      tone: "attention",
+      label: "Preview not supplied",
+      detail: "The Node has not returned a safe preview for this artifact.",
+    });
+    expect(artifactPreviewBoundaryState("failed", false)).toEqual({
+      tone: "blocked",
+      label: "Preview unavailable",
+      detail: "The approved Node did not return a safe artifact preview.",
+    });
+  });
+
+  it("keeps download permission with the Node and separates it from local save state", () => {
+    expect(artifactDownloadBoundaryState("idle")).toEqual({
+      tone: "neutral",
+      label: "Request permitted download",
+      detail: "The Node must authorize this request before the desktop can save a copy.",
+    });
+    expect(artifactDownloadBoundaryState("downloading")).toEqual({
+      tone: "active",
+      label: "Checking download permission",
+      detail: "The Node is checking permission and will save a copy only if allowed.",
+    });
+    expect(artifactDownloadBoundaryState("downloaded")).toEqual({
+      tone: "active",
+      label: "Download saved",
+      detail: "The Node returned a download receipt and the desktop saved the permitted copy.",
+    });
+    expect(artifactDownloadBoundaryState("failed")).toEqual({
+      tone: "blocked",
+      label: "Download not completed",
+      detail: "The Node denied the request or the local save did not complete.",
+    });
   });
 });

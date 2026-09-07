@@ -165,6 +165,8 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **Rules**: source is data, not instruction; reviewer notes do not rewrite facts.
 
+**Current preview boundary**: a Node-returned source or artifact preview is labeled read-only before its content is shown. It remains untrusted data and is not the original document, a verification result, or an approval decision. A missing preview is shown as unavailable, never replaced with a client-side interpretation.
+
 ### S06 Review Queue
 
 **User outcome**: find deliverables that require an authorized decision.
@@ -196,6 +198,8 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 **Actions**: approve, return for changes, request clarification, download draft if permitted, compare version.
 
 **Rules**: approval is disabled when required evidence, verification, clearance, or authority is missing. Numbers come from deterministic fields.
+
+**Current desktop slice**: the inspector can present Node-generated preview blocks and can request a permitted download through the typed bridge. The download label explicitly means a Node permission check, and a local save receipt is separate from artifact approval. Artifact status, verification, deterministic values, approval, comparison, and clarification remain unavailable until their Node-owned projection and commands exist.
 
 ### S08 Artifact Library
 
