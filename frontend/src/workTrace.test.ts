@@ -29,6 +29,7 @@ const projection: TaskProjection = {
   status: "running",
   phase: "verification",
   clearanceContext: "restricted",
+  inputManifestRef: "intake-1",
   nodeConnectionRef: "node-1",
   ledgerHeadRef: "ledger-4",
   lastAppliedSequence: 12,

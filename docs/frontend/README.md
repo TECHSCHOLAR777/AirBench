@@ -43,7 +43,8 @@ Future frontend capabilities are tracked separately in [FE-FUT-01 through FE-FUT
 5. `frontend_contracts_and_state.md` for snapshots, sequence-numbered events, commands, provenance, permissions, and reconnect behavior.
 6. `frontend_validation_plan.md` for the six validation tracks, evidence, pass criteria, and failure tests.
 7. `frontend_development_workflow.md` for issue ownership, parallel work, integration order, and completion evidence.
-8. `frontend_validation_issues.md` for the six GitHub issue definitions, dependencies, labels, and acceptance evidence.
+8. `frontend_execution_plan.md` for the current dependency-aware implementation order, contract blockers, and validation lanes.
+9. `frontend_validation_issues.md` for the six GitHub issue definitions, dependencies, labels, and acceptance evidence.
 
 ## Frontend invariants
 
