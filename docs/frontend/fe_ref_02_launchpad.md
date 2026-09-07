@@ -30,6 +30,14 @@ Only one context panel opens at a time. This protects the prompt as the visual c
 
 `Launch` is the only primary action. It is disabled until the existing UI readiness rule is satisfied: a verified Node connection, a non-empty outcome, no incomplete selected file, and no pending task-create request. `Ctrl+Enter` or `Cmd+Enter` invokes the same action only when that rule already allows it. It cannot bypass readiness.
 
+## Continue work on Home
+
+Home may show one compact current-work card when the existing desktop session already holds a `TaskProjection` from the Node. It is not a history list, queue, or locally reconstructed task record.
+
+The card is limited to the Node-provided task title, request summary, status, phase, projection health, cursor, ledger head, and the latest typed event summary. It reuses deterministic event-sequence ordering and intentionally excludes raw payloads, model reasoning, and transport hashes. A non-current projection says that it is replaying, resynchronizing, or blocked, and states that consequential actions remain gated until the stream is current.
+
+`Open task` is local navigation to the existing task workspace. It creates no task, sends no command, and writes no ledger event. When there is no projection, Home says so honestly instead of showing a fabricated recent-task or review-queue count. Paged history and review data require their own Node projections.
+
 ## Routing boundary
 
 Auto route is visible because users need to understand that AirBench deliberately matches qualified capabilities to individual steps. It is not a model picker.
@@ -63,6 +71,7 @@ The implementation has source-level tests for:
 - source status that distinguishes selected, uploading, failed, and File Intake ready;
 - unavailable advanced routing preference with and without a verified Node;
 - typed task-create compatibility through the existing task composer tests.
+- deterministic Home current-work summaries, including an unordered valid event input, a non-current projection, and exclusion of raw payload hashes from the compact surface.
 
 The desktop smoke specification also checks the new prompt and that the routing panel exposes a disabled preference rather than a model endpoint. Full desktop execution remains subject to the existing WebDriver service issue tracked in FE-VAL-6. A real clearance-mismatch presentation must wait for a Node response contract that reports the mismatch without leaking forbidden capability metadata.
 
