@@ -175,6 +175,8 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **Rules**: the Node assigns authority and clearance; queue actions are ledgered.
 
+**Pre-contract state**: an absent Node review query is not an empty queue. The screen states that the clearance-filtered queue and ledgered actions have not been supplied, then offers only safe local navigation.
+
 ### S07 Artifact Review
 
 **User outcome**: inspect and decide on a real deliverable.
@@ -205,6 +207,8 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **Rules**: the UI cannot silently delete authoritative records.
 
+**Pre-contract state**: an absent Node artifact-library query is not an empty library. The screen states that status, clearance, version, provenance, and actions must come from the Node.
+
 ### S09 Task History
 
 **User outcome**: reconstruct earlier tasks and safely resume or clone when permitted.
@@ -215,6 +219,8 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **Rules**: history is rebuilt from snapshots and ledger references, not a model-written summary.
 
+**Pre-contract state**: the desktop does not assemble a local history. Until a paged Node projection exists, the screen identifies the missing contract rather than showing an unverified recent-task list.
+
 ### S10 Audit Ledger
 
 **User outcome**: verify and export the record of what happened.
@@ -224,6 +230,8 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 **Actions**: filter, inspect event, verify chain, export offline evidence.
 
 **Rules**: read-only for ordinary users; exports come from the Node.
+
+**Pre-contract state**: the desktop does not create or reconstruct a ledger. Until the Node supplies the read-only query, chain status, and export permission, the screen identifies the missing contract rather than reporting an empty or healthy ledger.
 
 ### S11 AirBench Node and Model Roster
 

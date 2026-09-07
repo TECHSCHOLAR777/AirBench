@@ -15,6 +15,7 @@ The local desktop foundation already covers the initial shell and connection pat
 
 - #73, #74, #75, #76, #77, and #78 provide the Tauri shell, approved Node profile path, typed task create and plan commands, cursor-aware task projection, and a non-optimistic stop request.
 - #106, #107, and #110 provide the Obsidian Signal and Ledger Paper shell, compact Launchpad, audit-safe Live Work Trace, local workspace command menu, and truthful empty task workspace state.
+- #81 and #82 now also provide truthful pre-contract gateways for Review, Artifacts, History, and Audit. They do not confuse an absent Node query with an empty queue, library, history, or ledger.
 - #64 through #68 have local fixtures or static checks. They remain open until their production evidence gates are met.
 
 The Tauri debug shell may be used for local smoke tests. It is not evidence of a packaged installer, WebDriver flow, or full no-egress proof.
@@ -47,8 +48,8 @@ The first interactive answer control starts only when the Node exposes its typed
 
 | Issue | Required Node projection before implementation | Why it is serialised |
 | --- | --- | --- |
-| #81 FE-DEV-09 | clearance-filtered review queue and artifact-library query plus policy-controlled actions | Queue membership, authority, and artifact visibility are Node policy decisions. |
-| #82 FE-DEV-10 | paged task-history, ledger query, chain verification, and offline export contracts | The client must not create a second audit store or export reconstructed local records. |
+| #81 FE-DEV-09 | Until the query exists, render a truthful gateway that identifies the missing clearance-filtered review or artifact projection and offers only local navigation. Full implementation needs a clearance-filtered review queue and artifact-library query plus policy-controlled actions. | Queue membership, authority, and artifact visibility are Node policy decisions. |
+| #82 FE-DEV-10 | Until the query exists, render a truthful gateway that identifies the missing history or ledger projection and offers only local navigation. Full implementation needs paged task-history, ledger query, chain verification, and offline export contracts. | The client must not create a second audit store or export reconstructed local records. |
 | #83 FE-DEV-11 | node health, qualified capability catalog, identity, and policy projections | The UI must not infer health, qualification, model roster, or sovereignty. |
 
 These are parallel only after the shared generated contracts are accepted. They must have separate files and worktrees. Contract changes are serialized through #74.

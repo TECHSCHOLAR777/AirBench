@@ -646,6 +646,28 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .task-empty-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 4px; }
 .task-empty-note { margin: 6px 0 0; color: var(--faint); font-size: 10px; line-height: 1.55; }
 
+.record-gateway { display: grid; gap: 18px; max-width: 810px; margin: 34px auto 0; }
+.record-gateway header { max-width: 740px; }
+.record-gateway header h1 { margin: 0 0 8px; font-size: clamp(29px, 3.5vw, 42px); }
+.record-gateway-state { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: flex-start; gap: 12px; padding: 17px; color: var(--info); background: color-mix(in srgb, var(--info-soft) 55%, var(--surface)); border: 1px solid color-mix(in srgb, var(--info) 28%, var(--line)); border-radius: var(--radius-md); box-shadow: var(--shadow-small); }
+.record-gateway-state-node_unavailable { color: var(--attention-ink); background: color-mix(in srgb, var(--attention-soft) 58%, var(--surface)); border-color: color-mix(in srgb, var(--attention) 30%, var(--line)); }
+.record-gateway-icon { display: grid; width: 37px; height: 37px; place-items: center; color: currentColor; background: color-mix(in srgb, currentColor 11%, transparent); border: 1px solid color-mix(in srgb, currentColor 24%, transparent); border-radius: 10px; }
+.record-gateway-state strong { display: block; color: var(--ink); font-size: 13px; }
+.record-gateway-state p { max-width: 640px; margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.record-gateway-requirement { padding: 15px 17px; background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.record-gateway-requirement .eyebrow { margin-bottom: 6px; color: var(--faint); }
+.record-gateway-requirement p:last-child { max-width: 680px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.record-gateway-context { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, .8fr); gap: 20px; padding: 18px; background: color-mix(in srgb, var(--surface) 90%, transparent); border: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 7%, transparent); }
+.record-gateway-context .eyebrow { margin-bottom: 6px; color: var(--info); }
+.record-gateway-context h2 { margin: 0 0 6px; font-size: 17px; }
+.record-gateway-context p:not(.eyebrow) { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.record-gateway-context dl { display: grid; gap: 7px; margin: 0; }
+.record-gateway-context dl > div { display: grid; grid-template-columns: minmax(90px, .35fr) minmax(0, 1fr); gap: 10px; padding-bottom: 7px; border-bottom: 1px solid var(--line); }
+.record-gateway-context dl > div:last-child { padding-bottom: 0; border-bottom: 0; }
+.record-gateway-context dt { color: var(--faint); font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.record-gateway-context dd { overflow-wrap: anywhere; margin: 0; color: var(--ink-soft); font-family: var(--font-mono); font-size: 10px; }
+.record-gateway-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+
 .command-palette-overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: start center; padding: min(14vh, 132px) 24px 24px; background: color-mix(in srgb, var(--canvas-deep) 66%, transparent); backdrop-filter: blur(9px) saturate(104%); }
 .command-palette { width: min(650px, 100%); overflow: hidden; color: var(--ink); background: linear-gradient(145deg, color-mix(in srgb, var(--surface-raised) 92%, transparent), color-mix(in srgb, var(--surface) 94%, transparent)); border: 1px solid var(--line-strong); border-radius: var(--radius-md); box-shadow: 0 28px 90px color-mix(in srgb, var(--canvas-deep) 62%, transparent), inset 0 1px 0 color-mix(in srgb, #ffffff 11%, transparent); backdrop-filter: blur(28px) saturate(118%); }
 .command-palette-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 17px 18px 13px; border-bottom: 1px solid var(--line); }
@@ -672,8 +694,6 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .command-palette-footer span { display: inline-flex; align-items: center; gap: 5px; }
 .command-palette-footer kbd { min-width: auto; margin: 0; color: var(--faint); background: transparent; border-color: var(--line); }
 
-.placeholder-view { max-width: 690px; margin: 70px auto; }
-.placeholder-view .secondary-button { margin-top: 28px; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 30px; background: rgba(0, 0, 0, .54); backdrop-filter: blur(6px); }
 .modal-card { position: relative; width: min(490px, 100%); padding: 30px; color: var(--ink); background: var(--surface-raised); border: 1px solid var(--line-strong); border-radius: var(--radius-md); box-shadow: var(--shadow); }
 .modal-card h2 { margin-bottom: 11px; font-size: 22px; line-height: 1.25; letter-spacing: -.03em; }
@@ -733,6 +753,7 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
   .technical-event-list dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .plan-review-footer, .composer-footer { align-items: stretch; flex-direction: column; }
   .task-empty-view { margin: 32px auto; padding: 24px; }
+  .record-gateway-context { grid-template-columns: 1fr; }
   .launchpad-footer .composer-tools { align-items: flex-start; flex-direction: column; }
   .composer-footer .primary-button { width: 100%; }
 }
