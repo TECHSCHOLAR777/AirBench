@@ -1,0 +1,6 @@
+workflows:
+  refinery_inspection_review:
+    required_workers: [lead_worker, evidence_vision_worker, reasoning_worker, independent_verification_worker, render_review_worker]
+    required_evidence: [source_region, confidence, clearance, taint, ledger_reference]
+    completion_requires: [retrieval, deterministic_calculation, independent_verification, docx_structural_check, docx_visual_check, human_review_record]
+    missing_verifier_result: needs_review
