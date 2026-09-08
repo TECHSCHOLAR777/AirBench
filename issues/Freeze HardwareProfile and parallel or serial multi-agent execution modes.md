@@ -591,6 +591,8 @@ The M5.4 adapter implementation is complete at the typed-contract and determinis
 
 This does not close the hardware-scheduling issue. Its remaining M5-dependent evidence is still required: signed target-machine measurements, live model load/residency/eviction and resource measurements, offline vLLM startup with network isolation, reproducible parallel and serial worker-team traces, and the signed ledger/acceptance export. Until those artifacts exist, M5.4 is code/test complete but the combined M4/M5 deployment evidence remains open.
 
+The approved remote-endpoint transport is also recorded as a separate provider-neutral seam. It allows the control plane to run without a local GPU, but it does not change M4 scheduling ownership or turn endpoint reachability into hardware admission. Remote endpoint identity, qualification, policy, and egress checks remain local authority; live certificate, secret-store, remote readiness, and target-node evidence are still required before production acceptance.
+
 ## References
 
 - `docs/architecture_design.md`
