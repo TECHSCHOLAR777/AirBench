@@ -9,7 +9,7 @@ from .ledger import (EVENT_TYPES, Checkpoint, CommittedTransaction, EventLedger,
 from .models import *
 from .models import (TaskEnvelope, TeamPlan, TaskPlanReview, WorkerAssignment, WorkPacket, WorkerResult,
                      CompletionRecord, HandoffSubmission, JoinBarrier, ModelCallRequest, RoutingDecision, TeamResourcePlan, HardwareProfile,
-                     ToolAction, FactEnvelope, UntrustedEvidence, LedgerEventEnvelope,
+                     ToolAction, FactEnvelope, UntrustedEvidence, LedgerEventEnvelope, StageSignals,
                      NodeCommandEnvelope, NodeCommandResult, BarrierStatus, LeaseStatus, work_packet_hash)
 from .projections import ProjectionBuilder, ProjectionSnapshot
 from .recovery import RecoveryManager, RecoveryPoint, RetryRecord, SideEffectUncertain

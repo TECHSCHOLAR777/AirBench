@@ -29,6 +29,7 @@ CONTRACT_NAMES = (
     "HandoffSubmission",
     "JoinBarrier",
     "CompletionRecord",
+    "StageSignals",
     "ModelCallRequest",
     "RoutingDecision",
     "TeamResourcePlan",

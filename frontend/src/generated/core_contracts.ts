@@ -314,6 +314,15 @@ export interface CompletionRecord extends ContractEnvelope {
   completed_at?: string;
 }
 
+export interface StageSignals extends ContractEnvelope {
+  exploration?: boolean;
+  error_severity?: string;
+  spinning?: boolean;
+  recent_production?: boolean;
+  test_result?: string;
+  context_pressure?: string;
+}
+
 export interface ModelCallRequest extends ContractEnvelope {
   request_id: string;
   task_id: string;
@@ -331,6 +340,9 @@ export interface ModelCallRequest extends ContractEnvelope {
   timeout_ms: number;
   role?: string;
   resource_lease_id?: string;
+  stage?: string;
+  previous_verification_status?: string;
+  stage_signals?: StageSignals;
 }
 
 export interface RoutingDecision extends ContractEnvelope {
@@ -347,6 +359,17 @@ export interface RoutingDecision extends ContractEnvelope {
   resource_admission: string;
   status: ContractStatus;
   reason: string;
+  stage?: string;
+  stage_signals?: StageSignals;
+  routing_mode?: string;
+  escalation_sticky?: boolean;
+  attempt?: number;
+  task_id?: string;
+  team_id?: string;
+  worker_id?: string;
+  resource_lease_id?: string;
+  hardware_profile_ref?: string;
+  selected_artifact_digest?: string;
 }
 
 export interface TeamResourcePlan extends ContractEnvelope {
