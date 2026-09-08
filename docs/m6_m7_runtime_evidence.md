@@ -27,6 +27,22 @@ The M7.1 issue should not be closed until the production parser adapter set, ren
 
 Implemented in `airbench/sandbox.py`.
 
+- `SandboxProvider` is the typed provider boundary. The runner no longer
+  accepts a caller-supplied hard-isolation boolean; capabilities come from the
+  provider identity and are hashed into the authorization and result evidence.
+- `LocalSubprocessProvider` is explicitly a development provider. It reports
+  no hard network, filesystem, non-root, or syscall isolation, so it cannot
+  satisfy a production hard-isolation policy.
+- `SandboxExecutionRequest` carries the command, working directory, read and
+  write scopes, and resource limits explicitly to the future OS/container
+  provider. A provider that cannot enforce a configured CPU, memory, disk, or
+  process limit is rejected before execution.
+- Every run produces a typed `SandboxManifest` with provider identity,
+  capability digest, policy hash, hashed path scopes, configured limits,
+  output hash, observed wall time, cleanup status, and a ledger reference.
+- Worker stdout and stderr are capped inside the worker before being returned,
+  and output overflow becomes a failed execution rather than an apparently
+  successful result.
 - `SandboxRunner` accepts only a validated `ToolAction` for `python.execute`.
 - Execution receives a fresh scratch directory, a sanitized environment, bounded wall time, bounded code size, bounded output, and read or write path checks.
 - Scratch directories are removed after success, timeout, worker failure, or malformed worker output. Worker launch and result decoding failures still produce a `tool.result` event with a failed status.
