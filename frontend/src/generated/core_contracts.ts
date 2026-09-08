@@ -3,12 +3,15 @@
 
 export const CORE_CONTRACT_SCHEMA_VERSION = "1.0" as const;
 export const CORE_CONTRACT_COMPATIBILITY_ID = "airbench-core-contracts" as const;
+export const NODE_PROTOCOL_VERSION = "0.1" as const;
+export const NODE_PROTOCOL_COMPATIBILITY_ID = "airbench-node-protocol" as const;
 
 export type Clearance = "public" | "internal" | "restricted" | "secret";
 export type Taint = "clean" | "untrusted" | "contaminated";
 export type ContractStatus = "proposed" | "accepted" | "rejected" | "failed" | "needs_review" | "queued" | "cancelled" | "verified";
 export type LeaseStatus = "requested" | "granted" | "active" | "released" | "expired" | "cancelled" | "revoked" | "failed";
 export type BarrierStatus = "waiting" | "completed" | "missing" | "conflicting" | "timed_out" | "cancelled" | "needs_review";
+export type NodeTaskStatus = "accepted" | "planning" | "running" | "needs_review" | "completed" | "blocked" | "failed" | "stopped";
 
 export const LEDGER_EVENT_TYPES = [
   "artifact.checked",
@@ -151,6 +154,49 @@ export type LedgerEventType = typeof LEDGER_EVENT_TYPES[number];
 export interface ContractEnvelope {
   schema_version: string;
   compatibility_id: string;
+}
+
+export interface NodeWireContractEnvelope {
+  schemaVersion: string;
+  compatibilityId: string;
+}
+
+export interface NodeLifecycleEventPayload {
+  phase: string;
+  status: NodeTaskStatus;
+  summary?: string | null;
+}
+
+export interface NodeWorkerEventPayload {
+  role: string;
+  label: string;
+  status: string;
+}
+
+export interface NodeEvidenceEventPayload {
+  evidence: NodeEvidenceRef;
+}
+
+export interface NodeVerificationEventPayload {
+  summary: string;
+  passed: boolean;
+}
+
+export interface NodeApprovalEventPayload {
+  reason: string;
+}
+
+export interface NodeArtifactEventPayload {
+  artifactId: string;
+}
+
+export interface NodeSummaryEventPayload {
+  summary: string;
+}
+
+export interface NodeUnknownEventPayload {
+  originalType: string;
+  raw: unknown;
 }
 
 export interface TaskEnvelope extends ContractEnvelope {
@@ -571,4 +617,89 @@ export interface NodeCommandResult extends ContractEnvelope {
   code?: string | null;
   message?: string | null;
   reason?: string | null;
+}
+
+export interface NodeHandshake extends ContractEnvelope {
+  node_identity: string;
+  protocol_version: string;
+  protocol_compatibility_id: string;
+  supported_protocol_versions: Array<string>;
+  clearance_context: Clearance;
+  authenticated_subject: string;
+  domain_pack_ref: string;
+  ledger_event_ref: string;
+}
+
+export interface NodeProvenanceRef extends NodeWireContractEnvelope {
+  sourceDocumentId: string;
+  sourceVersion: string;
+  location: Record<string, unknown> | null;
+  extractionMethod: string;
+  observedAt: string | null;
+  ingestedAt: string;
+  ledgerEventRef: string;
+}
+
+export interface NodeEvidenceRef extends NodeWireContractEnvelope {
+  evidenceId: string;
+  contentHash: string;
+  source: NodeProvenanceRef;
+  confidence: number;
+  clearance: Clearance;
+  taint: Taint;
+}
+
+export interface NodeFactRef extends NodeWireContractEnvelope {
+  factId: string;
+  value: unknown;
+  source: NodeProvenanceRef;
+  confidence: number;
+  clearance: Clearance;
+  taint: Taint;
+  parentFactIds: Array<string>;
+  unit: string | null;
+  derivation: Record<string, unknown> | null;
+  supersededBy: string | null;
+}
+
+export interface NodeTaskSnapshot extends NodeWireContractEnvelope {
+  taskId: string;
+  snapshotId: string;
+  asOfSequence: number;
+  title: string;
+  requestSummary: string;
+  status: NodeTaskStatus;
+  phase: string;
+  clearanceContext: Clearance;
+  inputManifestRef: string;
+  evidence: Array<NodeEvidenceRef>;
+  facts: Array<NodeFactRef>;
+  artifactRefs: Array<string>;
+  unresolvedQuestions: Array<string>;
+  nodeConnectionRef: string;
+  ledgerHeadRef: string;
+}
+
+export interface NodeTaskEvent extends NodeWireContractEnvelope {
+  eventId: string;
+  taskId: string;
+  sequence: number;
+  eventType: string;
+  occurredAt: string;
+  actor: string;
+  clearanceContext: Clearance;
+  payloadHash: string;
+  ledgerEventRef: string;
+  payload: Record<string, unknown>;
+}
+
+export interface NodeTaskEventBatch extends ContractEnvelope {
+  stream_id: string;
+  node_identity: string;
+  protocol_version: string;
+  clearance_context: Clearance;
+  events: Array<NodeTaskEvent>;
+  next_sequence: number;
+  has_more: boolean;
+  ledger_event_refs: Array<string>;
 }

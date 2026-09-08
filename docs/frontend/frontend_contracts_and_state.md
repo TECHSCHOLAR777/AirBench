@@ -86,6 +86,14 @@ TaskEvent
   ledger_event_ref
 ```
 
+The desktop Node wire event uses camel-case field names and carries a
+`compatibilityId` of `airbench-node-protocol`. Its surrounding event batch is
+the core snake-case contract with `schema_version: 1.0` and
+`compatibility_id: airbench-core-contracts`. The Python Node contract classes
+are authoritative for both envelopes; TypeScript is generated from them and
+Rust rejects either envelope when its version or compatibility identity is not
+supported.
+
 The `sequence` is monotonic per task stream or per documented stream scope. The client stores the last applied sequence in memory and may persist only a safe cursor if the Node permits it.
 
 Required event families include:
@@ -237,6 +245,8 @@ The frontend must not infer clearance from filenames, project names, or user-ent
 - Additive fields are ignored safely; breaking changes require a version negotiation result.
 - A schema mismatch blocks consequential actions and directs the operator to the compatible application or Node version.
 - Generated TypeScript types must come from the authoritative contract source. Handwritten duplicate interfaces are not acceptable for the wire protocol.
+- The current Node response compatibility identifier is `airbench-node-protocol` at protocol version `0.1`. Core command, plan, and event-batch envelopes remain `airbench-core-contracts` at schema version `1.0`.
+- Every Node event, snapshot, fact, evidence reference, and provenance reference retains its Node wire envelope. The frontend projection may rename fields for local use, but it cannot remove the compatibility, source, confidence, clearance, taint, derivation, or ledger metadata.
 
 ## 12. Ledger relationship
 

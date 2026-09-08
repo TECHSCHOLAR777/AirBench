@@ -7,6 +7,7 @@ export interface NativeNodeConnectionResult {
   profile_id: string;
   node_identity: string;
   protocol_version: string;
+  protocol_compatibility_id: string;
   clearance_context: Clearance;
   authenticated_subject: string;
   domain_pack_ref: string;

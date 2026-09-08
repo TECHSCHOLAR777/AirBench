@@ -11,6 +11,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "create:manifest": "node scripts/create-resource-manifest.mjs",
     "validate:node": "powershell -NoProfile -ExecutionPolicy Bypass -File validation/validate-node-transport.ps1",
+    "validate:python-node": "powershell -NoProfile -ExecutionPolicy Bypass -File validation/validate-python-node-transport.ps1",
     "validate:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-offline-installer.ps1",
     "test": "vitest run",
     "test:watch": "vitest",

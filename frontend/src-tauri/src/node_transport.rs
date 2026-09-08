@@ -10,6 +10,9 @@ use tauri::Manager;
 
 const HANDSHAKE_PATH: &str = "/api/v1/node/handshake";
 const MAX_TASK_ID_BYTES: usize = 128;
+const CORE_SCHEMA_VERSION: &str = "1.0";
+const CORE_COMPATIBILITY_ID: &str = "airbench-core-contracts";
+const NODE_PROTOCOL_COMPATIBILITY_ID: &str = "airbench-node-protocol";
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -50,8 +53,12 @@ pub enum NodeTransport {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 struct NodeHandshake {
+    schema_version: String,
+    compatibility_id: String,
     node_identity: String,
     protocol_version: String,
+    protocol_compatibility_id: String,
+    supported_protocol_versions: Vec<String>,
     clearance_context: String,
     authenticated_subject: String,
     domain_pack_ref: String,
@@ -65,6 +72,7 @@ pub struct NodeConnectionResult {
     pub profile_id: String,
     pub node_identity: String,
     pub protocol_version: String,
+    pub protocol_compatibility_id: String,
     pub clearance_context: String,
     pub authenticated_subject: String,
     pub domain_pack_ref: String,
@@ -79,6 +87,7 @@ pub struct TaskEvent {
     pub task_id: String,
     pub sequence: u64,
     pub schema_version: String,
+    pub compatibility_id: String,
     pub event_type: String,
     pub occurred_at: String,
     pub actor: String,
@@ -91,6 +100,8 @@ pub struct TaskEvent {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct TaskEventBatch {
+    pub schema_version: String,
+    pub compatibility_id: String,
     pub stream_id: String,
     pub node_identity: String,
     pub protocol_version: String,
@@ -106,6 +117,7 @@ pub struct TaskEventBatch {
 pub struct TaskSnapshot {
     pub task_id: String,
     pub schema_version: String,
+    pub compatibility_id: String,
     pub snapshot_id: String,
     pub as_of_sequence: u64,
     pub title: String,
@@ -586,6 +598,29 @@ fn validate_node_response_identity(
     Ok(())
 }
 
+fn validate_core_envelope(
+    schema_version: &str,
+    compatibility_id: &str,
+) -> Result<(), NodeTransportError> {
+    if schema_version != CORE_SCHEMA_VERSION || compatibility_id != CORE_COMPATIBILITY_ID {
+        return Err(NodeTransportError::ProtocolMismatch(
+            "The response does not match the supported AirBench core contract.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_node_wire_compatibility(
+    compatibility_id: &str,
+) -> Result<(), NodeTransportError> {
+    if compatibility_id != NODE_PROTOCOL_COMPATIBILITY_ID {
+        return Err(NodeTransportError::ProtocolMismatch(
+            "The Node response compatibility contract is not supported by this application.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn fetch_task_snapshot_profile(
     profile: NodeProfile,
     task_id: String,
@@ -607,6 +642,7 @@ pub async fn fetch_task_snapshot_profile(
         &snapshot.clearance_context,
     )
     .map_err(String::from)?;
+    validate_node_wire_compatibility(&snapshot.compatibility_id).map_err(String::from)?;
     Ok(snapshot)
 }
 
@@ -631,6 +667,7 @@ pub async fn fetch_task_plan_profile(
         &plan.clearance_context,
     )
     .map_err(String::from)?;
+    validate_core_envelope(&plan.schema_version, &plan.compatibility_id).map_err(String::from)?;
     if !matches!(plan.plan_state.as_str(), "not_ready" | "ready" | "queued" | "needs_review" | "blocked" | "rejected") {
         return Err(NodeTransportError::EventSchemaInvalid(
             "The Node plan state is not supported by this client.".to_string(),
@@ -656,6 +693,7 @@ pub async fn create_task_profile(
     profile: NodeProfile,
     command: NodeCommandEnvelope,
 ) -> Result<CreateTaskResponse, String> {
+    validate_core_envelope(&command.schema_version, &command.compatibility_id).map_err(String::from)?;
     if command.command_type != "task.create" || command.task_id.is_some() || command.expected_sequence.is_some() {
         return Err(NodeTransportError::CommandSchemaInvalid(
             "The task creation command envelope is invalid.".to_string(),
@@ -677,6 +715,8 @@ pub async fn create_task_profile(
         &response.snapshot.clearance_context,
     )
     .map_err(String::from)?;
+    validate_node_wire_compatibility(&response.snapshot.compatibility_id).map_err(String::from)?;
+    validate_core_envelope(&response.command.schema_version, &response.command.compatibility_id).map_err(String::from)?;
     validate_node_response_identity(
         &profile,
         &response.command.node_identity,
@@ -697,6 +737,7 @@ pub async fn send_task_command_profile(
     profile: NodeProfile,
     command: NodeCommandEnvelope,
 ) -> Result<NodeCommandResult, String> {
+    validate_core_envelope(&command.schema_version, &command.compatibility_id).map_err(String::from)?;
     let path = command_path(&command).map_err(String::from)?;
     if command.expected_sequence.is_none() {
         return Err(NodeTransportError::CommandSchemaInvalid(
@@ -724,6 +765,7 @@ pub async fn send_task_command_profile(
         &result.clearance_context,
     )
     .map_err(String::from)?;
+    validate_core_envelope(&result.schema_version, &result.compatibility_id).map_err(String::from)?;
     if result.task_id.as_deref() != Some(task_id.as_str()) {
         return Err(NodeTransportError::CommandSchemaInvalid(
             "The command result task identity does not match the request.".to_string(),
@@ -763,6 +805,9 @@ pub async fn connect_node_profile(profile: NodeProfile) -> Result<NodeConnection
         )
     })?;
 
+    validate_core_envelope(&handshake.schema_version, &handshake.compatibility_id).map_err(String::from)?;
+    validate_node_wire_compatibility(&handshake.protocol_compatibility_id).map_err(String::from)?;
+
     if handshake.node_identity != profile.node_identity {
         return Err(NodeTransportError::IdentityMismatch(
             "The connected endpoint identity does not match the approved profile.".to_string(),
@@ -772,6 +817,16 @@ pub async fn connect_node_profile(profile: NodeProfile) -> Result<NodeConnection
     if handshake.protocol_version != profile.protocol_version {
         return Err(NodeTransportError::ProtocolMismatch(
             "The connected Node protocol is not compatible with this application.".to_string(),
+        )
+        .into());
+    }
+    if !handshake
+        .supported_protocol_versions
+        .iter()
+        .any(|version| version == &profile.protocol_version)
+    {
+        return Err(NodeTransportError::ProtocolMismatch(
+            "The connected Node did not advertise the approved protocol version.".to_string(),
         )
         .into());
     }
@@ -805,6 +860,7 @@ pub async fn connect_node_profile(profile: NodeProfile) -> Result<NodeConnection
         profile_id: profile.profile_id,
         node_identity: handshake.node_identity,
         protocol_version: handshake.protocol_version,
+        protocol_compatibility_id: handshake.protocol_compatibility_id,
         clearance_context: handshake.clearance_context,
         authenticated_subject: handshake.authenticated_subject,
         domain_pack_ref: handshake.domain_pack_ref,
@@ -856,6 +912,7 @@ fn validate_event_batch(
     task_id: &str,
     after_sequence: u64,
 ) -> Result<(), NodeTransportError> {
+    validate_core_envelope(&batch.schema_version, &batch.compatibility_id)?;
     if batch.stream_id != task_id {
         return Err(NodeTransportError::EventSchemaInvalid(
             "The event batch stream does not match the requested task.".to_string(),
@@ -882,6 +939,12 @@ fn validate_event_batch(
         if event.task_id != task_id {
             return Err(NodeTransportError::EventSchemaInvalid(
                 "An event belongs to a different task.".to_string(),
+            ));
+        }
+        validate_node_wire_compatibility(&event.compatibility_id)?;
+        if event.schema_version != batch.protocol_version {
+            return Err(NodeTransportError::EventSchemaInvalid(
+                "An event schema version does not match the event batch protocol.".to_string(),
             ));
         }
         if [
@@ -960,6 +1023,7 @@ pub async fn fetch_task_events_profile(
         )
         .into());
     }
+    validate_core_envelope(&batch.schema_version, &batch.compatibility_id).map_err(String::from)?;
     if batch.protocol_version != profile.protocol_version {
         return Err(NodeTransportError::ProtocolMismatch(
             "The event stream protocol is not compatible with this application.".to_string(),
@@ -1181,6 +1245,7 @@ mod tests {
             "taskId": "task-1",
             "sequence": 1,
             "schemaVersion": "0.1",
+            "compatibilityId": "airbench-node-protocol",
             "eventType": "task.accepted",
             "occurredAt": "2026-09-06T00:00:00Z",
             "actor": "node",
@@ -1191,6 +1256,8 @@ mod tests {
         }))
         .unwrap();
         let mut batch = TaskEventBatch {
+            schema_version: "1.0".to_string(),
+            compatibility_id: "airbench-core-contracts".to_string(),
             stream_id: "task-1".to_string(),
             node_identity: "node-1".to_string(),
             protocol_version: "0.1".to_string(),
@@ -1227,6 +1294,18 @@ mod tests {
         assert!(matches!(
             validate_event_batch(&batch, "task-1", 0),
             Err(NodeTransportError::EventSchemaInvalid(_))
+        ));
+    }
+
+    #[test]
+    fn incompatible_contract_envelopes_fail_closed() {
+        assert!(matches!(
+            validate_core_envelope("1.0", "foreign-core-contracts"),
+            Err(NodeTransportError::ProtocolMismatch(_))
+        ));
+        assert!(matches!(
+            validate_node_wire_compatibility("foreign-node-contract"),
+            Err(NodeTransportError::ProtocolMismatch(_))
         ));
     }
 

@@ -1,9 +1,9 @@
-"""Generate the frontend TypeScript view of the Python core contracts.
+"""Generate the frontend TypeScript view of the Python Node contracts.
 
 The Python contract classes are authoritative. The generated file is a wire
 type dependency for the frontend and must not become a second handwritten
-schema. The Node-specific protocol remains separate until its backend issue
-defines that contract.
+schema. Core contracts retain their Python snake-case representation; the
+Node response contracts explicitly describe the camel-case desktop wire view.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import argparse
 import json
 import sys
 import types
-from dataclasses import MISSING, fields
+from dataclasses import MISSING, fields, is_dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
@@ -42,6 +42,24 @@ CONTRACT_NAMES = (
     "LedgerEventEnvelope",
     "NodeCommandEnvelope",
     "NodeCommandResult",
+    "NodeHandshake",
+    "NodeProvenanceRef",
+    "NodeEvidenceRef",
+    "NodeFactRef",
+    "NodeTaskSnapshot",
+    "NodeTaskEvent",
+    "NodeTaskEventBatch",
+)
+
+PLAIN_TYPE_NAMES = (
+    "NodeLifecycleEventPayload",
+    "NodeWorkerEventPayload",
+    "NodeEvidenceEventPayload",
+    "NodeVerificationEventPayload",
+    "NodeApprovalEventPayload",
+    "NodeArtifactEventPayload",
+    "NodeSummaryEventPayload",
+    "NodeUnknownEventPayload",
 )
 
 sys.path.insert(0, str(ROOT))
@@ -67,7 +85,7 @@ def _ts_type(annotation: Any) -> str:
         return f"Record<string, {_ts_type(args[1])}>" if len(args) == 2 else "Record<string, unknown>"
     if isinstance(annotation, type) and issubclass(annotation, Enum):
         return annotation.__name__
-    if isinstance(annotation, type) and issubclass(annotation, models.Contract):
+    if isinstance(annotation, type) and (is_dataclass(annotation) or issubclass(annotation, models.Contract)):
         return annotation.__name__
     if annotation is str:
         return "string"
@@ -84,15 +102,28 @@ def _is_optional(field: Any) -> bool:
     return field.default is not MISSING or field.default_factory is not MISSING
 
 
+def _camel_case(name: str) -> str:
+    parts = name.split("_")
+    return parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
+
+
 def _enum_block(enum: type[Enum]) -> str:
     values = " | ".join(json.dumps(member.value) for member in enum)
     return f"export type {enum.__name__} = {values};"
 
 
+def _is_node_wire_contract(contract: type[Any]) -> bool:
+    return isinstance(contract, type) and issubclass(contract, models.NodeWireContract)
+
+
+def _is_node_payload(name: str) -> bool:
+    return name in PLAIN_TYPE_NAMES
+
+
 def generate() -> str:
     hints_by_class = {
         name: get_type_hints(getattr(models, name), vars(models), vars(models))
-        for name in CONTRACT_NAMES
+        for name in (*PLAIN_TYPE_NAMES, *CONTRACT_NAMES)
     }
     lines = [
         "// AUTO-GENERATED FILE. DO NOT EDIT.",
@@ -100,9 +131,11 @@ def generate() -> str:
         "",
         f'export const CORE_CONTRACT_SCHEMA_VERSION = {json.dumps(models.SCHEMA_VERSION)} as const;',
         f'export const CORE_CONTRACT_COMPATIBILITY_ID = {json.dumps(models.COMPATIBILITY_ID)} as const;',
+        f'export const NODE_PROTOCOL_VERSION = {json.dumps(models.NODE_PROTOCOL_VERSION)} as const;',
+        f'export const NODE_PROTOCOL_COMPATIBILITY_ID = {json.dumps(models.NODE_PROTOCOL_COMPATIBILITY_ID)} as const;',
         "",
     ]
-    for enum in (models.Clearance, models.Taint, models.ContractStatus, models.LeaseStatus, models.BarrierStatus):
+    for enum in (models.Clearance, models.Taint, models.ContractStatus, models.LeaseStatus, models.BarrierStatus, models.NodeTaskStatus):
         lines.append(_enum_block(enum))
     lines.extend([
         "",
@@ -118,17 +151,26 @@ def generate() -> str:
         "  compatibility_id: string;",
         "}",
         "",
+        "export interface NodeWireContractEnvelope {",
+        "  schemaVersion: string;",
+        "  compatibilityId: string;",
+        "}",
+        "",
     ])
-    for name in CONTRACT_NAMES:
+    for name in (*PLAIN_TYPE_NAMES, *CONTRACT_NAMES):
         contract = getattr(models, name)
         hints = hints_by_class[name]
-        lines.append(f"export interface {name} extends ContractEnvelope {{")
+        is_plain = name in PLAIN_TYPE_NAMES
+        base = "" if is_plain else ("NodeWireContractEnvelope" if _is_node_wire_contract(contract) else "ContractEnvelope")
+        extends = f" extends {base}" if base else ""
+        lines.append(f"export interface {name}{extends} {{")
         for field in fields(contract):
             if not field.init:
                 continue
             optional = "?" if _is_optional(field) else ""
             field_type = "LedgerEventType" if name == "LedgerEventEnvelope" and field.name == "event_type" else _ts_type(hints[field.name])
-            lines.append(f"  {field.name}{optional}: {field_type};")
+            field_name = _camel_case(field.name) if (_is_node_wire_contract(contract) or _is_node_payload(name)) else field.name
+            lines.append(f"  {field_name}{optional}: {field_type};")
         lines.extend(["}", ""])
     return "\n".join(lines)
 

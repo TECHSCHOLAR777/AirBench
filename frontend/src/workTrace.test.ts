@@ -4,9 +4,13 @@ import type { EvidenceRef, TaskEvent, TaskProjection } from "./protocol";
 import { buildWorkTrace } from "./workTrace";
 
 const evidence: EvidenceRef = {
+  schemaVersion: "0.1",
+  compatibilityId: "airbench-node-protocol",
   evidenceId: "evidence-1",
   contentHash: "sha256:evidence",
   source: {
+    schemaVersion: "0.1",
+    compatibilityId: "airbench-node-protocol",
     sourceDocumentId: "inspection-report.pdf",
     sourceVersion: "revision-1",
     location: { page: 2, region: "table:1" },
@@ -23,6 +27,7 @@ const evidence: EvidenceRef = {
 const projection: TaskProjection = {
   taskId: "task-1",
   schemaVersion: "0.1",
+  compatibilityId: "airbench-node-protocol",
   snapshotId: "snapshot-1",
   title: "Inspection approval note",
   requestSummary: "Review a scanned inspection report.",
@@ -74,6 +79,7 @@ function event(sequence: number, eventType: TaskEvent["eventType"], payload: Tas
     taskId: "task-1",
     sequence,
     schemaVersion: "0.1",
+    compatibilityId: "airbench-node-protocol",
     occurredAt: `2026-09-07T00:00:${String(sequence).padStart(2, "0")}Z`,
     actor: "orchestrator",
     clearanceContext: "restricted",

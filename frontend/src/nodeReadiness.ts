@@ -89,6 +89,7 @@ export function buildNodeReadiness(
           { label: "Domain pack", value: displayValue(connection.domainPackRef) },
           { label: "Transport", value: transportLabel(profile) },
           { label: "Protocol", value: displayValue(connection.protocolVersion) },
+          { label: "Protocol contract", value: displayValue(connection.protocolCompatibilityId) },
           { label: "Handshake ledger", value: displayValue(connection.ledgerEventRef) },
         ],
       },

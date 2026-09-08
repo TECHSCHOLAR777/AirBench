@@ -25,6 +25,7 @@ def fixture_events() -> list[dict[str, object]]:
     base = {
         "taskId": "task-fixture",
         "schemaVersion": "0.1",
+        "compatibilityId": "airbench-node-protocol",
         "occurredAt": "2026-09-06T00:00:00Z",
         "actor": "fixture-node",
         "clearanceContext": "restricted",
@@ -42,6 +43,7 @@ def fixture_snapshot(server: "FixtureServer") -> dict[str, object]:
     return {
         "taskId": "task-fixture",
         "schemaVersion": server.protocol_version,
+        "compatibilityId": "airbench-node-protocol",
         "snapshotId": "snapshot-fixture-1",
         "asOfSequence": len(fixture_events()),
         "title": "Synthetic fixture task",
@@ -146,6 +148,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 {"event": "events_returned", "task_id": "task-fixture", "after_sequence": str(after_sequence), "count": str(len(events))}
             )
             self._json(200, {
+                "schema_version": "1.0",
+                "compatibility_id": "airbench-core-contracts",
                 "stream_id": "task-fixture",
                 "node_identity": self.server.node_identity,  # type: ignore[attr-defined]
                 "protocol_version": self.server.protocol_version,  # type: ignore[attr-defined]
@@ -229,8 +233,12 @@ class FixtureHandler(BaseHTTPRequestHandler):
             return
 
         payload = {
+            "schema_version": "1.0",
+            "compatibility_id": "airbench-core-contracts",
             "node_identity": self.server.node_identity,  # type: ignore[attr-defined]
             "protocol_version": self.server.protocol_version,  # type: ignore[attr-defined]
+            "protocol_compatibility_id": "airbench-node-protocol",
+            "supported_protocol_versions": [self.server.protocol_version],
             "clearance_context": self.server.clearance_context,  # type: ignore[attr-defined]
             "authenticated_subject": self.server.authenticated_subject,  # type: ignore[attr-defined]
             "domain_pack_ref": self.server.domain_pack_ref,  # type: ignore[attr-defined]

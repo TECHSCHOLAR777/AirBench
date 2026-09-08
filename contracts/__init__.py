@@ -10,7 +10,14 @@ from .models import *
 from .models import (TaskEnvelope, TeamPlan, TaskPlanReview, WorkerAssignment, WorkPacket, WorkerResult,
                      CompletionRecord, HandoffSubmission, JoinBarrier, ModelCallRequest, RoutingDecision, TeamResourcePlan, HardwareProfile,
                      ToolAction, FactEnvelope, UntrustedEvidence, LedgerEventEnvelope, StageSignals,
-                     NodeCommandEnvelope, NodeCommandResult, BarrierStatus, LeaseStatus, work_packet_hash)
+                     NodeCommandEnvelope, NodeCommandResult, NodeHandshake, NodeWireContract,
+                     NodeTaskStatus, NodeProvenanceRef, NodeEvidenceRef, NodeFactRef,
+                     NodeTaskSnapshot, NodeTaskEvent, NodeTaskEventBatch,
+                     NodeLifecycleEventPayload, NodeWorkerEventPayload, NodeEvidenceEventPayload,
+                     NodeVerificationEventPayload, NodeApprovalEventPayload, NodeArtifactEventPayload,
+                     NodeSummaryEventPayload, NodeUnknownEventPayload,
+                     NODE_PROTOCOL_VERSION, NODE_PROTOCOL_COMPATIBILITY_ID,
+                     BarrierStatus, LeaseStatus, work_packet_hash)
 from .projections import ProjectionBuilder, ProjectionSnapshot
 from .recovery import RecoveryManager, RecoveryPoint, RetryRecord, SideEffectUncertain
 from .verification import verify_projection_export, verify_signed_export
@@ -40,7 +47,13 @@ __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "sta
            "TaskEnvelope", "TeamPlan", "TaskPlanReview", "WorkerAssignment", "WorkPacket", "WorkerResult",
            "CompletionRecord", "HandoffSubmission", "JoinBarrier", "ModelCallRequest", "RoutingDecision", "TeamResourcePlan", "HardwareProfile",
            "ToolAction", "FactEnvelope", "UntrustedEvidence", "LedgerEventEnvelope",
-           "NodeCommandEnvelope", "NodeCommandResult",
+           "NodeCommandEnvelope", "NodeCommandResult", "NodeHandshake", "NodeWireContract",
+           "NodeTaskStatus", "NodeProvenanceRef", "NodeEvidenceRef", "NodeFactRef",
+           "NodeTaskSnapshot", "NodeTaskEvent", "NodeTaskEventBatch",
+           "NodeLifecycleEventPayload", "NodeWorkerEventPayload", "NodeEvidenceEventPayload",
+           "NodeVerificationEventPayload", "NodeApprovalEventPayload", "NodeArtifactEventPayload",
+           "NodeSummaryEventPayload", "NodeUnknownEventPayload",
+           "NODE_PROTOCOL_VERSION", "NODE_PROTOCOL_COMPATIBILITY_ID",
            "EVENT_TYPES", "Checkpoint", "CommittedTransaction", "EventLedger",
            "IdempotencyConflict", "LedgerStore", "ProvenanceRejected",
            "ReplayRejected", "ReplayState", "SQLiteLedgerStore", "StorageFailure",

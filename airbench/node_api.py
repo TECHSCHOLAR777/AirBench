@@ -28,6 +28,14 @@ from contracts import (
     LedgerEventEnvelope,
     NodeCommandEnvelope,
     NodeCommandResult,
+    NodeEvidenceRef,
+    NodeFactRef,
+    NodeHandshake,
+    NodeTaskEvent,
+    NodeTaskEventBatch,
+    NodeTaskSnapshot,
+    NODE_PROTOCOL_COMPATIBILITY_ID,
+    NODE_PROTOCOL_VERSION,
     Orchestrator,
     PlanRejected,
     StorageFailure,
@@ -41,7 +49,8 @@ from contracts.ids import stable_id
 from contracts.ledger import LedgerError
 
 
-PROTOCOL_VERSION = "0.1"
+PROTOCOL_VERSION = NODE_PROTOCOL_VERSION
+PROTOCOL_COMPATIBILITY_ID = NODE_PROTOCOL_COMPATIBILITY_ID
 MAX_JSON_BODY_BYTES = 1_048_576
 MAX_EVENT_BATCH = 128
 MAX_EVIDENCE_ITEMS = 1_000
@@ -97,6 +106,8 @@ class NodeApiConfig:
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} is required")
+        if self.protocol_version != PROTOCOL_VERSION:
+            raise ValueError(f"protocol_version must be {PROTOCOL_VERSION}")
         if not NODE_ID_RE.fullmatch(self.node_identity):
             raise ValueError("node_identity has an invalid shape")
 
@@ -118,15 +129,17 @@ class NodeApiService:
             raise NodeApiError(401, "invalid_token", "The bearer credential was not accepted.", headers={"WWW-Authenticate": "Bearer"})
         return self.config.authenticated_subject
 
-    def handshake(self) -> dict[str, str]:
-        return {
-            "node_identity": self.config.node_identity,
-            "protocol_version": self.config.protocol_version,
-            "clearance_context": self.config.clearance_context.value,
-            "authenticated_subject": self.config.authenticated_subject,
-            "domain_pack_ref": self.config.domain_pack_ref,
-            "ledger_event_ref": self.config.handshake_ledger_event_ref,
-        }
+    def handshake(self) -> dict[str, Any]:
+        return NodeHandshake(
+            node_identity=self.config.node_identity,
+            protocol_version=self.config.protocol_version,
+            protocol_compatibility_id=PROTOCOL_COMPATIBILITY_ID,
+            supported_protocol_versions=(PROTOCOL_VERSION,),
+            clearance_context=self.config.clearance_context,
+            authenticated_subject=self.config.authenticated_subject,
+            domain_pack_ref=self.config.domain_pack_ref,
+            ledger_event_ref=self.config.handshake_ledger_event_ref,
+        ).to_dict()
 
     def health(self) -> dict[str, Any]:
         with self._lock:
@@ -382,24 +395,27 @@ class NodeApiService:
                 for question in _string_list(event.payload.get("unresolved_questions"))
             })
             latest_ref = self._ledger.head_hash or (events[-1].event_id if events else "")
-            return {
-                "taskId": task.task_id,
-                "schemaVersion": self.config.protocol_version,
-                "snapshotId": stable_id("node-snapshot", task.task_id, len(events), latest_ref),
-                "asOfSequence": len(events),
-                "title": _title(task.request),
-                "requestSummary": _bounded_text(task.request, 2_000),
-                "status": _status_for_state(state),
-                "phase": _phase_for_state(state),
-                "clearanceContext": self.config.clearance_context.value,
-                "inputManifestRef": _input_manifest_ref(events),
-                "evidence": evidence,
-                "facts": facts,
-                "artifactRefs": artifact_refs,
-                "unresolvedQuestions": unresolved,
-                "nodeConnectionRef": self.config.node_identity,
-                "ledgerHeadRef": latest_ref,
-            }
+            try:
+                snapshot = NodeTaskSnapshot.from_wire_dict({
+                    "taskId": task.task_id,
+                    "snapshotId": stable_id("node-snapshot", task.task_id, len(events), latest_ref),
+                    "asOfSequence": len(events),
+                    "title": _title(task.request),
+                    "requestSummary": _bounded_text(task.request, 2_000),
+                    "status": _status_for_state(state),
+                    "phase": _phase_for_state(state),
+                    "clearanceContext": self.config.clearance_context.value,
+                    "inputManifestRef": _input_manifest_ref(events),
+                    "evidence": evidence,
+                    "facts": facts,
+                    "artifactRefs": artifact_refs,
+                    "unresolvedQuestions": unresolved,
+                    "nodeConnectionRef": self.config.node_identity,
+                    "ledgerHeadRef": latest_ref,
+                })
+            except ContractValidationError as exc:
+                raise NodeApiError(503, "snapshot_contract_corrupt", "The task snapshot could not be verified.") from exc
+            return snapshot.to_wire_dict()
 
     def plan(self, task_id: str) -> dict[str, Any]:
         with self._lock:
@@ -520,18 +536,25 @@ class NodeApiService:
             if after_sequence > total:
                 raise NodeApiError(409, "cursor_ahead", "The event cursor is ahead of the task stream.")
             selected = events[after_sequence:after_sequence + MAX_EVENT_BATCH]
-            wire_events = [self._wire_event(event, task, after_sequence + index + 1) for index, event in enumerate(selected)]
+            try:
+                event_models = [self._event_model(event, task, after_sequence + index + 1) for index, event in enumerate(selected)]
+            except ContractValidationError as exc:
+                raise NodeApiError(503, "event_contract_corrupt", "The task event stream could not be verified.") from exc
             next_sequence = after_sequence + len(selected)
-            return {
-                "stream_id": task.task_id,
-                "node_identity": self.config.node_identity,
-                "protocol_version": self.config.protocol_version,
-                "clearance_context": self.config.clearance_context.value,
-                "events": wire_events,
-                "next_sequence": next_sequence,
-                "has_more": next_sequence < total,
-                "ledger_event_refs": [event["ledgerEventRef"] for event in wire_events],
-            }
+            try:
+                batch = NodeTaskEventBatch.from_dict({
+                    "stream_id": task.task_id,
+                    "node_identity": self.config.node_identity,
+                    "protocol_version": self.config.protocol_version,
+                    "clearance_context": self.config.clearance_context,
+                    "events": tuple(event_models),
+                    "next_sequence": next_sequence,
+                    "has_more": next_sequence < total,
+                    "ledger_event_refs": tuple(event.ledger_event_ref for event in event_models),
+                })
+            except ContractValidationError as exc:
+                raise NodeApiError(503, "event_batch_contract_corrupt", "The task event batch could not be verified.") from exc
+            return batch.to_dict()
 
     def evidence(self, task_id: str) -> dict[str, Any]:
         with self._lock:
@@ -623,21 +646,24 @@ class NodeApiService:
         if not self._can_read(clearance):
             raise NodeApiError(403, "clearance_exceeded", "The requested clearance exceeds this Node context.")
 
-    def _wire_event(self, event: LedgerEventEnvelope, task: TaskEnvelope, sequence: int) -> dict[str, Any]:
+    def _event_model(self, event: LedgerEventEnvelope, task: TaskEnvelope, sequence: int) -> NodeTaskEvent:
         event_type, payload = self._project_event(event, task)
-        return {
-            "eventId": event.event_id,
-            "taskId": task.task_id,
+        return NodeTaskEvent.from_dict({
+            "event_id": event.event_id,
+            "task_id": task.task_id,
             "sequence": sequence,
-            "schemaVersion": self.config.protocol_version,
-            "eventType": event_type,
-            "occurredAt": event.occurred_at,
+            "event_type": event_type,
+            "occurred_at": event.occurred_at,
             "actor": event.actor_id,
-            "clearanceContext": self.config.clearance_context.value,
-            "payloadHash": event.payload_hash,
-            "ledgerEventRef": event.event_id,
+            "clearance_context": self.config.clearance_context,
+            "payload_hash": event.payload_hash,
+            "ledger_event_ref": event.event_id,
             "payload": payload,
-        }
+        })
+
+    def _wire_event(self, event: LedgerEventEnvelope, task: TaskEnvelope, sequence: int) -> dict[str, Any]:
+        """Return one Node event for callers that still need a single item."""
+        return self._event_model(event, task, sequence).to_wire_dict()
 
     def _project_event(self, event: LedgerEventEnvelope, task: TaskEnvelope) -> tuple[str, dict[str, Any]]:
         p = event.payload
@@ -708,14 +734,17 @@ class NodeApiService:
         if not isinstance(evidence_id, str) or not evidence_id or not isinstance(content_hash, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", content_hash):
             return None
         clearance, taint = validated
-        return {
-            "evidenceId": evidence_id,
-            "contentHash": content_hash.lower(),
-            "source": _provenance_ref(provenance, event),
-            "confidence": _confidence(provenance.get("confidence")),
-            "clearance": clearance.value,
-            "taint": taint,
-        }
+        try:
+            return NodeEvidenceRef.from_wire_dict({
+                "evidenceId": evidence_id,
+                "contentHash": content_hash.lower(),
+                "source": _provenance_ref(provenance, event),
+                "confidence": _confidence(provenance.get("confidence")),
+                "clearance": clearance.value,
+                "taint": taint,
+            }).to_wire_dict()
+        except ContractValidationError:
+            return None
 
     def _fact_ref(self, event: LedgerEventEnvelope) -> dict[str, Any] | None:
         p = event.payload
@@ -725,19 +754,21 @@ class NodeApiService:
         if validated is None or not isinstance(provenance, dict) or not isinstance(fact_id, str) or not fact_id:
             return None
         clearance, taint = validated
-        return {
-            "factId": fact_id,
-            "schemaVersion": "1.0",
-            "value": _safe_value(p.get("value")),
-            "unit": p.get("unit") if isinstance(p.get("unit"), str) else None,
-            "source": _provenance_ref(provenance, event),
-            "confidence": _confidence(provenance.get("confidence")),
-            "clearance": clearance.value,
-            "taint": taint,
-            "parentFactIds": _string_list(p.get("parent_fact_ids")),
-            "derivation": _safe_value(p.get("derivation")) if isinstance(p.get("derivation"), dict) else None,
-            "supersededBy": p.get("superseded_by") if isinstance(p.get("superseded_by"), str) else None,
-        }
+        try:
+            return NodeFactRef.from_wire_dict({
+                "factId": fact_id,
+                "value": _safe_value(p.get("value")),
+                "unit": p.get("unit") if isinstance(p.get("unit"), str) else None,
+                "source": _provenance_ref(provenance, event),
+                "confidence": _confidence(provenance.get("confidence")),
+                "clearance": clearance.value,
+                "taint": taint,
+                "parentFactIds": _string_list(p.get("parent_fact_ids")),
+                "derivation": _safe_value(p.get("derivation")) if isinstance(p.get("derivation"), dict) else None,
+                "supersededBy": p.get("superseded_by") if isinstance(p.get("superseded_by"), str) else None,
+            }).to_wire_dict()
+        except ContractValidationError:
+            return None
 
     def _validated_provenance(self, event: LedgerEventEnvelope) -> tuple[Clearance, str] | None:
         provenance = event.payload.get("provenance")
@@ -810,7 +841,7 @@ def create_app(service: NodeApiService) -> FastAPI:
         return value
 
     @app.get("/api/v1/node/handshake")
-    async def handshake(request: Request) -> dict[str, str]:
+    async def handshake(request: Request) -> dict[str, Any]:
         auth(request)
         return service.handshake()
 

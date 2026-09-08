@@ -22,6 +22,7 @@ const connected: NativeNodeConnectionResult = {
   profile_id: "profile-1",
   node_identity: "node-1",
   protocol_version: "0.1",
+  protocol_compatibility_id: "airbench-node-protocol",
   clearance_context: "restricted",
   authenticated_subject: "operator-1",
   domain_pack_ref: "fixture-pack.v0",
