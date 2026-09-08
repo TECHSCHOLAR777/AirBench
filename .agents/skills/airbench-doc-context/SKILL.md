@@ -9,7 +9,7 @@ metadata:
 
 Use whenever a task touches AirBench architecture, contracts, Python modules, tests, or documentation.
 
-Read `docs/agent_development_workflow.md` and select the document bundle for the owning M milestone. Always include `docs/architecture_design.md` and `docs/domain_pack_framework.md` when ownership is unclear.
+Read `docs/operations/agent_development_workflow.md` and select the document bundle for the owning M milestone. Always include `docs/foundations/01_architecture_design.md` and `docs/foundations/02_domain_pack_framework.md` when ownership is unclear.
 
 Do not summarize every document by default. Extract only the rules that affect the task and record the file names and relevant headings in the working plan. Identify:
 

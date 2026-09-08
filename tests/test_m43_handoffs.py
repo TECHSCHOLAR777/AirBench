@@ -27,7 +27,7 @@ from contracts import (
     build_event,
     work_packet_hash,
 )
-from contracts.ledger import LedgerError
+from contracts.provenance.ledger import LedgerError
 
 
 ROOT = Path(__file__).parents[1]
@@ -420,7 +420,7 @@ class HandoffTests(unittest.TestCase):
             JoinBarrier.from_dict(payload)
 
     def test_handoff_module_has_no_network_or_process_imports(self):
-        tree = ast.parse((ROOT / "contracts" / "handoffs.py").read_text())
+        tree = ast.parse((ROOT / "src" / "contracts" / "execution" / "handoffs.py").read_text())
         forbidden = {"socket", "ssl", "subprocess", "requests", "http", "urllib"}
         imports = {
             node.names[0].name.split(".")[0]

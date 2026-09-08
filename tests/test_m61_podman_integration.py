@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from airbench.podman_provider import PodmanProvider
-from airbench.sandbox import SandboxPolicy, SandboxRunner
+from airbench.tools.podman_provider import PodmanProvider
+from airbench.tools.sandbox import SandboxPolicy, SandboxRunner
 from contracts import Clearance, EventLedger, ToolAction, build_event
 
 

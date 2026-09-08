@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from airbench.worker_context import (
+from airbench.orchestration.worker_context import (
     AssignmentValidationError,
     ScopedEvidence,
     ScopeViolation,
@@ -388,7 +388,7 @@ class M41WorkerContextTests(unittest.TestCase):
             reopened.close()
 
     def test_worker_context_module_has_no_network_imports(self) -> None:
-        source = Path(__file__).parents[1] / "airbench" / "worker_context.py"
+        source = Path(__file__).parents[1] / "src" / "airbench" / "orchestration" / "worker_context.py"
         tree = ast.parse(source.read_text(encoding="utf-8"))
         imported = {
             alias.name.split(".")[0]

@@ -8,10 +8,10 @@ Before editing code, read:
 
 1. `README.md`
 2. `docs/README.md`
-3. `docs/architecture_design.md`
-4. `docs/domain_pack_framework.md`
-5. `docs/backend_development_plan.md`
-6. `docs/agent_development_workflow.md`
+3. `docs/foundations/01_architecture_design.md`
+4. `docs/foundations/02_domain_pack_framework.md`
+5. `docs/runtime/backend_development_plan.md`
+6. `docs/operations/agent_development_workflow.md`
 
 Then load the relevant skill from `.agents/skills/` and inspect the GitHub issue, its M1-M10 parent, blockers, sibling issues, acceptance criteria, current code, and tests.
 
@@ -55,7 +55,7 @@ No code is written until the agent produces an understanding checkpoint containi
 
 ## Frontend work
 
-Frontend work is a first-class AirBench workstream, but it does not change the backend authority model. Before a UI task, read `docs/frontend/README.md` and the relevant frontend document bundle. Use:
+Frontend work is a first-class AirBench workstream, but it does not change the backend authority model. Before a UI task, read `docs/desktop/README.md` and the relevant frontend document bundle. The application lives under `apps/desktop/`. Use:
 
 - `airbench-frontend-design` for screen, interaction, design-system, and UX decisions;
 - `airbench-frontend-develop` for approved Tauri and React implementation slices;

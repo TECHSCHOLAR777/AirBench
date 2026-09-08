@@ -19,8 +19,9 @@ class AcceptanceAuditTests(unittest.TestCase):
             root = Path(directory)
             (root / "acceptance").mkdir()
             (root / "acceptance" / "acceptance_run_manifest.yaml").write_text("status: PENDING\n", encoding="utf-8")
-            (root / "contracts").mkdir()
-            (root / "contracts" / "ledger_event_catalog.yaml").write_text("events: []\n", encoding="utf-8")
+            schema_dir = root / "src" / "contracts" / "schemas"
+            schema_dir.mkdir(parents=True)
+            (schema_dir / "ledger_event_catalog.yaml").write_text("events: []\n", encoding="utf-8")
             report = audit_repository(root)
             self.assertTrue(any(f.code == "unresolved_evidence" for f in report.findings))
             self.assertTrue(any(f.code == "missing_domain_pack" for f in report.findings))
@@ -33,8 +34,9 @@ class AcceptanceAuditTests(unittest.TestCase):
                 "external_evidence_required:\n  - id: example\n    status: complete\n",
                 encoding="utf-8",
             )
-            (root / "contracts").mkdir()
-            (root / "contracts" / "ledger_event_catalog.yaml").write_text(
+            schema_dir = root / "src" / "contracts" / "schemas"
+            schema_dir.mkdir(parents=True)
+            (schema_dir / "ledger_event_catalog.yaml").write_text(
                 "events: []\n", encoding="utf-8"
             )
             report = audit_repository(root)

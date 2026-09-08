@@ -9,12 +9,12 @@ Use this skill for the six frontend validation tracks and for release-readiness 
 
 ## Read first
 
-- `docs/frontend/README.md`
-- `docs/frontend/frontend_validation_plan.md`
-- `docs/frontend/frontend_contracts_and_state.md`
-- `docs/sovereignty_and_security.md`
-- `docs/deployment_and_scale.md`
-- `docs/file_intake_layer.md`
+- `docs/desktop/README.md`
+- `docs/desktop/validation/frontend_validation_plan.md`
+- `docs/desktop/architecture/frontend_contracts_and_state.md`
+- `docs/assurance/sovereignty_and_security.md`
+- `docs/delivery/deployment_and_scale.md`
+- `docs/foundations/03_file_intake_layer.md`
 
 ## Validation method
 

@@ -4,7 +4,7 @@ import unittest
 import httpx
 
 from contracts import Clearance, ContractStatus, EventLedger, Orchestrator, TeamPlan, build_event
-from airbench.node_api import NodeApiConfig, NodeApiService, create_app
+from airbench.node.api import NodeApiConfig, NodeApiService, create_app
 
 
 class NodeApiTests(unittest.TestCase):

@@ -5,7 +5,7 @@ import unittest
 from dataclasses import replace
 from hashlib import sha256
 
-from airbench.vision import (
+from airbench.intake.vision import (
     LocalVisionAdapter,
     VisionError,
     VisionRequest,

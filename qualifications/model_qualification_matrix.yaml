@@ -9,7 +9,7 @@
 #   python -m airbench.qualify --target <target_id> --role <role> --fixtures tests/fixtures/
 
 schema_version: "1.0"
-qualification_schema_ref: "contracts/model_qualification.schema.yaml"
+qualification_schema_ref: "src/contracts/schemas/model_qualification.schema.yaml"
 
 certificates:
 

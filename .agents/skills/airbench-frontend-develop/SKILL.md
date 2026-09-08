@@ -10,7 +10,7 @@ Use this skill only after a frontend issue, its validation criteria, and its Nod
 ## Required startup
 
 1. Read `AGENTS.md` and the issue, including its M milestone and blockers.
-2. Read `docs/frontend/README.md`, `frontend_architecture.md`, `frontend_contracts_and_state.md`, and the issue's validation document.
+2. Read `docs/desktop/README.md`, `docs/desktop/architecture/frontend_architecture.md`, `docs/desktop/architecture/frontend_contracts_and_state.md`, and the issue's validation document.
 3. Load `airbench-architecture-guard`, `airbench-contract-guard`, and `airbench-security-guard` when their concerns are touched.
 4. Produce an understanding checkpoint covering scope, non-goals, files, schemas, event transitions, provenance fields, security boundary, tests, and evidence.
 
