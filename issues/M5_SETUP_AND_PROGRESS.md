@@ -62,8 +62,8 @@ All 6 reference model targets for the refinery/PSU inspection slice have been do
 
 ### Test Suite
 * M5.3 focused tests pass 9/9 (`tests/test_m53_backend.py`). M5.3 routing integration passes 3/3 (`tests/test_m53_routing_integration.py`).
-* M5.4 adapter tests pass 62/62 (`tests/test_m54_adapters.py`).
-* After installing the project test extra in the local `.venv`, the full available suite passes: **165/165 tests**. The environment uses `PyYAML 6.0.3` and `pytest 9.1.1`.
+* M5.4 adapter tests pass 63/63 (`tests/test_m54_adapters.py`), including concurrent adapter calls and explicit `max_concurrency` admission enforcement.
+* After installing the project test extra in the local `.venv`, the full available suite passes: **166/166 tests**. The environment uses `PyYAML 6.0.3` and `pytest 9.1.1`.
 
 ---
 
@@ -117,7 +117,7 @@ Implemented and locally verified (`2026-09-08`):
 
 * **Router integration**: `VllmAdapter` and `NimAdapter` registered in `ModelRouter.adapters`; the router selects them via the registry's `adapter_id` field exactly as with `FakeBackend`.
 
-* **62 new tests** in `tests/test_m54_adapters.py` covering every requirement from the acceptance matrix; all run without a GPU, model server, or network (HTTP mocked with `unittest.mock.patch`).
+* **63 new tests** in `tests/test_m54_adapters.py` covering every requirement from the acceptance matrix, including concurrent adapter calls and admission-ceiling enforcement; all run without a GPU, model server, or network (HTTP mocked with `unittest.mock.patch`).
 
 Evidence commands:
 
@@ -126,7 +126,38 @@ python -m pytest tests/test_m54_adapters.py -v
 python -m pytest tests/test_m53_backend.py tests/test_m53_routing_integration.py tests/test_m54_adapters.py -v
 ```
 
-All 62 M5.4 tests and the full 165-test suite pass on Python 3.13.6 without model weights or a network connection.
+All 63 M5.4 tests and the full 166-test suite pass on Python 3.13.6 without model weights or a network connection.
+
+---
+
+## M5.4 issue/PR status comment — 2026-09-08
+
+### Completed and verified
+
+M5.4 now has the provider-specific adapter implementation and the complete offline contract-test seam:
+
+- `VllmAdapter` implements the provider-neutral `BackendAdapter` contract for local OpenAI-compatible vLLM.
+- `NimAdapter` implements the same contract with the NIM readiness endpoint and local-only credential policy.
+- Health and readiness are separate typed states.
+- Structured output, multimodal image input, streaming, cancellation, timeout, malformed-response, unavailable, not-ready, unsupported-capability, and resource-exhaustion behavior are normalized into AirBench contracts.
+- Hermes/XML, standard JSON tool-call, and no-tool parsers are registered by roster parser ID, and undeclared tools fail closed.
+- No-egress environment enforcement runs before HTTP calls; ledger events contain hashes and metadata without prompt text; response provenance retains target, artifact, backend, clearance, and untrusted taint.
+- Router integration selects adapters by the signed target's `adapter_id`.
+- The acceptance gap identified in the issue is closed: concurrent adapter calls are exercised explicitly, and an admission test proves that `max_concurrency=1` yields a serial virtual-team plan with a ceiling of one. Scheduling remains owned by M5.2 `AdmissionController`, not by the adapter.
+- Verification: 63 M5.4 tests pass; the documented available suite passes 166/166; compile and diff checks pass without a GPU, model server, or network.
+
+### Still outstanding before calling the full M5 issue production-complete
+
+The remaining work is empirical deployment evidence, not another provider-neutral adapter abstraction:
+
+1. Probe the target machine and replace the placeholder hardware values in `profiles/hardware/target_96gb_vram.yaml` with signed CPU/GPU/RAM/VRAM evidence.
+2. Start the pinned vLLM bundle under network isolation (`--network none`) and record container/runtime identity, local artifact identity, readiness, and denied-egress evidence.
+3. Measure cold-load time, peak VRAM, KV-cache behavior, latency, throughput, batch size, and safe concurrency for each qualified target; replace the corresponding `REPLACE_WITH_MEASURED` entries in `benchmarks/backend_compatibility_matrix.yaml` and `benchmarks/model_hardware_results.yaml`.
+4. Run the refinery/PSU fixture evaluation through the live adapters and record structured-output, tool-call, vision, provenance, and role-specific qualification results.
+5. Test NIM only for officially supported targets that start successfully offline, then record `backend.nim.checked` evidence.
+6. Complete the signed acceptance export and offline replay evidence required by the M5 issue and its dependent M4/M5 scheduling issue.
+
+The current implementation is therefore suitable for a PR covering the M5.4 code and automated-test gap, but the M5 issue should remain explicitly marked partial until the target-node measurements and live air-gapped traces are attached.
 
 ---
 
@@ -161,7 +192,7 @@ Run the test suite to verify that all contracts, admission arithmetic, role isol
 # M5.3 and M5.4 adapter tests only (fastest; no optional deps needed)
 python -m pytest tests/test_m53_backend.py tests/test_m53_routing_integration.py tests/test_m54_adapters.py -v
 
-# Full available suite (165 tests — excludes PIL/httpx-dependent tests)
+# Full available suite (166 tests — excludes PIL/httpx-dependent tests)
 python -m pytest \
   --ignore=tests/test_m71_intake.py \
   --ignore=tests/test_m81_verification.py \
@@ -173,7 +204,7 @@ python -m pytest \
   -v
 ```
 
-The repository currently contains **165 tests** that pass using deterministic fixtures and mock HTTP; no model weights, GPU, or network are required for the contract, routing, admission, ledger, adapter, sandbox, intake, and verification tests.
+The repository currently contains **166 tests** that pass using deterministic fixtures and mock HTTP; no model weights, GPU, or network are required for the contract, routing, admission, ledger, adapter, sandbox, intake, and verification tests.
 
 ### Step 3: Downloading Model Weights (Offline Model Bundle)
 To run live serving or re-verify local artifact hashes, download the models to `airbench-models/` (this directory is ignored by Git):

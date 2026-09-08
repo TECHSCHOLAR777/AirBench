@@ -17,17 +17,21 @@ H – Timeout / unavailable / not-ready typed failures
 I – Malformed response / unauthorized tool call
 J – No-egress environment enforcement
 K – Resource-exhaustion / context overflow
-L – Ledger events (started / completed / failed)
-M – Provenance integrity (artifact_digest, target_id, request_hash)
-N – NIM-specific paths (health URL, credential rejection)
-O – Router integration (VllmAdapter selected when admitted)
+L – Concurrency and resource limits
+M – Ledger events (started / completed / failed)
+N – Provenance integrity (artifact_digest, target_id, request_hash)
+O – NIM-specific paths (health URL, credential rejection)
+P – Router integration (VllmAdapter selected when admitted)
 """
 
 from __future__ import annotations
 
 import json
 import os
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from io import BytesIO
 from typing import Any
 from unittest.mock import MagicMock, patch, PropertyMock
@@ -46,6 +50,10 @@ from contracts import (
     BackendToolCall,
     CancellationToken,
     EventLedger,
+    AdmissionController,
+    AdmissionRequest,
+    HardwareMeasurement,
+    HardwareProfile,
     HermesToolParser,
     ModelCallRequest,
     ModelRegistry,
@@ -924,7 +932,100 @@ class TestResourceExhaustion(unittest.TestCase):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# L – Ledger events
+# L – Concurrency and resource limits
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestConcurrencyAndResourceLimits(unittest.TestCase):
+
+    def test_concurrent_adapter_calls_and_admission_ceiling(self) -> None:
+        """Adapter calls may overlap; team concurrency remains admission-owned."""
+        adapter = _vllm()
+        first = _backend_request()
+        second = replace(
+            first,
+            model_call=replace(first.model_call, request_id="req-m54-2"),
+        )
+
+        post_barrier = threading.Barrier(2)
+        state_lock = threading.Lock()
+        active_posts = 0
+        peak_active_posts = 0
+
+        def fake_urlopen(req_obj, timeout=None):
+            nonlocal active_posts, peak_active_posts
+            path = req_obj.full_url.rsplit("127.0.0.1:8000", 1)[-1]
+            if path == "/health":
+                return _mock_health_ok()
+            if path == "/v1/models":
+                return _mock_urlopen_ok(_models_list())
+
+            with state_lock:
+                active_posts += 1
+                peak_active_posts = max(peak_active_posts, active_posts)
+            try:
+                post_barrier.wait(timeout=2)
+                return _mock_urlopen_ok(_completion_response())
+            finally:
+                with state_lock:
+                    active_posts -= 1
+
+        with patch("contracts.adapters.vllm_adapter.urlopen", fake_urlopen):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                responses = list(pool.map(adapter.complete, (first, second)))
+
+        self.assertEqual(len(responses), 2)
+        self.assertTrue(all(response.output for response in responses))
+        self.assertEqual(peak_active_posts, 2)
+
+        profile = HardwareProfile.from_dict({
+            "profile_id": "gpu-m54-concurrency",
+            "gpu_model": "test-gpu",
+            "gpu_count": 1,
+            "vram_bytes": 100_000,
+            "driver_version": "test",
+            "accelerator_runtime": "test",
+            "cpu_model": "test-cpu",
+            "cpu_cores": 8,
+            "ram_bytes": 100_000,
+            "storage_bytes": 100_000,
+            "scratch_bytes": 10_000,
+            "model_context_tokens": 4096,
+            "kv_cache_bytes": 10_000,
+            "safe_parallel_slots": 4,
+            "egress_policy": "deny-all",
+            "measurement_hash": "c" * 64,
+            "network_check_id": "check-m54-egress",
+        })
+        measurement = HardwareMeasurement(
+            measurement_id="measurement-m54-concurrency",
+            profile_id=profile.profile_id,
+            measured_at="2026-09-08T00:00:00Z",
+            available_vram_bytes=100_000,
+            available_ram_bytes=100_000,
+            kv_cache_bytes=10_000,
+            model_residency_bytes=(),
+            latency_ms=(),
+            throughput_tokens_per_second=(),
+            sandbox_limits=(),
+            max_concurrency=1,
+            egress_verified=True,
+        )
+        admission = AdmissionController(profile, measurement).admit(AdmissionRequest(
+            task_id="task-m54-concurrency",
+            team_id="team-m54-concurrency",
+            worker_capabilities=(("lead", "reasoning"), ("verifier", "verification")),
+            reservations=(
+                ("lead", (("vram_bytes", 20_000),)),
+                ("verifier", (("vram_bytes", 10_000),)),
+            ),
+            verifier_worker_id="verifier",
+        ))
+        self.assertEqual(admission.plan.execution_mode, "serial_virtual_team")
+        self.assertEqual(admission.plan.concurrency_ceiling, 1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# M – Ledger events
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestLedgerEvents(unittest.TestCase):
