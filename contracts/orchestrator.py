@@ -429,6 +429,25 @@ class Orchestrator:
             {"decision": route.decision.to_dict(), "request_hash": request.digest()},
             "RoutingDecision", route_key,
         )
+        if (
+            route.target is not None
+            and route.decision.fallback_target == route.target.target_id
+            and route.decision.selected_target != route.decision.eligible_targets[0]
+        ):
+            self._append_once(
+                "routing.fallback.selected", request.task_id,
+                {
+                    "request_id": request.request_id,
+                    "attempt": request.attempt,
+                    "selected_target": route.target.target_id,
+                    "failed_primary_target": route.decision.eligible_targets[0],
+                    "decision_id": route.decision.decision_id,
+                    "request_hash": request.digest(),
+                },
+                "RoutingDecision", idempotency_key(
+                    "orchestrator.routing.fallback", request.request_id, route.decision.digest(),
+                ),
+            )
         if route.decision.status == ContractStatus.queued:
             self._append_once(
                 "routing.queued", request.task_id,
