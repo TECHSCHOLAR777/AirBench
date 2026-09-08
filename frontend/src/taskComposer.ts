@@ -1,4 +1,4 @@
-import type { NodeCommandEnvelope } from "./generated/core_contracts";
+import type { NodeCommandEnvelope, TaskPlanReview } from "./generated/core_contracts";
 import type { Clearance } from "./protocol";
 
 export interface TaskComposerInput {
@@ -15,6 +15,22 @@ export interface TaskComposerInput {
 }
 
 const MAX_REQUEST_LENGTH = 65_536;
+
+export function canApprovePlan(
+  plan: Pick<TaskPlanReview, "plan_state" | "required_authority"> | null,
+  synchronized: boolean,
+  alreadyApproved: boolean,
+  approving: boolean,
+): boolean {
+  return Boolean(
+    plan
+      && plan.plan_state === "ready"
+      && plan.required_authority === "operator_approval"
+      && synchronized
+      && !alreadyApproved
+      && !approving,
+  );
+}
 
 function required(value: string, label: string, maximum: number): string {
   const normalized = value.trim();

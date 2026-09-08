@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand } from "./taskComposer";
+import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan } from "./taskComposer";
 
 const base = {
   actor: "operator-1" as const,
@@ -15,6 +15,14 @@ const base = {
 };
 
 describe("task composer command", () => {
+  it("gates plan approval on a current Node projection", () => {
+    const readyPlan = { plan_state: "ready", required_authority: "operator_approval" } as const;
+    expect(canApprovePlan(readyPlan, true, false, false)).toBe(true);
+    expect(canApprovePlan(readyPlan, false, false, false)).toBe(false);
+    expect(canApprovePlan(readyPlan, true, true, false)).toBe(false);
+    expect(canApprovePlan({ plan_state: "needs_review", required_authority: "operator_approval" }, true, false, false)).toBe(false);
+  });
+
   it("builds a server-authoritative create envelope with the Node-selected pack and manifest", () => {
     const command = buildCreateTaskCommand(base, "command.create.1", "idempotency.create.1");
     expect(command.command_type).toBe("task.create");

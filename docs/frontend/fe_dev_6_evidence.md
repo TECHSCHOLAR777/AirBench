@@ -9,6 +9,8 @@ Status: the first Live Task Workspace slice is implemented locally and remains o
 - Activity summaries are derived from typed event payloads. The UI does not expose raw model reasoning traces or infer completion from client timing.
 - Reconnect, replaying, stale, and blocked synchronizer states are visible. Consequential controls are disabled unless the projection is current and the synchronizer permits the command.
 - The workspace now runs one guarded event-sync loop per active task. It polls the Node cursor without overlapping requests, backs off while reconnecting, stops after a terminal Node result, and cannot publish a late result after the task view is replaced or unmounted.
+- Plan approval is now disabled unless the task projection is current, the synchronizer is connected, the Node plan is ready, and no approval is already in flight or recorded. The same gate is enforced by the command handler, not only by button presentation.
+- Controlled artifact download is also disabled while the task projection is stale, reconnecting, or blocked. The desktop requires a current Node projection before requesting a Node-authorized release.
 - Stop uses the existing Node command contract as `task.cancel`, carries the last applied sequence and idempotency key, and waits for the authoritative stopped event. It does not optimistically change task state.
 - Plan review and approval remain reachable from the live workspace. Approval is still a Node-authorized action and the UI waits for the corresponding event.
 - Pause, resume, and answer-question controls are intentionally not fabricated. They remain disabled until their typed Node contracts and ledger behavior exist.
