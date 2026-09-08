@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from airbench.sandbox import (
+from airbench.tools.sandbox import (
     LocalSubprocessProvider,
     SandboxCapabilities,
     SandboxError,

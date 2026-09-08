@@ -21,7 +21,7 @@ from contracts import (
     HardwareProfile,
     PRIORITY_CLASSES,
 )
-from contracts.admission import ReleaseRecord
+from contracts.security.admission import ReleaseRecord
 from contracts.models import LEDGER_EVENT_TYPES
 
 

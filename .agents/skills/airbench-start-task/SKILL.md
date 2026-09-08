@@ -9,9 +9,9 @@ metadata:
 
 Use this skill at the beginning of every implementation, bug fix, refactor, or architecture change.
 
-Read `AGENTS.md`, `README.md`, `docs/README.md`, `docs/architecture_design.md`, `docs/domain_pack_framework.md`, `docs/backend_development_plan.md`, and `docs/agent_development_workflow.md`. Then identify the assigned GitHub issue and its M1-M10 parent. Inspect blockers, labels, sibling issues, acceptance criteria, current branch, working tree, relevant modules, and tests.
+Read `AGENTS.md`, `README.md`, `docs/README.md`, `docs/foundations/01_architecture_design.md`, `docs/foundations/02_domain_pack_framework.md`, `docs/runtime/backend_development_plan.md`, and `docs/operations/agent_development_workflow.md`. Then identify the assigned GitHub issue and its M1-M10 parent. Inspect blockers, labels, sibling issues, acceptance criteria, current branch, working tree, relevant modules, and tests.
 
-Select the milestone document bundle from `docs/agent_development_workflow.md`. Read those documents before proposing implementation.
+Select the milestone document bundle from `docs/operations/agent_development_workflow.md`. Read those documents before proposing implementation.
 
 Produce an understanding checkpoint with:
 
