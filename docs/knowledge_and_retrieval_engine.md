@@ -16,7 +16,11 @@ All file parsing and understanding happens in the shared File Intake Layer, not 
 
 2. **Route by strategy.** A rule over the manifest picks one of a small fixed set of handling strategies. Clean text is chunked by section with surrounding context kept, keeping tables whole and never splitting a value from its unit. Scanned or visually complex pages are handled as images. Authoritative documents are also sent to the World Model Engine to build the graph.
 
-3. **Store.** Text pieces and image pages are indexed for search, each carrying the manifest's source, clearance, and version. Everything is written through the Memory and Audit Ledger.
+3. **Store.** Text pieces and OCR/vision page outputs are converted into
+   bounded `IndexChunk` records by `LocalIndexer`. Each chunk carries the
+   manifest's source, revision, page span, clearance, taint, content hash,
+   embedding model, and qualification reference. Everything is written
+   through the Memory and Audit Ledger.
 
 Versioning, provenance, and consistency are first class. A new version marks the old one superseded so nothing cites a dead document. User added or system generated documents enter only through a confirmation gate, tagged lower trust. Deleting a document creates an immutable tombstone and removes its pieces and graph nodes from the current projections in one transaction. A file uploaded during a query is parsed by the same File Intake Layer but with the session switches, so it stays scoped to that task unless promoted here through the gate.
 
@@ -28,17 +32,27 @@ Retrieval runs when the Orchestration Engine needs facts during work.
 
 1. **Understand and scope.** The request is checked against the user's clearance first, and simple lookups are separated from questions that need several parts pulled together.
 
-2. **Search.** Meaning based search and exact keyword search run together and are combined, because exact identifiers only match on keywords while concepts match on meaning. Results are filtered to the current version and the user's clearance inside the search itself, not after.
+2. **Search.** `RetrievalService` performs local vector search and can apply a
+   qualified local reranker. Exact identifiers may be supplied by a reranker
+   without putting a provider type into the core. Results are filtered by the
+   caller's clearance inside the index search, not after exposure.
 
 3. **Structured questions go to the world model.** Anything about how things connect or depend on each other is answered by the World Model Engine, since plain search cannot follow those links.
 
-4. **Rerank and return.** The combined results are reordered by true relevance and the surrounding section is returned, not just the matching line. Every returned fact carries its source and confidence.
+4. **Rerank and return.** Results are reordered by the injected qualified
+   reranker and returned as bounded `CitedExcerpt` values, not bare strings.
+   Every result carries source, revision, page, source span, confidence-derived
+   score, clearance, taint, content hash, and model qualification metadata.
 
 5. **Honesty.** If nothing clears the relevance bar, the engine returns that the answer is not in the knowledge base rather than forcing a weak match. This is a feature, not a failure.
 
 ## The rule that keeps it fast and safe
 
-Retrieval returns typed evidence references. A result is either `UntrustedEvidence` or a trusted `FactEnvelope` reference, with source, confidence, clearance, version, and provenance intact. Retrieval cannot turn an uploaded document into an instruction or silently upgrade its trust.
+Retrieval returns typed evidence references. A result is either
+`UntrustedEvidence` or a trusted `FactEnvelope` reference, with source,
+confidence, clearance, version, and provenance intact. `LocalVectorIndex` and
+`RetrievalService` never read source files directly, and they cannot turn an
+uploaded document into an instruction or silently upgrade its trust.
 
 Models are used offline during ingestion to enrich pieces, and at work time only to understand a hard question, to rerank, and to write the final answer. Models are never put in the middle of the retrieval loop, because that would make retrieval slow, non repeatable, and exposed to manipulation.
 
