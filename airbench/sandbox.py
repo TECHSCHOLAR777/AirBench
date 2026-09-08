@@ -17,7 +17,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Mapping, Protocol
@@ -101,11 +101,17 @@ class SandboxExecutionResponse:
     exit_code: int | None
     stdout: str
     stderr: str
+    enforced_resource_limits: Mapping[str, float | int | None] = field(default_factory=dict)
+    resource_usage: Mapping[str, float | int | None] = field(default_factory=dict)
+    isolation_evidence_refs: tuple[str, ...] = ()
+    cleanup_status: Literal["completed", "failed"] = "completed"
 
 
 class SandboxProvider(Protocol):
     @property
     def capabilities(self) -> SandboxCapabilities: ...
+
+    def verify(self) -> None: ...
 
     def execute(self, request: SandboxExecutionRequest) -> SandboxExecutionResponse: ...
 
@@ -124,6 +130,11 @@ class LocalSubprocessProvider:
             restricted_syscalls=False,
             resource_limits=("code_bytes", "output_bytes", "wall_time"),
         )
+
+    def verify(self) -> None:
+        """The local provider has no external runtime to verify."""
+
+        return None
 
     def execute(self, request: SandboxExecutionRequest) -> SandboxExecutionResponse:
         try:
@@ -237,6 +248,9 @@ class SandboxManifest:
     read_scope_digests: tuple[str, ...]
     write_scope_digests: tuple[str, ...]
     resource_limits: Mapping[str, float | int | None]
+    enforced_resource_limits: Mapping[str, float | int | None]
+    resource_usage: Mapping[str, float | int | None]
+    isolation_evidence_refs: tuple[str, ...]
     status: Literal["succeeded", "failed", "timed_out", "rejected"]
     output_hash: str
     observed_wall_ms: int
@@ -253,6 +267,9 @@ class SandboxManifest:
             "read_scope_digests": list(self.read_scope_digests),
             "write_scope_digests": list(self.write_scope_digests),
             "resource_limits": dict(self.resource_limits),
+            "enforced_resource_limits": dict(self.enforced_resource_limits),
+            "resource_usage": dict(self.resource_usage),
+            "isolation_evidence_refs": list(self.isolation_evidence_refs),
             "status": self.status,
             "output_hash": self.output_hash,
             "observed_wall_ms": self.observed_wall_ms,
@@ -282,6 +299,9 @@ class SandboxResult:
     manifest_hash: str = ""
     cleanup_status: Literal["completed", "failed"] = "completed"
     manifest: SandboxManifest | None = None
+    enforced_resource_limits: Mapping[str, float | int | None] = field(default_factory=dict)
+    resource_usage: Mapping[str, float | int | None] = field(default_factory=dict)
+    isolation_evidence_refs: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -302,6 +322,9 @@ class SandboxResult:
             "manifest_hash": self.manifest_hash,
             "cleanup_status": self.cleanup_status,
             "manifest": self.manifest.to_dict() if self.manifest is not None else None,
+            "enforced_resource_limits": dict(self.enforced_resource_limits),
+            "resource_usage": dict(self.resource_usage),
+            "isolation_evidence_refs": list(self.isolation_evidence_refs),
         }
 
 
@@ -469,6 +492,9 @@ class SandboxRunner:
     def execute(self, action: ToolAction, policy: SandboxPolicy,
                 authorization: ToolAuthorization | None = None) -> SandboxResult:
         policy.validate()
+        verifier = getattr(self._provider, "verify", None)
+        if callable(verifier):
+            verifier()
         capabilities = self._provider.capabilities
         capabilities.validate()
         if policy.require_hard_network_isolation and not (
@@ -526,6 +552,10 @@ class SandboxRunner:
         status: Literal["succeeded", "failed", "timed_out", "rejected"] = "failed"
         run_dir: Path | None = None
         cleanup_status: Literal["completed", "failed"] = "completed"
+        enforced_resource_limits: Mapping[str, float | int | None] = {}
+        resource_usage: Mapping[str, float | int | None] = {}
+        isolation_evidence_refs: tuple[str, ...] = ()
+        provider_cleanup_status: Literal["completed", "failed"] = "completed"
         try:
             run_dir = Path(tempfile.mkdtemp(prefix=f"airbench-{execution_id[:8]}-", dir=policy.root_dir))
             payload = {
@@ -549,6 +579,10 @@ class SandboxRunner:
             ))
             exit_code = response.exit_code
             status = response.status
+            enforced_resource_limits = dict(response.enforced_resource_limits)
+            resource_usage = dict(response.resource_usage)
+            isolation_evidence_refs = tuple(response.isolation_evidence_refs)
+            provider_cleanup_status = response.cleanup_status
             raw_stdout = response.stdout
             raw_stderr = response.stderr
             try:
@@ -571,6 +605,8 @@ class SandboxRunner:
                     shutil.rmtree(run_dir)
                 except OSError:
                     cleanup_status = "failed"
+        if provider_cleanup_status == "failed":
+            cleanup_status = "failed"
         finished_at = _now()
         output_hash = hashlib.sha256((stdout + "\n" + stderr).encode("utf-8", errors="replace")).hexdigest()
         observed_wall_ms = self._elapsed_ms(started_at, finished_at)
@@ -584,6 +620,9 @@ class SandboxRunner:
             read_scope_digests=tuple(_path_digest(path) for path in policy.allowed_read_paths),
             write_scope_digests=tuple(_path_digest(path) for path in policy.allowed_write_paths),
             resource_limits=policy.resource_limits(),
+            enforced_resource_limits=enforced_resource_limits,
+            resource_usage=resource_usage,
+            isolation_evidence_refs=isolation_evidence_refs,
             status=status,
             output_hash=output_hash,
             observed_wall_ms=observed_wall_ms,
@@ -604,6 +643,9 @@ class SandboxRunner:
                 "provider_version": capabilities.provider_version,
                 "capability_digest": capability_digest,
                 "manifest_hash": manifest_hash,
+                "enforced_resource_limits": dict(enforced_resource_limits),
+                "resource_usage": dict(resource_usage),
+                "isolation_evidence_refs": list(isolation_evidence_refs),
                 "cleanup_status": cleanup_status,
                 "manifest": manifest.to_dict(),
                 "provenance": {"source_ref": f"sandbox:{execution_id}", "confidence": 1.0 if status == "succeeded" else 0.0, "clearance": action.clearance.value, "taint": Taint.untrusted.value},
@@ -611,10 +653,26 @@ class SandboxRunner:
             occurred_at=finished_at,
         )
         return SandboxResult(
-            execution_id, status, exit_code, stdout, stderr, output_hash, policy_hash,
-            capabilities.hard_network_isolation, (requested_ref, authorized_ref, result_ref),
-            started_at, finished_at, capabilities.provider_id, capabilities.provider_version,
-            capability_digest, manifest_hash, cleanup_status, manifest,
+            execution_id=execution_id,
+            status=status,
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr=stderr,
+            output_hash=output_hash,
+            policy_hash=policy_hash,
+            hard_network_isolation=capabilities.hard_network_isolation,
+            ledger_event_refs=(requested_ref, authorized_ref, result_ref),
+            started_at=started_at,
+            finished_at=finished_at,
+            provider_id=capabilities.provider_id,
+            provider_version=capabilities.provider_version,
+            capability_digest=capability_digest,
+            manifest_hash=manifest_hash,
+            cleanup_status=cleanup_status,
+            manifest=manifest,
+            enforced_resource_limits=enforced_resource_limits,
+            resource_usage=resource_usage,
+            isolation_evidence_refs=isolation_evidence_refs,
         )
 
     @staticmethod

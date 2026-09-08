@@ -21,6 +21,7 @@ from .sandbox import (
     SandboxResult,
     SandboxRunner,
 )
+from .podman_provider import PodmanProvider
 from .tool_gateway import (
     CapabilityScope,
     ToolAuthorization,
@@ -92,6 +93,7 @@ __all__ = [
     "SandboxResult",
     "SandboxRunner",
     "LocalSubprocessProvider",
+    "PodmanProvider",
     "CapabilityScope",
     "ToolAuthorization",
     "ToolDefinition",
