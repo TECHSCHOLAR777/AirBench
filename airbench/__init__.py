@@ -9,7 +9,19 @@ from .intake import (
     LocalIntakeStore,
     RenderedPage,
 )
-from .sandbox import SandboxError, SandboxPolicy, SandboxResult, SandboxRunner
+from .sandbox import (
+    LocalSubprocessProvider,
+    SandboxCapabilities,
+    SandboxError,
+    SandboxExecutionRequest,
+    SandboxExecutionResponse,
+    SandboxManifest,
+    SandboxPolicy,
+    SandboxProvider,
+    SandboxResult,
+    SandboxRunner,
+)
+from .podman_provider import PodmanProvider
 from .tool_gateway import (
     CapabilityScope,
     ToolAuthorization,
@@ -104,9 +116,16 @@ __all__ = [
     "LocalIntakeStore",
     "RenderedPage",
     "SandboxError",
+    "SandboxCapabilities",
+    "SandboxExecutionRequest",
+    "SandboxExecutionResponse",
+    "SandboxManifest",
     "SandboxPolicy",
+    "SandboxProvider",
     "SandboxResult",
     "SandboxRunner",
+    "LocalSubprocessProvider",
+    "PodmanProvider",
     "CapabilityScope",
     "ToolAuthorization",
     "ToolDefinition",
