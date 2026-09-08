@@ -64,6 +64,18 @@ $previousFirewallProfiles = @()
 $firewallState = "not_requested"
 $firewallPaths = @(Get-WebView2Executables)
 $firewallBlockedLines = @()
+$configurationFailures = [Collections.Generic.List[string]]::new()
+$expectedBrowserArguments = @(
+  "--disable-background-networking",
+  "--disable-component-update",
+  "--disable-domain-reliability",
+  "--disable-sync",
+  "--disable-crash-reporter",
+  "--disable-breakpad",
+  "--disable-quic",
+  '--host-resolver-rules="MAP * 0.0.0.0,EXCLUDE localhost,EXCLUDE 127.0.0.1,EXCLUDE ::1"',
+  "--proxy-server=127.0.0.1:9"
+)
 $process = $null
 $failure = $null
 
@@ -113,11 +125,21 @@ try {
   if ($failure) { throw $failure }
   $process = Start-Process -FilePath $executable -WindowStyle Hidden -PassThru
   for ($sample = 0; $sample -lt $Samples; $sample++) {
-    $snapshot = @(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name,ExecutablePath -ErrorAction SilentlyContinue)
+    $snapshot = @(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine -ErrorAction SilentlyContinue)
     $processes = @(Get-DescendantProcesses $process.Id $snapshot)
     $pids = @($processes | ForEach-Object { [int]$_.ProcessId })
     $processIndex = @{}
     foreach ($descendant in $processes) { $processIndex[[int]$descendant.ProcessId] = $descendant }
+    $browser = $processes | Where-Object { $_.Name -ieq "msedgewebview2.exe" -and $_.CommandLine -notmatch "--type=" } | Select-Object -First 1
+    if ($browser) {
+      foreach ($argument in $expectedBrowserArguments) {
+        if (-not [string]$browser.CommandLine -or -not $browser.CommandLine.Contains($argument)) {
+          if (-not $configurationFailures.Contains("WebView2 browser command line is missing $argument.")) {
+            $configurationFailures.Add("WebView2 browser command line is missing $argument.")
+          }
+        }
+      }
+    }
     $connections = @(Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue | Where-Object { $pids -contains $_.OwningProcess } | ForEach-Object {
       $owner = $processIndex[[int]$_.OwningProcess]
       [ordered]@{
@@ -135,7 +157,7 @@ try {
       sample = $sample
       process_ids = $pids
       processes = @($processes | ForEach-Object {
-        [ordered]@{ process_id = $_.ProcessId; parent_process_id = $_.ParentProcessId; name = $_.Name; executable_path = $_.ExecutablePath }
+        [ordered]@{ process_id = $_.ProcessId; parent_process_id = $_.ParentProcessId; name = $_.Name; executable_path = $_.ExecutablePath; command_line = $_.CommandLine }
       })
       established_connections = $connections
     })
@@ -146,7 +168,7 @@ try {
   $failure = $_.Exception.Message
 } finally {
   if ($process) {
-    $finalSnapshot = @(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name,ExecutablePath -ErrorAction SilentlyContinue)
+    $finalSnapshot = @(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine -ErrorAction SilentlyContinue)
     $finalProcesses = @(Get-DescendantProcesses $process.Id $finalSnapshot)
     foreach ($descendant in $finalProcesses | Sort-Object { $_.ProcessId -eq $process.Id }) {
       Stop-Process -Id ([int]$descendant.ProcessId) -Force -ErrorAction SilentlyContinue
@@ -169,7 +191,10 @@ try {
 
 $allConnections = @($observations | ForEach-Object established_connections)
 $externalConnections = @($allConnections | Where-Object { $_.remote_address -notin @("127.0.0.1", "::1", "0.0.0.0", "::") })
-$status = if ($failure) { "failed" } elseif ($firewallState -eq "enforced" -and $externalConnections.Count -eq 0) { "passed_with_host_firewall" } elseif ($externalConnections.Count -eq 0) { "host_smoke_passed_clean_image_required" } else { "failed" }
+$allFailures = [Collections.Generic.List[string]]::new()
+if ($failure) { $allFailures.Add($failure) }
+foreach ($configurationFailure in $configurationFailures) { $allFailures.Add($configurationFailure) }
+$status = if ($failure -or $configurationFailures.Count -gt 0) { "failed" } elseif ($firewallState -eq "enforced" -and $externalConnections.Count -eq 0) { "passed_with_host_firewall" } elseif ($externalConnections.Count -eq 0) { "host_smoke_passed_clean_image_required" } else { "failed" }
 $report = [ordered]@{
   status = $status
   executable = $executable
@@ -180,8 +205,9 @@ $report = [ordered]@{
   firewall_blocked_line_count = $firewallBlockedLines.Count
   firewall_blocked_lines = $firewallBlockedLines
   samples = $observations
+  configuration_failures = @($configurationFailures)
   external_established_connections = $externalConnections
-  error = $failure
+  error = if ($allFailures.Count -gt 0) { ($allFailures -join " ") } else { $null }
   limitation = "Startup-only host evidence. Clean offline image, approved Node allowlist, and full WebDriver navigation/resource attempts remain separate gates."
 }
 [IO.File]::WriteAllText($reportPath, ($report | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))

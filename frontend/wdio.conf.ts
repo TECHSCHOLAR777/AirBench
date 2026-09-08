@@ -4,7 +4,12 @@ import type { Config } from "@wdio/types";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appBinaryPath = path.join(here, "src-tauri", "target", "debug", "airbench-desktop.exe");
-const driverProvider = process.env.AIRBENCH_WDIO_DRIVER === "external" ? "external" : "embedded";
+const requestedDriverProvider = process.env.AIRBENCH_WDIO_DRIVER;
+const driverProvider = requestedDriverProvider === "embedded" || requestedDriverProvider === "external"
+  ? requestedDriverProvider
+  : process.platform === "win32"
+    ? "external"
+    : "embedded";
 const tauriDriverPath = process.env.TAURI_DRIVER_PATH;
 
 export const config: Config = {
