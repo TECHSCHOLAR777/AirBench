@@ -11,7 +11,8 @@ import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand, type Cre
 import type { NodeCommandResult, TaskPlanReview } from "./generated/core_contracts";
 import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand } from "./taskComposer";
 import { fetchTaskEventBatch } from "./eventTransport";
-import { maySendConsequentialCommand, TaskEventSynchronizer, type EventSyncState } from "./eventStore";
+import { maySendConsequentialCommand, TaskEventSynchronizer, type EventSyncResult, type EventSyncState } from "./eventStore";
+import { TaskEventLoop } from "./taskEventLoop";
 import { loadPresentationPreferences, savePresentationPreferences, type PresentationPreferences } from "./presentationPreferences";
 import { mayLaunchFromShortcut, sourceStatus, unavailableRoutingPreference } from "./launchpadPolicy";
 import { buildWorkTrace, formatTraceTime, type WorkTraceActivity, type WorkTraceStage } from "./workTrace";
@@ -82,12 +83,16 @@ function App() {
   const [taskArtifactDownloadState, setTaskArtifactDownloadState] = useState<"idle" | "downloading" | "downloaded" | "failed">("idle");
   const [taskArtifactDownloadReceipt, setTaskArtifactDownloadReceipt] = useState<DownloadReceipt | null>(null);
   const synchronizerRef = useRef<TaskEventSynchronizer | null>(null);
+  const taskEventLoopRef = useRef<TaskEventLoop | null>(null);
+  const synchronizationRef = useRef<Promise<EventSyncResult> | null>(null);
+  const synchronizationTokenRef = useRef<symbol | null>(null);
   const outcomeInputRef = useRef<HTMLTextAreaElement | null>(null);
   const commandMenuReturnFocusRef = useRef<HTMLElement | null>(null);
   const commandMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [creatingTask, setCreatingTask] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const controller = useMemo(() => new NodeConnectionController(), []);
+  const nodeConnected = connection.state === "connected" && controller.canSendConsequential();
 
   const screenTitle = useMemo(() => {
     const titles: Record<Screen, string> = { home: "Home", tasks: "Tasks", review: "Review", artifacts: "Artifacts", history: "History", audit: "Audit", node: "Node and settings" };
@@ -295,6 +300,24 @@ function App() {
     }
   };
 
+  const synchronize = useCallback((synchronizer: TaskEventSynchronizer): Promise<EventSyncResult> => {
+    if (synchronizationRef.current) return synchronizationRef.current;
+    const token = Symbol("task-synchronization");
+    synchronizationTokenRef.current = token;
+    const operation = (async () => {
+      try {
+        return await synchronizer.synchronizeWithRetry({ maxAttempts: 3 });
+      } finally {
+        if (synchronizationTokenRef.current === token) {
+          synchronizationRef.current = null;
+          synchronizationTokenRef.current = null;
+        }
+      }
+    })();
+    synchronizationRef.current = operation;
+    return operation;
+  }, []);
+
   const syncTask = async (profile: ApprovedNodeProfileReference, snapshot: CreateTaskResponse["snapshot"]) => {
     const synchronizer = new TaskEventSynchronizer(
       (taskId, afterSequence) => fetchTaskEventBatch(profile, taskId, afterSequence),
@@ -303,7 +326,7 @@ function App() {
     synchronizerRef.current = synchronizer;
     setTaskProjection(synchronizer.loadSnapshot(snapshot));
     setEventSyncState(synchronizer.state());
-    const result = await synchronizer.synchronizeWithRetry({ maxAttempts: 3 });
+    const result = await synchronize(synchronizer);
     setTaskProjection(result.projection);
     setEventSyncState(result.state);
     return result;
@@ -312,10 +335,37 @@ function App() {
   const refreshTask = async () => {
     const synchronizer = synchronizerRef.current;
     if (!synchronizer) return;
-    const result = await synchronizer.synchronizeWithRetry({ maxAttempts: 3 });
+    const result = await synchronize(synchronizer);
     setTaskProjection(result.projection);
     setEventSyncState(result.state);
   };
+
+  useEffect(() => {
+    const taskId = taskProjection?.taskId;
+    const synchronizer = synchronizerRef.current;
+    if (!taskId || !synchronizer || !nodeConnected) return;
+
+    const loop = new TaskEventLoop(
+      () => synchronize(synchronizer),
+      (result) => {
+        setTaskProjection(result.projection);
+        setEventSyncState(result.state);
+      },
+      {
+        onError: () => setEventSyncState((current) => current ? {
+          ...current,
+          status: "reconnecting",
+          error: { code: "event_sync_failed", message: "Live task updates are temporarily unavailable. The Node may continue working while this desktop reconnects." },
+        } : current),
+      },
+    );
+    taskEventLoopRef.current = loop;
+    loop.start();
+    return () => {
+      loop.stop();
+      if (taskEventLoopRef.current === loop) taskEventLoopRef.current = null;
+    };
+  }, [nodeConnected, synchronize, taskProjection?.taskId]);
 
   const startTask = async () => {
     const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
@@ -324,6 +374,9 @@ function App() {
       return;
     }
     setCreatingTask(true);
+    taskEventLoopRef.current?.stop();
+    synchronizationRef.current = null;
+    synchronizationTokenRef.current = null;
     setTaskResult(null);
     setPlanReview(null);
     setPlanApprovalResult(null);
@@ -430,7 +483,6 @@ function App() {
     }
   };
 
-  const nodeConnected = connection.state === "connected" && controller.canSendConsequential();
   const canStart = nodeConnected && taskText.trim().length > 0 && (!selectedFile || intakeState === "ready") && !creatingTask;
   const nodeLabel = nodeConnected ? (profiles.find((profile) => profile.profileId === connection.profileId)?.displayName ?? "Node connected") : connection.state === "connecting" ? "Connecting to Node" : "Node not connected";
   const nodeDetail = nodeConnected ? "Verified and ready" : connection.state === "failed" ? "Connection blocked" : "Choose an approved Node";
