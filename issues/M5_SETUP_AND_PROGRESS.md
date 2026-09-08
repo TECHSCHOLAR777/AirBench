@@ -55,7 +55,31 @@ All 6 reference model targets for the refinery/PSU inspection slice have been do
 * [`acceptance/model_roster_matrix.yaml`](acceptance/model_roster_matrix.yaml) & [`acceptance/hardware_scheduling_matrix.yaml`](acceptance/hardware_scheduling_matrix.yaml): Traceability matrices mapping every issue requirement to tests, observable results, and ledger events.
 
 ### Test Suite
-* M5.3 focused tests pass 12/12. The full standard-library discovery currently finds 137 tests: 135 pass and 2 require the declared PyYAML dependency to be installed in the active environment.
+* M5.3 focused tests pass 9/9 (`tests/test_m53_backend.py`). M5.3 routing integration passes 3/3 (`tests/test_m53_routing_integration.py`).
+* After installing the project test extra in the local `.venv`, the full suite passes: **137/137 tests**. The environment uses `PyYAML 6.0.3` and `pytest 9.1.1`.
+
+### M5.3 objective status
+
+Implemented and locally verified:
+
+* Provider-neutral backend request, response, capability, usage, failure, streaming, cancellation, and response-provenance contracts.
+* Request normalization for typed messages, governed multimodal references, structured output modes, and tool definitions.
+* Explicit health versus readiness states.
+* Typed unavailable, not-ready, unsupported-capability, timeout, cancellation, malformed-response, and resource-exhaustion failures with retry guidance.
+* Deterministic `FakeBackend` supporting completion, structured output, tool calls, multimodal input, streaming, cancellation, timeout, resource limits, and ledger emission.
+* `model.call.started`, `model.call.completed`, and `model.call.failed` ledger events with request/response hashes, backend identity, artifact digest, usage, clearance, and provenance metadata.
+* Router/orchestrator integration proving that routing is recorded before backend execution and queued or rejected requests do not call the backend.
+
+Evidence commands:
+
+```text
+python -m unittest tests.test_m53_backend -v
+python -m unittest tests.test_m53_routing_integration -v
+```
+
+Both commands pass without a model server, GPU, or network connection.
+
+The M5.3 Python adapter contract and fake backend are complete. The broader M5 milestone remains open only for the empirical serving evidence listed below.
 
 ---
 
@@ -80,17 +104,21 @@ source .venv/bin/activate
 .venv\Scripts\Activate.ps1
 
 # Install project dependencies
-pip install -e .
-pip install pyyaml pytest
+python -m venv .venv
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+python -m pip install -e ".[test]"
 ```
 
 ### Step 2: Running Automated Tests
 Run the test suite to verify that all contracts, admission arithmetic, and role isolations pass:
 
 ```bash
+python -m unittest discover -s tests -v
+# or, after installing the test extra:
 python -m pytest -v
 ```
-All 85 tests should pass synchronously in ~3 seconds using deterministic fixtures (no model weights or GPU required).
+The repository currently contains 137 tests. The verified local run passes all 137 tests using deterministic fixtures; no model weights or GPU are required for the contract, routing, admission, ledger, sandbox, intake, and verification tests.
 
 ### Step 3: Downloading Model Weights (Offline Model Bundle)
 To run live serving or re-verify local artifact hashes, download the models to `airbench-models/` (this directory is ignored by Git):
