@@ -32,8 +32,9 @@ from .handoffs import (BarrierDecision, HandoffCoordinator, HandoffDecision,
                        HandoffRejected, HandoffReplayError, InMemoryRecordResolver)
 from .adapters import (
     BaseToolParser, HermesToolParser, NoneToolParser, StandardJsonToolParser,
-    ToolCallParserRegistry, VllmAdapter, NimAdapter,
+    ToolCallParserRegistry, VllmAdapter, NimAdapter, FakeRemoteEndpoint, RemoteEndpointAdapter,
 )
+from .remote_endpoint import RemoteEndpointProfile
 
 __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "stable_id",
            "TaskEnvelope", "TeamPlan", "TaskPlanReview", "WorkerAssignment", "WorkPacket", "WorkerResult",
@@ -62,5 +63,6 @@ __all__ += ["ModelCallExecution"]
 __all__ += [
     "BaseToolParser", "HermesToolParser", "NoneToolParser", "StandardJsonToolParser",
     "ToolCallParserRegistry", "VllmAdapter", "NimAdapter",
+    "FakeRemoteEndpoint", "RemoteEndpointAdapter", "RemoteEndpointProfile",
 ]
 __all__ += ["BarrierStatus", "LeaseStatus", "work_packet_hash", "BarrierDecision", "HandoffCoordinator", "HandoffDecision", "HandoffRejected", "HandoffReplayError", "InMemoryRecordResolver"]

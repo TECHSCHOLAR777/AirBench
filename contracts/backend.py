@@ -37,6 +37,15 @@ class BackendErrorCode(str, Enum):
     malformed_response = "malformed_response"
     resource_exhausted = "resource_exhausted"
     provider_error = "provider_error"
+    authentication_failed = "authentication_failed"
+    authorization_failed = "authorization_failed"
+    tls_failure = "tls_failure"
+    allowlist_denied = "allowlist_denied"
+    egress_denied = "egress_denied"
+    remote_execution_denied = "remote_execution_denied"
+    stale_target = "stale_target"
+    unsigned_target = "unsigned_target"
+    artifact_mismatch = "artifact_mismatch"
 
 
 class BackendHealth(str, Enum):
@@ -224,6 +233,9 @@ class ResponseProvenance(Contract):
     backend_version: str
     request_hash: str
     response_hash: str
+    endpoint_id: str | None = None
+    execution_location: str = "local"
+    qualification_reference: str = ""
 
     def _validate(self, hints: dict[str, Any]) -> list[ValidationIssue]:
         issues = super()._validate(hints)

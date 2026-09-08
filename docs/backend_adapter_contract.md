@@ -36,4 +36,6 @@ tests. It does not require a model runtime or network service.
 
 Hardware measurement, model residency, queue admission, and local vLLM/NIM
 implementations remain owned by M5.2 and M5.4. Remote endpoint behavior is
-owned by the endpoint issue and must still conform to this contract.
+owned by the endpoint issue and must still conform to this contract. A remote
+adapter may add transport security checks, but it must not make endpoint
+reachability a substitute for signed model qualification or router eligibility.

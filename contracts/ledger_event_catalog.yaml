@@ -106,6 +106,12 @@ events:
   - routing.decision
   - routing.fallback.selected
   - routing.queued
+  - endpoint.selected
+  - endpoint.rejected
+  - endpoint.egress.denied
+  - endpoint.request.started
+  - endpoint.request.completed
+  - endpoint.request.failed
   - verification.reservation.confirmed
   - completion.blocked
   - completion.ready

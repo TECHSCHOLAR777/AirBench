@@ -1,0 +1,33 @@
+# Disabled example only. Replace placeholders, sign the profile, and keep the
+# credential in AIRBENCH_REMOTE_TOKEN or an approved secret store.
+endpoint_id: remote.example.disabled
+endpoint_url: https://remote.example.invalid
+provider_type: example
+backend_type: openai_compatible
+model_target_id: target.example.disabled
+artifact_digest: 0000000000000000000000000000000000000000000000000000000000000000
+tokenizer_digest: 0000000000000000000000000000000000000000000000000000000000000000
+chat_template_digest: 0000000000000000000000000000000000000000000000000000000000000000
+runtime_version: replace-me
+adapter_id: airbench.remote-endpoint
+adapter_version: 0.1
+capabilities: [reasoning, text]
+roles: [reasoning]
+modalities: [text]
+risk_classes: [inspection_review]
+allowed_clearances: [internal]
+license_id: replace-me
+qualification_reference: qualification.example.disabled
+qualification_expires_at: "2099-01-01T00:00:00Z"
+qualification_signature: 0000000000000000000000000000000000000000000000000000000000000000
+execution_location: remote
+remote_execution_policy: approved_remote_endpoint
+data_egress_policy: approved_remote_endpoint
+allowed_hosts: [remote.example.invalid]
+credential_env: AIRBENCH_REMOTE_TOKEN
+timeout_ms: 120000
+max_retries: 1
+streaming: false
+cancellation: false
+retry_only_idempotent: true
+disabled: true
