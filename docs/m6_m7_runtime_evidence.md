@@ -1,6 +1,6 @@
 # M6 and M7 runtime implementation evidence
 
-This record covers the first Python runtime slices for M6.1 and M7.1. It is deliberately separate from the GitHub issue state because passing unit tests does not prove host-level isolation or production parser coverage.
+This record covers the Python runtime slices for M6.1 and M7.1–M7.4. It is deliberately separate from the GitHub issue state because passing unit tests does not prove host-level isolation, qualified model serving, or production Node integration.
 
 ## M7.1 File Intake Layer
 
@@ -10,7 +10,7 @@ Implemented in `airbench/intake.py`.
 - Both modes use the same parser object and the same manifest, provenance, taint, and ledger path.
 - The three caller switches are explicit: destination, trust profile, and latency profile.
 - Source hash, revision identity, intake identity, page identity, source region, extraction method, confidence, clearance, taint, and parser identity are stable and retained.
-- Text, images, and digital PDF text are handled by the built-in safe parser. PDF extraction uses the declared `pypdf` adapter with page, per-page text, and total text bounds. Encrypted or malformed PDFs fail before ledger evidence is written. A scanned PDF with no text remains an untrusted page set with zero extraction confidence and is ready for the later OCR or vision adapter. Image inputs are verified with the declared Pillow dependency and bounded by dimensions and pixel count, but pixels are not decoded for OCR in this layer. CSV rows are normalized to deterministic tabular text. DOCX text and simple tables are read from bounded WordprocessingML parts. XLSX sheets are read as bounded tabular text with formulas preserved as data and never evaluated by intake. OCR, vision, and drawing interpretation remain behind their later adapter issues.
+- Text, images, and digital PDF text are handled by the built-in safe parser. PDF extraction uses the declared `pypdf` adapter with page, per-page text, and total text bounds. Encrypted or malformed PDFs fail before ledger evidence is written. A scanned PDF with no text remains an untrusted page set with zero extraction confidence and is ready for the OCR or vision adapter. Image inputs are verified with the declared Pillow dependency and bounded by dimensions and pixel count, but pixels are not decoded for OCR in this layer. CSV rows are normalized to deterministic tabular text. DOCX text and simple tables are read from bounded WordprocessingML parts. XLSX sheets are read as bounded tabular text with formulas preserved as data and never evaluated by intake. OCR and vision are now typed local adapter seams; drawing interpretation remains behind a later drawing-pipeline adapter.
 - DOCX and XLSX are treated as untrusted ZIP archives. The parser rejects malformed archives, path traversal, backslash or absolute paths, symlink entries, macro payloads, excessive member counts, and excessive uncompressed size. It reads selected XML parts without extracting archive paths or executing embedded content.
 - This slice does not claim full Office layout fidelity, rich styling, drawing relationships, formula recalculation, macro support, scanned-document OCR, handwriting, or engineering-drawing understanding. Those require qualified adapters and verification evidence.
 - Uploaded content is never treated as an instruction. Page text is retained as untrusted data and can be omitted from a manifest projection.
@@ -21,7 +21,16 @@ Implemented in `airbench/intake.py`.
 - Repeating an intake with the same local store and ledger returns the persisted manifest without reparsing or appending a duplicate evidence event. A stored manifest without its ledger evidence is rejected as an inconsistent recovery state.
 - Storage preparation and ledger failure paths remove staged files. The store uses only local filesystem operations and does not create network clients.
 
-The M7.1 issue should not be closed until the production parser adapter set, rendered-page artifact storage, and real Node integration are present. This slice now establishes bounded digital PDF extraction and structural image validation in addition to the shared boundary, bounded Office XML baseline, and replayable manifest contract. It still does not claim OCR, vision, drawing interpretation, or production Node integration.
+The M7.1 issue still needs deployment-specific renderer and real Node evidence. The M7.2 adapter path is locally implemented and tested, but a qualified OCR or Qwen2.5-VL runtime must be provisioned before production acceptance.
+
+## M7.3 local index and M7.4 governed retrieval/world-model path
+
+- `airbench/retrieval.py` provides typed `IndexChunk`, `LocalVectorIndex`, and `LocalIndexer` contracts. Embedding and reranking are injected qualified local providers with bounded input/batch sizes and typed timeout/failure behavior; deterministic fixture providers are used only for offline tests and do not claim BGE-M3 quality.
+- `RetrievalService` applies clearance before returning bounded cited excerpts and records request/completion/failure ledger events without query text. `LocalVectorIndex` has an optional bounded, atomic local JSON persistence seam and reloads current/superseded/deleted revision state without exposing non-current chunks.
+- `airbench/world_model.py` provides clearance-filtered fact queries and bounded typed relation traversal. Candidate facts and graph relations become query-visible only after both consistency and verification gates approve them and `fact.committed` is accepted by the ledger.
+- `WorldModelStore` has an optional bounded, atomic local JSON persistence seam for committed `FactEnvelope` values; restart tests confirm that staged candidates do not bypass the commit gates.
+
+M7.3 still needs qualified BGE-M3/reranker runtime and corpus measurements. New revisions now supersede prior current index chunks automatically. M7.4 has a signed projection/export contract test and current/superseded graph projections; it still needs live end-to-end acceptance evidence and deployment-scale graph/index validation.
 
 ## M6.1 sandbox
 
@@ -82,13 +91,15 @@ quota before the acceptance gate can close.
 From the repository root:
 
 ```text
-python -m pytest -q tests/test_m61_sandbox.py tests/test_m71_intake.py
-python -m pytest -q tests/test_m61_podman_provider.py
+python -m pytest -q tests/test_m61_sandbox.py tests/test_m61_podman_provider.py tests/test_m71_intake.py tests/test_m72_ocr_vision.py tests/test_m73_retrieval.py tests/test_m74_world_model.py
 python -m pytest -q
 python -m compileall -q airbench contracts tests
 ```
 
-Observed result: the full Python suite and compile check pass after the bounded PDF adapter tests. The exact count is intentionally taken from the CI run rather than maintained manually in this evidence note.
+Observed result: the focused M7.1–M7.4 slice passes 40 tests, the full
+Python suite passes 306 tests, and the compile check passes in the local
+development environment. These are deterministic contract tests; they do not
+replace host-level sandbox, qualified model-serving, or packaged Node evidence.
 
 ## Files
 
