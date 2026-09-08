@@ -2,18 +2,20 @@
 
 ## 1. Design character
 
-AirBench should feel like a dependable operations application used in a plant, government office, or engineering review room. It should be calmer than a consumer chatbot and clearer than an infrastructure dashboard.
+AirBench should feel like a dependable task command application used in a plant, government office, or engineering review room. It should be calmer than a consumer chatbot and clearer than an infrastructure dashboard.
 
-The visual direction is **quiet industrial confidence**:
+The visual direction is **disciplined operational clarity**:
 
-- dark navy shell;
-- light paper work surface;
+- `Obsidian Signal` is the default: a deep blue-black desktop shell with a focused dark task canvas.
+- `Ledger Paper` is the warm alternative: a document-review canvas in beige and restrained orange, with the same dark navigation rail.
 - readable document-first layouts;
 - teal for trusted and complete states;
 - blue for active evidence and information;
 - amber for attention and review;
 - restrained red for stop or failure;
-- no decorative AI gradients, fake typing, or unexplained confidence scores.
+- no decorative AI gradients, fake typing, fake worker activity, or unexplained confidence scores.
+
+Glass is reserved for elevated local controls such as the composer, menus, drawers, and dialogs. It is never used as a substitute for hierarchy, status, or provenance.
 
 ## 2. Design principles
 
@@ -46,11 +48,11 @@ The default workbench must not look like an AI operations dashboard.
 
 | Token role | Initial direction | Use |
 | --- | --- | --- |
-| `nav` | deep navy | Application shell and navigation |
-| `ink` | blue-black | Primary text |
-| `ink-muted` | slate blue | Secondary text and metadata |
-| `paper` | cool light gray | Main work surface |
-| `surface` | white | Cards, previews, dialogs |
+| `nav` | blue-black or warm charcoal | Application shell and navigation |
+| `ink` | high-contrast task text | Primary text |
+| `ink-muted` | slate or warm gray | Secondary text and metadata |
+| `canvas` | near-black or warm beige | Main work surface |
+| `surface` | raised task surface | Cards, previews, dialogs |
 | `line` | cool gray | Boundaries and dividers |
 | `trust` | muted teal | Connected, verified, approved, complete |
 | `info` | steel blue | Evidence, active work, links |
@@ -59,9 +61,18 @@ The default workbench must not look like an AI operations dashboard.
 
 Color never carries meaning alone. Status text, an icon, shape, or layout position must reinforce it.
 
+### Theme, density, and contrast
+
+- `Obsidian Signal` and `Ledger Paper` use the same semantic status tokens. A `Verified` state does not change meaning when the theme changes.
+- Theme, density, and high-contrast preferences are local presentation state only. They are never included in a Node command, task record, authority decision, or ledger claim.
+- The default is `Obsidian Signal` with comfortable density. Compact density reduces whitespace without reducing the minimum pointer target for consequential controls.
+- High contrast strengthens borders, muted copy, and focus rings. It does not rely on a different status vocabulary.
+
 ### Typography
 
-- Bundle a legally distributable font only when the deployment image includes and licenses it. Otherwise use the system stack, with Segoe UI as the Windows first choice.
+- Never import a font, icon, image, stylesheet, or script from a network URL.
+- The initial Windows shell uses the local system stack: Segoe UI Variable or Segoe UI for UI text, Georgia for high-value document-style headings, and Cascadia Mono or Consolas for technical values. These are local operating-system assets, not product evidence or network dependencies.
+- If AirBench later bundles a font, the font must be legally distributable, included in the installer, version-pinned, hashed in the resource manifest, and covered by the offline installation test.
 - Use readable body sizes for source and artifact review.
 - Use medium weight for labels, semibold for actions, and bold only for important status or headings.
 - Use monospace for event IDs, hashes, code, model versions, and technical addresses.
@@ -70,7 +81,7 @@ Color never carries meaning alone. Status text, an icon, shape, or layout positi
 ### Spacing and sizing
 
 - Base unit: 4 px.
-- Standard control height: 36 px.
+- Standard consequential control height: 44 px.
 - Coarse pointer target: 44 px minimum.
 - Panel padding: 16 to 24 px.
 - Content width: about 1,120 px for ordinary task work.
@@ -84,6 +95,8 @@ Color never carries meaning alone. Status text, an icon, shape, or layout positi
 - No excessive pills. Use pills only for compact status or capability labels.
 - Use a low-opacity shadow for elevated drawers and document pages, not for every card.
 - Borders should carry hierarchy; shadows should not become the hierarchy.
+- Glass is a depth cue, not decoration: use translucent, blurred layers for the navigation shell, top bar, Launchpad, menus, drawers, and other elevated task surfaces. Keep ordinary content calm and readable.
+- Ambient blue or warm highlights may establish hierarchy, but they must not imply task activity, network status, verification, or security proof.
 
 ## 4. Component vocabulary
 
@@ -96,16 +109,23 @@ Color never carries meaning alone. Status text, an icon, shape, or layout positi
 - `SovereigntyStatus`
 - `CommandMenu`
 - `NotificationCenter`
+- `AppearanceMenu`
 
 ### Work
 
 - `TaskComposer`
+- `LaunchpadContextControl`
+- `LaunchpadDisclosurePanel`
 - `IntakeManifest`
 - `PlanGraph`
 - `WorkerRoleCard`
 - `ExecutionTimeline`
 - `TaskStatusHeader`
 - `TaskQuestionCard`
+- `LiveWorkTrace`
+- `WorkTraceStage`
+- `NodeActivityRecord`
+- `TechnicalTraceDisclosure`
 
 ### Proof
 
@@ -138,6 +158,29 @@ Color never carries meaning alone. Status text, an icon, shape, or layout positi
 - `ConnectionProfileCard`
 
 Each component must state which data is authoritative, which actions it can issue, and what it renders when the data is unavailable.
+
+### 4.1 Launchpad pattern
+
+The task entry surface is a Launchpad, not a settings form. The outcome prompt remains visually dominant. Sources, deliverable intent, automatic routing, task context, and review are compact controls that reveal one panel at a time.
+
+- `Launch` is the single primary action.
+- `Auto route` is shown as a Node-controlled capability decision, not as a generic model picker.
+- A disabled advanced preference must explain the missing Node-qualified catalog rather than look unfinished.
+- The source panel identifies File Intake and untrusted-data treatment before the operator sends a file.
+- The review panel explains the Node decision boundary without predicting whether approval will be required.
+- The follow-up composer and question cards appear only when the Node has supplied their typed task command contract.
+- The resting outcome field is a compact three-line surface. A longer brief scrolls inside the native textarea; it does not expand the task canvas, change task state, or imply that the Node has accepted the request.
+
+### 4.2 Live Work Trace pattern
+
+The live task surface should feel active because it shows recorded work, not because it imitates model activity. It uses a quiet current-state panel, a fixed seven-stage trace, compact evidence and verification records, and a collapsed technical disclosure.
+
+- Every active, recorded, waiting, or attention state maps to a Node snapshot, Node plan, or ordered event.
+- The primary view uses short human-readable typed summaries. The technical disclosure retains event time, sequence, actor, clearance, payload hash, and ledger reference.
+- Evidence cards visibly retain source, confidence, clearance, taint, source location, and ledger identity.
+- Routing may show only Node-supplied plan context. Selected models, fallback decisions, and policy rationale are unavailable until the event contract provides them.
+- A task question is a record until a sequence-aware, ledgered response command is available. Do not render a decorative response input.
+- No private chain of thought, raw payload JSON, fake typing, elapsed-progress animation, or locally inferred completion appears in the product.
 
 ## 5. Shared status vocabulary
 
@@ -184,14 +227,15 @@ Show:
 - parent facts for derived values;
 - ledger event reference.
 
-Never create a generic “AI generated” badge in place of provenance.
+Never create a generic "AI generated" badge in place of provenance.
 
 ## 7. Interaction rules
 
-- Primary buttons use verbs: `Start task`, `Approve`, `Return for changes`, `Reconnect`, `Verify chain`.
+- Primary buttons use verbs: `Launch`, `Approve`, `Return for changes`, `Reconnect`, `Verify chain`.
 - Destructive actions require confirmation that states the impact and task ID.
 - A disabled consequential action explains exactly what is missing.
 - No infinite scroll without a visible loading and end state.
+- Display preferences use local semantic tokens and must not change task state or send a command.
 - No optimistic approval, stop, release, or artifact deletion state.
 - A task stream shows server event time and local receipt time only when the difference matters.
 - Long-running actions expose pause or stop only if the Node says the current state supports it.

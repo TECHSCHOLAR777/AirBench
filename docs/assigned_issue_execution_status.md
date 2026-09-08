@@ -22,7 +22,7 @@ The user-owned backend parent milestones were M4, M6, M7, M8, M9, and M10. The o
 | #58 | Qwen3-VL qualification | Blocked | The target and a real local serving and measurement path were not available in the last audit. |
 | #59 | Qwen3-30B benchmark | Blocked | The target and a real local serving and measurement path were not available in the last audit. |
 
-Closed in the last snapshot: #39, #40, #41, and #46. Parent milestones are planning containers, not substitutes for their open subissues.
+Closed in the last snapshot: #29, #30, #31, #32, #39, #40, #41, and #46. Parent milestones are planning containers, not substitutes for their open subissues.
 
 ### Frontend issues assigned to `TECHSCHOLAR777`
 
@@ -47,6 +47,18 @@ The first-release frontend assignment snapshot covered #64 to #69 and #73 to #85
 | #84 | FE-DEV-12 recovery and hardening | Release gate | Depends on the preceding frontend and transport paths. |
 | #85 | FE-DEV-13 packaged desktop integration | Final serial gate | Depends on the complete first-release path and validation evidence. |
 
+### P1 frontend command-center refactor
+
+The focused P1 refactor parent is [#105](https://github.com/TECHSCHOLAR777/AirBench/issues/105). It preserves the first-release frontend contracts above and changes only the presentation and interaction layer in dependency order.
+
+| Issues | Area | Execution status | Dependency |
+| --- | --- | --- | --- |
+| #107 | FE-REF-01 design system and shell | Local implementation and Tauri development-shell smoke complete | Default dark and warm light semantic themes, local icons, local display preferences, focus, contrast, reduced-motion support, restrained glass hierarchy, and compact scrollable Launchpad input are implemented. Visual baselines and packaged desktop evidence remain in #111. |
+| #106 | FE-REF-02 Launchpad and route control | Local implementation slice complete, production contract gate open | Progressive Sources, Deliverable, Auto route, Task details, and Review controls preserve the existing task-create envelope. Manual preference, knowledge collection selection, tools, follow-up, and clearance-mismatch presentation remain blocked on Node-provided typed catalogs and commands. |
+| #110 | FE-REF-03 audit-safe live work trace | Local implementation slice complete, integration evidence open | Builds a readable seven-stage trace from the existing snapshot, plan, and ordered Node events. It preserves provenance and technical metadata, never raw reasoning or raw payloads. Exact routing target, fallback, pause/resume, and answer contracts remain Node dependencies. |
+| #108 to #109 | FE-REF-04 through FE-REF-05 interventions and proof inspector | Dependent product slices | Need the strengthened Launchpad and live trace structure. |
+| #111 | FE-REF-06 visual, accessibility, and sovereign validation | Release evidence gate | Covers both themes, visual baselines, desktop accessibility, and packaged no-egress evidence. |
+
 ## What can be done autonomously
 
 An agent can safely work now on bounded code, fixtures, tests, and evidence for #38, #42, #64, #65, #66, #67, #68, #73, and the core-contract portion of #74. Such work must remain honest about the missing production gates.
@@ -64,6 +76,7 @@ There is no delegated subagent runtime available in this environment. Parallel r
 - `1d4b88c`, `84bd887`, and `4b0f3cf`: native event-batch, profile-catalog, and cursor-integrity checks.
 - `a9e1c24`: typed native task-event envelope before IPC.
 - `4982591`: typed artifact preview validation, Node-authorized download UI, fixture coverage, and external WebDriver evidence for FE-VAL-4.
+- `4eb409b`: M4.4 bounded parallel, pipelined, and serial virtual-team runtime, deterministic worker commits, dependency barriers, cancellation and timeout cleanup, lifecycle interception, and ledger-derived context compaction. See `docs/m4_4_team_runtime_evidence.md`.
 - Current FE-VAL-4 fixture evidence also rejects a `secret` response for a `restricted` approved profile.
 - Current FE-VAL-4 fixture evidence also rejects malformed previews, source-hash mismatches, and unsafe preview references.
 - `airbench/intake.py` now uses the declared `pypdf` adapter for bounded digital-PDF text extraction, with page and total text limits and fail-closed malformed/encrypted handling. The parser remains the one shared boundary for bulk and query upload.
@@ -78,6 +91,10 @@ There is no delegated subagent runtime available in this environment. Parallel r
 - FE-VAL-5 runtime smoke run `AirBenchRuntimeEgress-20260907-013213-6a6a9eab8caa4b95bedfd7e5eae4ac1e` failed as expected for an unenforced host: WebView2 established external Microsoft connections. The validator supports an elevated `-EnforceFirewall -RequireFirewall` run; until that evidence exists, no-egress remains an open release gate.
 - FE-DEV-05 now has a typed `TaskPlanReview` projection and a separate `task.approve_plan` command. The Node persists the validated TeamPlan, refuses approval without hardware admission, and preserves expected-sequence and idempotency semantics. Fixture run `AirBenchNodeValidation-20260907-022035-cf89d512b74446c6b614eb4da0e565f9` covers a parallel plan and approval transport. This is synthetic evidence, not production plan-generation proof.
 - FE-DEV-06 now connects the existing cursor-aware event synchronizer to a Live Task Workspace. The UI renders server-authoritative status, phase, activity, plan review, sequence, ledger references, reconnect state, and technical event details. Stop is sent through the existing `task.cancel` command and remains non-optimistic. Frontend tests pass 42/42 and the production build passes. This is a local implementation slice, not packaged or production Node evidence.
+- FE-REF-01 now supplies the Obsidian Signal default shell and Ledger Paper alternative. It replaces navigation letters with static local SVG, stores only theme, density, and contrast preferences locally, and derives the visible Node-path status from the typed connection state. It does not change task, routing, file, or ledger authority. Frontend tests pass 45/45; production build, no-egress source scan, and Tauri configuration checks pass. See `docs/frontend/fe_ref_01_design_shell.md`.
+- The P1 shell and Launchpad refinement now uses a compact three-line textarea with native long-brief scrolling, translucent elevated surfaces, local ambient visual hierarchy, and visible focus treatment. It changes no task, routing, file, authority, provenance, or Node transport state. The 52-test frontend suite, build, no-egress scan, and Tauri configuration check pass. `npm run tauri:dev` rebuilt and launched the local debug desktop shell, then was stopped after the smoke result. This is not a packaged desktop, visual-baseline, or no-egress network-monitor pass.
+- FE-REF-02 now replaces the static task form with the progressive Launchpad. Sources continue through File Intake, deliverable intent uses the existing bounded envelope field, and Auto route is visible without exposing a direct model choice. The advanced preference remains fail-closed until the Node provides a clearance-filtered qualified catalog. Frontend tests pass 48/48; production build, contract generation, source no-egress scan, and Tauri configuration checks pass. The current WebDriver service still fails before DOM interaction with `Direct eval HTTP error: 404 Not Found`, so its new desktop assertions remain unexecuted.
+- FE-REF-03 now turns the existing task projection and plan review into a seven-stage audit-safe Live Work Trace. The workspace displays current Node state, typed worker and tool records, evidence provenance, verification, Node-reported questions, artifacts, ordered activity, and a collapsed technical trace. It does not expose private reasoning, raw payload JSON, fake activity, a local routing decision, or an unsupported intervention command. Focused trace tests, the 52-test frontend suite, production build, contract generation, source no-egress scan, and Tauri configuration checks pass locally. See `docs/frontend/fe_ref_03_live_work_trace.md`.
 - File Intake revision and page identities now use canonical parsed content for Office archives, while raw source hashes remain preserved for provenance. This restores the documented bulk/query parity when ZIP metadata changes between reads.
 
-The latest local evidence is a passing focused Node API suite, generated-contract check, 40 passing frontend tests, 14 passing Rust tests, a passing frontend build, and static no-egress and Tauri policy checks. Packaged live Node, clean-machine, network-capture, and full WebDriver evidence remain release gates. FE-DEV-04 is implemented locally but remains open until the real Python Node, authoritative event stream, and packaged integration are exercised. The local branch must still be pushed after the next main-branch refresh.
+The latest local evidence includes the passing M4.4 team-runtime suite, full Python suite, generated-contract check, frontend tests, Rust tests, frontend build, and static no-egress and Tauri policy checks. Packaged live Node, clean-machine, network-capture, real GPU, hard sandbox, and full WebDriver evidence remain release gates. FE-DEV-04 is implemented locally but remains open until the real Python Node, authoritative event stream, and packaged integration are exercised. The current branch is synchronized with `origin/main` at `4eb409b`.

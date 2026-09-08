@@ -160,6 +160,26 @@ class EventLedger:
         self._by_idempotency[validated.idempotency_key] = validated
         return validated
 
+    def append_batch(self, events: list[LedgerEventEnvelope]) -> tuple[LedgerEventEnvelope, ...]:
+        """Validate a batch against a shadow ledger before mutating this one."""
+        if not events:
+            raise ValueError("events must not be empty")
+        keys = [event.idempotency_key for event in events]
+        if len(set(keys)) != len(keys):
+            raise IdempotencyConflict("batch contains duplicate idempotency keys")
+        existing = [self._by_idempotency.get(key) for key in keys]
+        if any(item is not None for item in existing):
+            if all(item is not None and item.event_hash == event.event_hash for item, event in zip(existing, events)):
+                return tuple(item for item in existing if item is not None)
+            raise IdempotencyConflict("batch mixes already committed and new events")
+        candidate = EventLedger()
+        candidate._events = list(self._events)
+        candidate._by_idempotency = dict(self._by_idempotency)
+        validated = tuple(candidate.append(event) for event in events)
+        self._events.extend(validated)
+        self._by_idempotency.update({event.idempotency_key: event for event in validated})
+        return validated
+
     def _check_transition(self, event: LedgerEventEnvelope) -> None:
         state = self.replay(event.task_id).state if self._events else "absent"
         if event.event_type == "task.created" and state != "absent":
@@ -381,6 +401,13 @@ def _apply_event(state: str, failure: str | None, event: LedgerEventEnvelope) ->
         "task.created": "created", "task.authorized": "authorized", "task.plan.committed": "planned",
         "resource.plan.admitted": "executing", "resource.plan.queued": "queued",
         "worker.started": "executing", "model.requested": "executing", "tool.requested": "executing",
+        "worker.handoff": "executing", "join_barrier.waiting": "awaiting_check",
+        "join_barrier.completed": "executing",
+        "join_barrier.resolved": {
+            "cancelled": "cancelled", "missing": "needs_review",
+            "conflicting": "needs_review", "timed_out": "needs_review",
+            "needs_review": "needs_review",
+        },
         "verification.completed": {"passed": "verified", "needs_review": "needs_review", "failed": "blocked"},
         "human.review.required": "needs_review", "human.signoff": "verified",
         "completion.recorded": "completed", "task.cancelled": "cancelled", "task.failed": "failed",

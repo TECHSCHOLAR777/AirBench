@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The AirBench Harness is the controlled execution environment in which a task becomes a completed, checked, and reviewable result. It adapts the strongest ideas from modern coding-agent harnesses: persistent sessions, typed tool use, lifecycle interception, context management, isolated workers, structured progress, default-fail completion, and fresh evaluation.
+The AirBench Harness is the controlled execution environment in which a task becomes a completed, checked, and reviewable result. It adapts the strongest ideas from modern coding-agent harnesses: persistent sessions, typed tool use, lifecycle interception, context management, isolated workers, structured progress, default-fail completion, and fresh evaluation. The first executable team runtime is documented in `m4_4_team_runtime_evidence.md`.
 
 AirBench does not copy Claude Code, embed the Claude Code runtime, or depend on the Agent SDK. The harness is an AirBench core-engine capability and works with AirBench's local model router, domain packs, tool gateway, verification runner, artifact store, and append-only ledger.
 
