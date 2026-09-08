@@ -17,4 +17,5 @@ testpaths = ["tests"]
 addopts = "-q"
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["contracts*", "airbench*"]

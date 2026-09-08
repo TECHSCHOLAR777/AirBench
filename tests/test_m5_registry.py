@@ -17,7 +17,7 @@ import json
 import unittest
 
 from contracts import ModelCallRequest, ModelRegistry, ModelTarget, RegistryError
-from contracts.model_registry import _target_from_roster, _sha256_descriptor
+from contracts.model.model_registry import _target_from_roster, _sha256_descriptor
 
 
 KEY = b"m5-test-signing-key"

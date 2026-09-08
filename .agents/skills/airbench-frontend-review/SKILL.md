@@ -9,11 +9,11 @@ Use this skill before merging frontend work or closing a frontend validation iss
 
 ## Review order
 
-1. Read the originating issue and `docs/frontend/README.md`.
-2. Check the changed screen against `frontend_screen_specification.md` and `frontend_design_system.md`.
-3. Check the Node boundary against `frontend_architecture.md` and `frontend_contracts_and_state.md`.
+1. Read the originating issue and `docs/desktop/README.md`.
+2. Check the changed screen against `docs/desktop/design/frontend_screen_specification.md` and `docs/desktop/design/frontend_design_system.md`.
+3. Check the Node boundary against `docs/desktop/architecture/frontend_architecture.md` and `docs/desktop/architecture/frontend_contracts_and_state.md`.
 4. Check applicable AirBench guards: architecture, contract, security, provenance, intake, ledger, router, and deliverable.
-5. Run the focused frontend tests and the relevant validation track from `frontend_validation_plan.md`.
+5. Run the focused frontend tests and the relevant validation track from `docs/desktop/validation/frontend_validation_plan.md`.
 
 ## Review questions
 

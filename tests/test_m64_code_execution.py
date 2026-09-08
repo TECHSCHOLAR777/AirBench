@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from airbench.code_execution import (CodeExecutionError, CodeExecutionRequest,
+from airbench.tools.code_execution import (CodeExecutionError, CodeExecutionRequest,
                                       CodeExecutionRunner)
-from airbench.sandbox import SandboxPolicy, SandboxRunner
+from airbench.tools.sandbox import SandboxPolicy, SandboxRunner
 from contracts import Clearance, EventLedger, ToolAction, build_event
 
 

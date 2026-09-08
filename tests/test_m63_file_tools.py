@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from airbench.file_tools import (FileProvenance, FileToolError, FileToolRunner,
+from airbench.tools.file_tools import (FileProvenance, FileToolError, FileToolRunner,
                                   SpreadsheetTable, SpreadsheetTool, WorkspacePolicy)
 from contracts import Clearance, EventLedger, Taint, build_event
 

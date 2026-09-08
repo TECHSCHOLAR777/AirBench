@@ -48,7 +48,7 @@ requirements:
     scenario: "Construct valid HardwareProfile and TeamResourcePlan from dict; verify they pass validation"
     observable_result: "from_dict() succeeds; invalid profiles raise ContractValidationError"
     expected_ledger_event: "schema.validation.completed"
-    evidence_artifact: "contracts/hardware_profile.schema.yaml, contracts/team_resource_plan.schema.yaml"
+    evidence_artifact: "src/contracts/schemas/hardware_profile.schema.yaml, src/contracts/schemas/team_resource_plan.schema.yaml"
     pass_rule: "All existing admission tests pass; new HardwareProfile extended-field tests pass"
     status: pass   # confirmed by passing test suite
 

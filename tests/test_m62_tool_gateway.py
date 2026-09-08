@@ -4,8 +4,8 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from airbench.sandbox import SandboxPolicy, SandboxRunner
-from airbench.tool_gateway import (ToolGateway, ToolGatewayError, ToolDefinition,
+from airbench.tools.sandbox import SandboxPolicy, SandboxRunner
+from airbench.tools.gateway import (ToolGateway, ToolGatewayError, ToolDefinition,
                                    issue_capability_scope)
 from contracts import Clearance, EventLedger, Taint, ToolAction, build_event
 
