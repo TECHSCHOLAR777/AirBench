@@ -22,7 +22,7 @@ The user-owned backend parent milestones were M4, M6, M7, M8, M9, and M10. The o
 | #58 | Qwen3-VL qualification | Blocked | The target and a real local serving and measurement path were not available in the last audit. |
 | #59 | Qwen3-30B benchmark | Blocked | The target and a real local serving and measurement path were not available in the last audit. |
 
-Closed in the last snapshot: #39, #40, #41, and #46. Parent milestones are planning containers, not substitutes for their open subissues.
+Closed in the last snapshot: #29, #30, #31, #32, #39, #40, #41, and #46. Parent milestones are planning containers, not substitutes for their open subissues.
 
 ### Frontend issues assigned to `TECHSCHOLAR777`
 
@@ -76,6 +76,7 @@ There is no delegated subagent runtime available in this environment. Parallel r
 - `1d4b88c`, `84bd887`, and `4b0f3cf`: native event-batch, profile-catalog, and cursor-integrity checks.
 - `a9e1c24`: typed native task-event envelope before IPC.
 - `4982591`: typed artifact preview validation, Node-authorized download UI, fixture coverage, and external WebDriver evidence for FE-VAL-4.
+- `4eb409b`: M4.4 bounded parallel, pipelined, and serial virtual-team runtime, deterministic worker commits, dependency barriers, cancellation and timeout cleanup, lifecycle interception, and ledger-derived context compaction. See `docs/m4_4_team_runtime_evidence.md`.
 - Current FE-VAL-4 fixture evidence also rejects a `secret` response for a `restricted` approved profile.
 - Current FE-VAL-4 fixture evidence also rejects malformed previews, source-hash mismatches, and unsafe preview references.
 - `airbench/intake.py` now uses the declared `pypdf` adapter for bounded digital-PDF text extraction, with page and total text limits and fail-closed malformed/encrypted handling. The parser remains the one shared boundary for bulk and query upload.
@@ -96,4 +97,4 @@ There is no delegated subagent runtime available in this environment. Parallel r
 - FE-REF-03 now turns the existing task projection and plan review into a seven-stage audit-safe Live Work Trace. The workspace displays current Node state, typed worker and tool records, evidence provenance, verification, Node-reported questions, artifacts, ordered activity, and a collapsed technical trace. It does not expose private reasoning, raw payload JSON, fake activity, a local routing decision, or an unsupported intervention command. Focused trace tests, the 52-test frontend suite, production build, contract generation, source no-egress scan, and Tauri configuration checks pass locally. See `docs/frontend/fe_ref_03_live_work_trace.md`.
 - File Intake revision and page identities now use canonical parsed content for Office archives, while raw source hashes remain preserved for provenance. This restores the documented bulk/query parity when ZIP metadata changes between reads.
 
-The latest local evidence is a passing focused Node API suite, generated-contract check, 52 passing frontend tests, 14 passing Rust tests, a passing frontend build, and static no-egress and Tauri policy checks. Packaged live Node, clean-machine, network-capture, and full WebDriver evidence remain release gates. FE-DEV-04 is implemented locally but remains open until the real Python Node, authoritative event stream, and packaged integration are exercised. The local branch must still be pushed after the next main-branch refresh.
+The latest local evidence includes the passing M4.4 team-runtime suite, full Python suite, generated-contract check, frontend tests, Rust tests, frontend build, and static no-egress and Tauri policy checks. Packaged live Node, clean-machine, network-capture, real GPU, hard sandbox, and full WebDriver evidence remain release gates. FE-DEV-04 is implemented locally but remains open until the real Python Node, authoritative event stream, and packaged integration are exercised. The current branch is synchronized with `origin/main` at `4eb409b`.
