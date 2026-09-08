@@ -28,6 +28,13 @@ events:
   - task.cancelled
   - task.failed
   - team.created
+  - team.execution.started
+  - team.execution.completed
+  - team.execution.failed
+  - team.execution.cancelled
+  - lifecycle.intercepted
+  - lifecycle.blocked
+  - worker.context.compacted
   - worker.assigned
   - worker.started
   - worker.completed
