@@ -1,0 +1,14 @@
+profiles:
+  - id: scanned_inspection_report
+    formats: [pdf, png, jpeg]
+    intake: file_intake_then_local_ocr_vision
+    authoritative_for: [inspection_findings]
+    trust: untrusted_until_provenance_gate
+  - id: maintenance_manual
+    formats: [pdf, docx]
+    intake: file_intake_then_text_retrieval
+    authoritative_for: [maintenance_procedure]
+  - id: past_correspondence
+    formats: [pdf, docx, txt]
+    intake: file_intake_then_text_retrieval
+    authoritative_for: [historical_context]

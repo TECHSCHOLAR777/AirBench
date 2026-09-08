@@ -1,0 +1,43 @@
+schema_version: "1.0"
+run_manifest: acceptance_run_manifest.yaml
+requirements:
+  - id: contract_replay
+    owner: repository
+    observable_result: serialize_replay_compact_resume_preserves_compatibility_and_provenance
+    local_test: tests/test_m24_acceptance.py
+    ledger_event: recovery.resumed
+    status: locally_tested
+  - id: domain_pack_freeze
+    owner: repository_plus_signer
+    observable_result: signed_pack_manifest_and_all_declarations_load
+    artifact: packs/refinery_psu_v0/manifest.yaml
+    ledger_event: task.created
+    status: blocked_external_signature
+  - id: hardware_profile
+    owner: target_host_operator
+    observable_result: measured_signed_hardware_profile_and_resource_plan
+    artifact: profiles/hardware/target_96gb_vram.yaml
+    ledger_event: hardware.measurement.completed
+    status: blocked_target_host
+  - id: model_qualification
+    owner: target_host_operator
+    observable_result: exact_artifacts_backends_and_role_certificates_pass_live_semantic_matrix
+    artifact: qualifications/model_qualification_matrix.yaml
+    ledger_event: model.qualification.checked
+    status: blocked_target_host
+  - id: vertical_slice
+    owner: target_host_operator
+    observable_result: scanned_report_to_verified_docx_draft_with_ledger_trace
+    ledger_event: completion.ready
+    status: blocked_target_host
+  - id: sovereignty
+    owner: security_observer
+    observable_result: independent_network_monitor_records_no_egress_for_entire_run
+    artifact: acceptance/network_monitor_evidence.schema.yaml
+    ledger_event: endpoint.egress.denied
+    status: blocked_external_observer
+  - id: human_review
+    owner: authorized_reviewer
+    observable_result: human_review_record_bound_to_artifact_and_ledger_head
+    ledger_event: human.signoff
+    status: blocked_human_action
