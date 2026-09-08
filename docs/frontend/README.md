@@ -16,6 +16,8 @@ The next P1 slice, [#106](https://github.com/TECHSCHOLAR777/AirBench/issues/106)
 
 The current P1 slice, [#110](https://github.com/TECHSCHOLAR777/AirBench/issues/110), turns the existing authoritative task snapshot, plan, and ordered events into an audit-safe Live Work Trace. It makes plan, work, evidence, verification, review, artifacts, outcome, and technical metadata readable without exposing raw model reasoning, raw event payloads, or invented activity. Exact selected targets, fallback records, pause and resume, and question responses remain absent until the Node supplies typed contracts. See `fe_ref_03_live_work_trace.md`.
 
+The current local validation slice, [#111](https://github.com/TECHSCHOLAR777/AirBench/issues/111), adds a versioned semantic UI baseline and executable preflight for both themes, critical task states, accessibility hooks, and local-resource regressions. It does not replace packaged visual, WebDriver, network-capture, or screen-reader evidence. See `fe_ref_06_validation.md`.
+
 | Development issue | Outcome | Lane |
 | --- | --- | --- |
 | [FE-DEV-01, #73](https://github.com/TECHSCHOLAR777/AirBench/issues/73) | Secure Tauri shell | Parallel foundation |
@@ -45,6 +47,7 @@ Future frontend capabilities are tracked separately in [FE-FUT-01 through FE-FUT
 7. `frontend_development_workflow.md` for issue ownership, parallel work, integration order, and completion evidence.
 8. `frontend_execution_plan.md` for the current dependency-aware implementation order, contract blockers, and validation lanes.
 9. `frontend_validation_issues.md` for the six GitHub issue definitions, dependencies, labels, and acceptance evidence.
+10. `fe_ref_06_validation.md` for the executable semantic UI baseline and its remaining packaged-evidence boundary.
 
 ## Frontend invariants
 
