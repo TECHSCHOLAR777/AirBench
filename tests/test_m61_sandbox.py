@@ -48,6 +48,9 @@ class RecordingProvider:
             resource_limits=("code_bytes", "output_bytes", "wall_time"),
         )
 
+    def verify(self) -> None:
+        return None
+
     def execute(self, request: SandboxExecutionRequest) -> SandboxExecutionResponse:
         self.requests.append(request)
         return self.delegate.execute(request)
@@ -85,11 +88,42 @@ try:
     import pip
 except Exception as exc:
     print(type(exc).__name__)
+try:
+    import socket
+    socket.create_connection(('198.51.100.1', 443))
+except Exception as exc:
+    print('ipv4:' + type(exc).__name__)
+try:
+    import socket
+    socket.create_connection(('2001:db8::1', 443))
+except Exception as exc:
+    print('ipv6:' + type(exc).__name__)
+try:
+    import socket
+    socket.getaddrinfo('example.invalid', 443)
+except Exception as exc:
+    print('dns:' + type(exc).__name__)
+try:
+    import urllib.request
+    urllib.request.urlopen('https://example.invalid')
+except Exception as exc:
+    print('proxy_or_http:' + type(exc).__name__)
+try:
+    import ensurepip
+except Exception as exc:
+    print('package_install:' + type(exc).__name__)
+print('proxy_env:' + str(not any(key in __import__('os').environ for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY'))))
 """
         with tempfile.TemporaryDirectory() as root:
             result = SandboxRunner(ledger).execute(action(code), SandboxPolicy(Path(root)))
         self.assertEqual(result.status, "succeeded")
-        self.assertEqual(result.stdout.count("ImportError"), 3)
+        self.assertEqual(result.stdout.count("ImportError"), 8)
+        self.assertIn("ipv4:ImportError", result.stdout)
+        self.assertIn("ipv6:ImportError", result.stdout)
+        self.assertIn("dns:ImportError", result.stdout)
+        self.assertIn("proxy_or_http:ImportError", result.stdout)
+        self.assertIn("package_install:ImportError", result.stdout)
+        self.assertIn("proxy_env:True", result.stdout)
         self.assertIn("ImportError", result.stdout)
 
     def test_timeout_and_hard_isolation_requirement_fail_safely(self):
