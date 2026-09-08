@@ -33,7 +33,7 @@ _ALLOWED = {
     "adapter_id", "adapter_version", "max_output_tokens", "max_concurrency",
     "max_batch_size", "streaming", "cancellation", "source_evidence",
     "mmproj_digest",
-    "role_qualifications", "role_qualification_hashes",
+    "role_qualifications", "role_qualification_hashes", "routing_tier",
 }
 _OPTIONAL = {
     "artifact_files", "model_family", "display_name", "revision", "container_digest",
@@ -42,7 +42,7 @@ _OPTIONAL = {
     "adapter_id", "adapter_version", "max_output_tokens", "max_concurrency",
     "max_batch_size", "streaming", "cancellation", "source_evidence",
     "mmproj_digest",
-    "role_qualifications", "role_qualification_hashes",
+    "role_qualifications", "role_qualification_hashes", "routing_tier",
 }
 _REQUIRED = _ALLOWED - _OPTIONAL
 _SHA256_PREFIXED = re.compile(r"^(?:sha256:)?[0-9a-f]{64}$")
@@ -166,6 +166,7 @@ class ModelTarget:
     cancellation: bool = False
     source_evidence: str = ""
     mmproj_digest: str = ""
+    routing_tier: str = "capable"
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ModelTarget":
@@ -211,6 +212,7 @@ class ModelTarget:
             "max_batch_size": 1, "streaming": False, "cancellation": False, "source_evidence": "",
             "mmproj_digest": "", "role_qualifications": (),
             "role_qualification_hashes": (),
+            "routing_tier": "capable",
         }
         result = {field: getattr(self, field) for field in _ALLOWED if field not in defaults or getattr(self, field) != defaults[field]}
         result["allowed_clearances"] = [x.value for x in self.allowed_clearances]
@@ -258,6 +260,8 @@ class ModelTarget:
         for name in ("chat_template_required", "tokenizer_required", "streaming", "cancellation"):
             if type(getattr(self, name)) is not bool:
                 raise RegistryError(f"{name} must be boolean")
+        if self.routing_tier not in {"capable", "efficient"}:
+            raise RegistryError("routing_tier must be capable or efficient")
         for name in ("max_output_tokens", "max_concurrency", "max_batch_size"):
             value = getattr(self, name)
             if type(value) is not int or value < 0:
@@ -519,5 +523,6 @@ def _target_from_roster(item: Mapping[str, Any]) -> ModelTarget:
         "max_output_tokens": limits.get("max_output_tokens", 0), "max_concurrency": limits.get("max_concurrency", 1),
         "max_batch_size": limits.get("max_batch_size", 1), "streaming": bool(item.get("streaming", False)),
         "cancellation": bool(item.get("cancellation", False)), "source_evidence": item.get("source_evidence", ""),
+        "routing_tier": item.get("routing_tier", "capable"),
         "mmproj_digest": (item.get("mmproj", {}) or {}).get("artifact_hash", "") if isinstance(item.get("mmproj", {}), Mapping) else "",
     })

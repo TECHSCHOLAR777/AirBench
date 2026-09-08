@@ -61,9 +61,9 @@ All 6 reference model targets for the refinery/PSU inspection slice have been do
 * [`acceptance/model_roster_matrix.yaml`](acceptance/model_roster_matrix.yaml) & [`acceptance/hardware_scheduling_matrix.yaml`](acceptance/hardware_scheduling_matrix.yaml): Traceability matrices mapping every issue requirement to tests, observable results, and ledger events.
 
 ### Test Suite
-* M5.3 focused tests pass 9/9 (`tests/test_m53_backend.py`). M5.3 routing integration passes 3/3 (`tests/test_m53_routing_integration.py`).
+* M5.3 focused tests pass 9/9 (`tests/test_m53_backend.py`). M5.3 routing integration passes 7/7 (`tests/test_m53_routing_integration.py`).
 * M5.4 adapter tests pass 63/63 (`tests/test_m54_adapters.py`), including concurrent adapter calls and explicit `max_concurrency` admission enforcement.
-* After installing the project test extra in the local `.venv`, the full available suite passes: **166/166 tests**. The environment uses `PyYAML 6.0.3` and `pytest 9.1.1`.
+* After installing the project test extra in the local `.venv`, the full available suite passes: **191/191 tests**. The environment uses `PyYAML 6.0.3` and `pytest 9.1.1`.
 
 ---
 
@@ -86,6 +86,21 @@ python -m pytest tests/test_m53_backend.py tests/test_m53_routing_integration.py
 ```
 
 Both commands pass without a model server, GPU, or network connection.
+
+---
+
+### M5 router objective status
+
+Implemented and locally verified:
+
+* **Hard eligibility gates:** `ModelRegistry.eligible_targets()` filters expired or unsigned-scope targets by role, capability, modality, risk class, clearance, pack, hardware profile, context, and image-token budget before backend health or preference ordering.
+* **Role routing:** each typed worker request is routed independently; the selected target carries its role-bound qualification certificate and adapter identity.
+* **Stage signals:** `ModelCallRequest` carries the current stage, previous verification status, and typed deterministic signals for exploration, error severity, spinning, recent production, test result, and context pressure. Settled mechanical stages may prefer an explicitly qualified efficient target.
+* **Sticky escalation:** a failed or review-required verification, recovery signal, critical error, spinning signal, failed test, or critical context-pressure signal requires a capable target. The selected capable target remains sticky for later turns in the same stage; an efficient-only route is rejected instead of silently downgraded.
+* **Queue and fallback:** resource admission still returns `queued` without invoking a backend. If the first qualified target is unavailable, the router may select the next already-qualified eligible target, and the orchestrator records `routing.fallback.selected` with the original attempt and failed primary target.
+* **Attempt preservation:** `RoutingDecision` includes the request attempt, stage, resource lease, hardware profile, selected artifact digest, and stage signals so failed attempts remain auditable.
+
+Evidence: `tests/test_m53_routing_integration.py` passes 7/7, covering admission gating, queue behavior, efficient-stage routing, sticky escalation, no-silent-downgrade rejection, fallback selection, attempt preservation, and fallback ledger evidence. The remaining full-M5 gates are the empirical target-node benchmarks and live air-gapped traces listed below; these deterministic router tests do not claim those measurements.
 
 ---
 
@@ -126,7 +141,7 @@ python -m pytest tests/test_m54_adapters.py -v
 python -m pytest tests/test_m53_backend.py tests/test_m53_routing_integration.py tests/test_m54_adapters.py -v
 ```
 
-All 63 M5.4 tests and the full 166-test suite pass on Python 3.13.6 without model weights or a network connection.
+All 63 M5.4 tests and the full 191-test suite pass on Python 3.13.6 without model weights or a network connection.
 
 ---
 
@@ -144,7 +159,7 @@ M5.4 now has the provider-specific adapter implementation and the complete offli
 - No-egress environment enforcement runs before HTTP calls; ledger events contain hashes and metadata without prompt text; response provenance retains target, artifact, backend, clearance, and untrusted taint.
 - Router integration selects adapters by the signed target's `adapter_id`.
 - The acceptance gap identified in the issue is closed: concurrent adapter calls are exercised explicitly, and an admission test proves that `max_concurrency=1` yields a serial virtual-team plan with a ceiling of one. Scheduling remains owned by M5.2 `AdmissionController`, not by the adapter.
-- Verification: 63 M5.4 tests pass; the documented available suite passes 166/166; compile and diff checks pass without a GPU, model server, or network.
+- Verification: 63 M5.4 tests pass; the documented available suite passes 191/191; compile and diff checks pass without a GPU, model server, or network.
 
 ### Still outstanding before calling the full M5 issue production-complete
 
@@ -192,8 +207,10 @@ Run the test suite to verify that all contracts, admission arithmetic, role isol
 # M5.3 and M5.4 adapter tests only (fastest; no optional deps needed)
 python -m pytest tests/test_m53_backend.py tests/test_m53_routing_integration.py tests/test_m54_adapters.py -v
 
-# Full available suite (166 tests — excludes PIL/httpx-dependent tests)
+# Full available suite (191 tests — excludes PIL/httpx-dependent tests)
 python -m pytest \
+  --ignore=tests/test_m41_worker_contexts.py \
+  --ignore=tests/test_m44_team_runtime.py \
   --ignore=tests/test_m71_intake.py \
   --ignore=tests/test_m81_verification.py \
   --ignore=tests/test_node_api.py \
@@ -204,7 +221,7 @@ python -m pytest \
   -v
 ```
 
-The repository currently contains **166 tests** that pass using deterministic fixtures and mock HTTP; no model weights, GPU, or network are required for the contract, routing, admission, ledger, adapter, sandbox, intake, and verification tests.
+The repository currently contains **191 tests** that pass using deterministic fixtures and mock HTTP; no model weights, GPU, or network are required for the contract, routing, admission, ledger, adapter, sandbox, intake, and verification tests.
 
 ### Step 3: Downloading Model Weights (Offline Model Bundle)
 To run live serving or re-verify local artifact hashes, download the models to `airbench-models/` (this directory is ignored by Git):
