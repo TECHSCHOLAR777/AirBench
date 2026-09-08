@@ -1,0 +1,10 @@
+evaluation_set_id: refinery_psu_mvp_v0
+status: fixture_manifest_only
+fixtures:
+  scanned_inspection_report: pending_operator_supplied_fixture
+  inspection_photographs: pending_operator_supplied_fixtures
+  manuals: pending_operator_supplied_fixtures
+  sops: pending_operator_supplied_fixtures
+  past_correspondence: pending_operator_supplied_fixtures
+  coding_task: pending_operator_supplied_fixture
+acceptance_rules: [every_fixture_enters_via_file_intake, every_finding_retains_source_confidence_clearance_and_taint, every_number_is_sourced_or_deterministically_computed, missing_source_or_verifier_is_needs_review]

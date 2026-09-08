@@ -1,0 +1,17 @@
+pack_id: refinery_psu_inspection_review_v0
+pack_version: "1.0"
+compatibility_id: airbench-core-contracts
+status: draft_pending_external_acceptance
+signing_status: unsigned
+signature: null
+engineering_drawing_pipeline: reserved_typed_adapter_only
+document_profiles: document_profiles.yaml
+world_schema: world_schema.yaml
+field_rules: field_rules.yaml
+decision_types: decision_types.yaml
+risk_mappings: risk_mappings.yaml
+clearance_roles: clearance_roles.yaml
+deliverable_templates: deliverable_templates.yaml
+worker_requirements: worker_requirements.yaml
+contracts: [TaskEnvelope, TeamPlan, TaskPlanReview, WorkerAssignment, WorkPacket, WorkerResult, HandoffSubmission, JoinBarrier, CompletionRecord, ModelCallRequest, RoutingDecision, TeamResourcePlan, ResourceReservation, ResourceLease, HardwareProfile, ToolAction, FactEnvelope, UntrustedEvidence, LedgerEventEnvelope]
+rules: [validate_before_state_mutation, reject_unknown_fields, canonical_json_for_replay, fail_closed_on_missing_verifier, no_engineering_drawing_interpretation]

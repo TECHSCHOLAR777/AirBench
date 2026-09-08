@@ -1,0 +1,10 @@
+rules:
+  - id: finding_requires_source_region
+    applies_to: inspection_finding
+    result: needs_review_if_missing
+  - id: numeric_value_requires_deterministic_derivation
+    applies_to: approval_note
+    result: needs_review_if_unverified
+  - id: approval_note_requires_independent_verification
+    applies_to: approval_note
+    result: blocked_if_verifier_unavailable
