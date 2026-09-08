@@ -13,7 +13,8 @@ Core engine. It is used by two callers: the Knowledge and Retrieval Engine for b
 All file type coverage lives here, in one place, so a new format is added once and both callers get it. The layer covers, at least:
 
 - Digital PDFs, read directly for text, tables, and structure.
-- Scanned PDFs and images, read with OCR, with coordinates and confidence.
+- Scanned PDFs and images, handed as typed rendered-page inputs to the local
+  OCR/vision adapter path, with coordinates and confidence retained.
 - Word and other rich text documents.
 - Excel, CSV, and other spreadsheets, read as structured tables with headers, units, and formulas kept intact.
 - Photographs, read by the vision model.
@@ -46,7 +47,7 @@ Every file that enters is untrusted until cleared, and a query time upload espec
 
 The intake layer does not decide what a document is allowed to do. It preserves taint and provenance. A model may read `UntrustedEvidence` to summarize it, but the evidence cannot add instructions, permissions, tools, or plan steps. Promotion into trusted knowledge requires the ledger provenance gate and an explicit policy decision.
 
-The first scope covers digital/scanned PDF, DOCX or rich text, XLSX/CSV, PNG/JPEG, plain text, and markup. The built-in PDF adapter extracts bounded digital text with page provenance. A PDF with no extractable text remains a valid untrusted page set for the later OCR or vision adapter. Encrypted, malformed, empty-page-tree, over-page-limit, and over-text-limit PDFs fail closed. Image inputs are structurally verified and dimension-bounded without decoding pixels or claiming OCR. Engineering drawings are reserved for the later drawing-pipeline adapter; the generic intake layer must not pretend to understand drawing topology.
+The first scope covers digital/scanned PDF, DOCX or rich text, XLSX/CSV, PNG/JPEG, plain text, and markup. The built-in PDF adapter extracts bounded digital text with page provenance. A PDF with no extractable text remains a valid untrusted page set for the OCR or vision adapter. Encrypted, malformed, empty-page-tree, over-page-limit, and over-text-limit PDFs fail closed. Image inputs are structurally verified and dimension-bounded without decoding pixels or claiming OCR. The typed `LocalVisionAdapter` consumes only intake-produced page bytes and returns confidence-bearing, still-untrusted extraction records; it does not open source paths or parse document containers. Engineering drawings are reserved for the later drawing-pipeline adapter; the generic intake layer must not pretend to understand drawing topology.
 
 ## Interfaces
 
