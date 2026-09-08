@@ -63,7 +63,7 @@ All 6 reference model targets for the refinery/PSU inspection slice have been do
 ### Test Suite
 * M5.3 focused tests pass 9/9 (`tests/test_m53_backend.py`). M5.3 routing integration passes 7/7 (`tests/test_m53_routing_integration.py`).
 * M5.4 adapter tests pass 63/63 (`tests/test_m54_adapters.py`), including concurrent adapter calls and explicit `max_concurrency` admission enforcement.
-* After installing the project test extra in the local `.venv`, the full available suite passes: **191/191 tests**. The environment uses `PyYAML 6.0.3` and `pytest 9.1.1`.
+* After installing the project test extra in the local `.venv`, the full available suite passes: **203/203 tests**. The environment uses `PyYAML 6.0.3` and `pytest 9.1.1`.
 
 ---
 
@@ -104,6 +104,22 @@ Evidence: `tests/test_m53_routing_integration.py` passes 7/7, covering admission
 
 ---
 
+### Remote endpoint objective status
+
+Implemented as a provider-neutral remote transport seam:
+
+* `RemoteEndpointProfile` is a typed, signed endpoint profile kept separate from `ModelTarget`. It binds endpoint identity, URL, runtime/adapter identity, model/artifact/tokenizer/template digests, capabilities, roles, modalities, risk, clearance, license, qualification reference, execution location, explicit remote-execution and data-egress policy, allowlisted hosts, credential environment reference, timeout/retry, streaming, cancellation, and disabled state.
+* `RemoteEndpointAdapter` conforms to the existing `BackendAdapter` contract. It normalizes OpenAI-compatible completion and SSE responses without exposing provider types to the router or orchestrator.
+* Endpoint and model signatures, freshness, identity, role/modality/risk/clearance, HTTPS, host allowlisting, credential presence, capability declarations, and explicit remote policy are checked before a request is sent. Remote health cannot bypass qualification.
+* Credentials are read only from the named environment variable and are excluded from exceptions, ledger payloads, and provenance logs. TLS uses the platform certificate store, with optional peer certificate fingerprint pinning.
+* Explicit authentication, authorization, TLS, allowlist, egress, remote-execution, stale/unsigned, artifact, capability, timeout, cancellation, malformed-response, resource, provider, unavailable, and not-ready outcomes use typed backend failures. Automatic retries are bounded and require an idempotency key.
+* Endpoint selection, request start/completion/failure, rejection, and egress-denial events preserve redacted endpoint/model/qualification/location metadata. Response provenance retains endpoint identity and remote execution location.
+* `FakeRemoteEndpoint` provides deterministic offline tests. `profiles/endpoints/remote_example.yaml` is intentionally disabled and contains no credential value; it cannot be routed as-is. The schema is in `contracts/remote_endpoint.schema.yaml`.
+
+Evidence: `tests/test_m55_remote_endpoint.py` covers profile and target binding, disabled placeholders, TLS, credentials, router preflight, capability rejection, cancellation, bounded retry, authentication failure, provenance, and redacted ledger events. Live remote serving, certificate-chain deployment, external secret-store integration, and target-node measurements remain deployment evidence rather than local deterministic tests.
+
+---
+
 ### M5.4 objective status
 
 Implemented and locally verified (`2026-09-08`):
@@ -141,7 +157,7 @@ python -m pytest tests/test_m54_adapters.py -v
 python -m pytest tests/test_m53_backend.py tests/test_m53_routing_integration.py tests/test_m54_adapters.py -v
 ```
 
-All 63 M5.4 tests and the full 191-test suite pass on Python 3.13.6 without model weights or a network connection.
+All 63 M5.4 tests and the full 203-test suite pass on Python 3.13.6 without model weights or a network connection.
 
 ---
 
@@ -159,7 +175,7 @@ M5.4 now has the provider-specific adapter implementation and the complete offli
 - No-egress environment enforcement runs before HTTP calls; ledger events contain hashes and metadata without prompt text; response provenance retains target, artifact, backend, clearance, and untrusted taint.
 - Router integration selects adapters by the signed target's `adapter_id`.
 - The acceptance gap identified in the issue is closed: concurrent adapter calls are exercised explicitly, and an admission test proves that `max_concurrency=1` yields a serial virtual-team plan with a ceiling of one. Scheduling remains owned by M5.2 `AdmissionController`, not by the adapter.
-- Verification: 63 M5.4 tests pass; the documented available suite passes 191/191; compile and diff checks pass without a GPU, model server, or network.
+- Verification: 63 M5.4 tests pass; the documented available suite passes 203/203; compile and diff checks pass without a GPU, model server, or network.
 
 ### Still outstanding before calling the full M5 issue production-complete
 
@@ -207,7 +223,7 @@ Run the test suite to verify that all contracts, admission arithmetic, role isol
 # M5.3 and M5.4 adapter tests only (fastest; no optional deps needed)
 python -m pytest tests/test_m53_backend.py tests/test_m53_routing_integration.py tests/test_m54_adapters.py -v
 
-# Full available suite (191 tests — excludes PIL/httpx-dependent tests)
+# Full available suite (203 tests — excludes PIL/httpx-dependent tests)
 python -m pytest \
   --ignore=tests/test_m41_worker_contexts.py \
   --ignore=tests/test_m44_team_runtime.py \
@@ -221,7 +237,7 @@ python -m pytest \
   -v
 ```
 
-The repository currently contains **191 tests** that pass using deterministic fixtures and mock HTTP; no model weights, GPU, or network are required for the contract, routing, admission, ledger, adapter, sandbox, intake, and verification tests.
+The repository currently contains **203 tests** that pass using deterministic fixtures and mock HTTP; no model weights, GPU, or network are required for the contract, routing, admission, ledger, adapter, sandbox, intake, and verification tests.
 
 ### Step 3: Downloading Model Weights (Offline Model Bundle)
 To run live serving or re-verify local artifact hashes, download the models to `airbench-models/` (this directory is ignored by Git):

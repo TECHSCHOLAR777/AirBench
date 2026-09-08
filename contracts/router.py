@@ -101,6 +101,13 @@ class ModelRouter:
             if adapter is None:
                 reasons.append(f"{target.target_id}: adapter {target.adapter_id} is not registered")
                 continue
+            validate_target = getattr(adapter, "validate_target", None)
+            if validate_target is not None:
+                try:
+                    validate_target(target, request)
+                except Exception as exc:
+                    reasons.append(f"{target.target_id}: endpoint admission rejected ({exc})")
+                    continue
             if adapter.health() != BackendHealth.healthy:
                 reasons.append(f"{target.target_id}: backend unhealthy")
                 continue

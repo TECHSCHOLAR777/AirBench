@@ -16,6 +16,18 @@ The claim that nothing leaves is enforced in two ways and proven continuously.
 
 **First-scope proof.** The deployment records local process/model identities, audit-head references, and the results of explicit no-egress checks in the tamper-evident ledger. An offline verifier can replay the local trace. **Full-deployment proof** adds an independently observed, continuously signed machine-state and egress record; that requirement is deferred and recorded in `future_full_fledged_must_have.md`.
 
+### Explicitly approved remote model execution
+
+The control plane may use a remote model endpoint only when the deployment
+explicitly chooses the remote execution policy. `RemoteEndpointProfile` keeps
+that exception narrow: HTTPS with platform certificate validation, exact host
+allowlisting, a credential reference rather than a stored secret, fresh signed
+endpoint metadata, and a separately signed and qualified model target. Health
+or readiness alone never grants permission. Restricted data remains denied
+unless the task policy explicitly allows the approved endpoint, and endpoint
+identity, target identity, execution location, policy decision, and failure
+status are recorded without credentials or unrestricted payloads.
+
 ## One way ingestion
 
 Untrusted documents enter through a one way path into an isolated space that has no way out, where they are read, parsed, and screened for hidden instructions. Only clean, structured, sourced data crosses back into the trusted side, never raw document text carrying live instructions. This makes a document that tries to trigger data exfiltration structurally unable to, rather than merely watched.

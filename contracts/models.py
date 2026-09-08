@@ -54,6 +54,12 @@ LEDGER_EVENT_TYPES = {
     "routing.decision",               # RoutingDecision emitted for a worker assignment
     "routing.fallback.selected",      # qualified fallback target selected
     "routing.queued",                 # routing queued; no qualified target available now
+    "endpoint.selected",               # signed, allowlisted remote endpoint selected
+    "endpoint.rejected",               # endpoint failed security or qualification gates
+    "endpoint.egress.denied",         # remote data-egress policy denied
+    "endpoint.request.started",       # remote request started
+    "endpoint.request.completed",     # remote request completed
+    "endpoint.request.failed",        # remote request failed
     "verification.reservation.confirmed",  # verifier slot reserved before worker starts
     "completion.blocked",             # completion gate blocked (verifier unavailable etc.)
     "completion.ready",               # all completion gates passed
