@@ -1,6 +1,6 @@
 # FE-VAL-1 evidence record
 
-Status: implementation in progress. No pass claim is made until the packaged Windows installer has been run on a clean offline image.
+Status: current-host smoke failed the no-egress gate. No pass claim is made until the packaged Windows installer has been run on a clean offline image with enforced host policy.
 
 ## Decision
 
@@ -55,29 +55,30 @@ npm run tauri:build
 - Tauri API: 2.11.1
 - Tauri CLI: 2.11.4
 - Native executable: `frontend/src-tauri/target/release/airbench-desktop.exe`
-- Native executable size: 14,422,016 bytes
-- Native executable SHA-256: `C506232878D227DFCDA95E418149EE5A6F50CCE0291A4216EB28E5BA00AEDAC9`
+- Native executable size: 15,165,952 bytes
+- Native executable SHA-256: `AA25D907A4D2625038374CE1E5D38D09FC5A5663A518BDFF12E0854E86D382C1`
 - Offline NSIS installer: `frontend/src-tauri/target/release/bundle/nsis/AirBench_0.1.0_x64-setup.exe`
-- Offline NSIS installer size: 265,618,968 bytes
-- Offline NSIS installer SHA-256: `90C1B0F185E8E399A32BB7D26E20861D104C3F15131C9DEAE4745D592B7FC79F`
-- Installer status: built successfully with the WebView2 offline package embedded; clean offline image evidence remains pending.
+- Offline NSIS installer size: 265,876,531 bytes
+- Offline NSIS installer SHA-256: `EE01CF3C88F37414F38D6A28ED0877E1493E0B262E00BAABA8687566DA7F5F0F`
+- Installer status: built successfully with the WebView2 offline package embedded and installed successfully in the current-host smoke; clean offline image evidence and no-egress evidence remain pending.
 
 ## Runtime egress evidence
 
-The unprivileged observation run `AirBenchRuntimeEgress-20260906-172216-8eba51b349f644cf8bbc5c43ed2d8b6a` failed as intended. WebView2 descendants established remote IPv6 connections to `2603:1046:c04:140d::2:443`. Adding QUIC disablement and host-resolver rules did not remove this traffic. The result is retained as a release blocker, not filtered out.
+The unprivileged observation run `AirBenchRuntimeEgress-20260908-232327-582d479a8aad41b2be37c172036f385f` failed as intended. WebView2 descendants established remote IPv6 connections to `2603:1046:c04:819::2:443`. Adding QUIC disablement and host-resolver rules did not remove this traffic. The result is retained as a release blocker, not filtered out.
 
-The explicitly requested enforcement run `AirBenchRuntimeEgress-20260906-172315-514704d7d908458c8ebb21bd30d9c1ac` returned `blocked_not_administrator`. The current account is not elevated, so no firewall rule was installed and no pass claim is possible. A clean-image run from an elevated validation session remains required.
+The explicitly requested enforcement run `AirBenchRuntimeEgress-20260908-232408-7b4ad526dd234856afbaa14b82cc5bf8` returned `blocked_not_administrator`. The current account is not elevated, so no firewall rule was installed and no pass claim is possible. A clean-image run from an elevated validation session remains required.
 
 ## Host installer smoke run
 
 Command: `npm run validate:installer`
 
-- Run: `20260906-101534`
-- Installer SHA-256: `11853741B8ACB519548AAAE8E17AA0B411A31618239A066515D9FEE62CE1D97A`
+- Run: `AirBenchInstallerSmoke-20260908-231944-b9a16c64e6b94517b4a8fd34979580c8`
+- Installer SHA-256: `EE01CF3C88F37414F38D6A28ED0877E1493E0B262E00BAABA8687566DA7F5F0F`
 - Exit code: `0`
 - Installed executable: present in the isolated temp install directory
-- Established connections observed from the installer process tree: none
-- Limitation: this machine was not a clean Windows image with all network interfaces disabled, so this is supporting evidence only. The clean offline image run remains required before closing FE-VAL-1.
+- Application started: yes
+- Established non-loopback connection observed from a WebView2 descendant: `2603:1046:c04:819::2:443`
+- Limitation: this machine was not a clean Windows image with all network interfaces disabled, and the runtime egress gate failed, so this is supporting install evidence only. The clean offline image run remains required before closing FE-VAL-1.
 
 ## Source
 

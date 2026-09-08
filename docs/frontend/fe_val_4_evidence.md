@@ -35,7 +35,7 @@ The fixture parses only the multipart envelope needed to receive the bytes. It d
 
 The packaged Tauri smoke suite now drives the same trust boundary with IPC mocks. The test builds the WebDriver binary, launches the packaged debug executable through external `tauri-driver`, connects an approved profile, uploads a selected scanned-document fixture, renders the Node-generated safe preview with `untrusted` taint, renders the bounded artifact preview, and exercises the Node-authorized download receipt. This is one packaged UI path, not a complete FE-VAL-4 pass.
 
-Latest external WebDriver run: `npm run test:desktop` with `AIRBENCH_WDIO_DRIVER=external` and the installed `tauri-driver`. Result: 5/5 tests passed against the rebuilt source-hash-bound binary. The retained log is `frontend/logs/wdio-2026-09-06T18-25-23-901Z.log`. The default embedded provider still returns HTTP 404 from its direct-eval harness and is not treated as application evidence.
+Latest external WebDriver run: `npm run test:desktop` with `AIRBENCH_WDIO_DRIVER=external` and the installed `tauri-driver`. Result: 6/6 tests passed against the rebuilt source-hash-bound binary. The retained log is `frontend/logs/wdio-2026-09-08T17-42-58-133Z.log`. The default embedded provider fails to start on this host and is not treated as application evidence.
 
 ## Remaining acceptance evidence
 
