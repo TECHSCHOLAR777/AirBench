@@ -18,7 +18,7 @@ def test_generated_frontend_contracts_match_python_authority():
 
 
 def test_generated_frontend_contracts_include_typed_node_boundary():
-    generated = (ROOT / "frontend" / "src" / "generated" / "core_contracts.ts").read_text(encoding="utf-8")
+    generated = (ROOT / "apps" / "desktop" / "src" / "generated" / "core_contracts.ts").read_text(encoding="utf-8")
     assert "NODE_PROTOCOL_COMPATIBILITY_ID = \"airbench-node-protocol\"" in generated
     assert "export interface NodeTaskSnapshot extends NodeWireContractEnvelope" in generated
     assert "export interface NodeTaskEvent extends NodeWireContractEnvelope" in generated

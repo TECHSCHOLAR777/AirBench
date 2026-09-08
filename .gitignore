@@ -36,11 +36,12 @@ airbench_signed_patches.yaml
 *.patch
 
 # Frontend build artifacts
-frontend/node_modules/
-frontend/dist/
-frontend/src-tauri/target/
-frontend/artifacts/
-frontend/logs/
+apps/desktop/node_modules/
+apps/desktop/dist/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/target-*/
+apps/desktop/artifacts/
+apps/desktop/logs/
 *.tsbuildinfo
 
 # Python Packaging

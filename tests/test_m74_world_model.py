@@ -4,7 +4,7 @@ import unittest
 from dataclasses import replace
 from tempfile import TemporaryDirectory
 
-from airbench.world_model import CandidateFact, CandidateFactWriter, WorldModelQuery, WorldModelRelation, WorldModelStore, WorldModelError, candidate_id
+from airbench.knowledge.world_model import CandidateFact, CandidateFactWriter, WorldModelQuery, WorldModelRelation, WorldModelStore, WorldModelError, candidate_id
 from contracts import Clearance, EventLedger, FactEnvelope, ProjectionBuilder, Taint, build_event, verify_projection_export
 
 

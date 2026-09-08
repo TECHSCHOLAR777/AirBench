@@ -23,7 +23,7 @@ import json
 import sys
 from pathlib import Path
 
-from contracts.model_registry import ModelTarget, RegistryError, _target_from_roster
+from contracts.model.model_registry import ModelTarget, RegistryError, _target_from_roster
 
 try:
     import yaml  # type: ignore

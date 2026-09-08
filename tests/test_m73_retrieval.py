@@ -6,7 +6,7 @@ from dataclasses import replace
 from tempfile import TemporaryDirectory
 
 from airbench.intake import IntakeManifest, IntakeMode, PageRecord
-from airbench.retrieval import (
+from airbench.knowledge.retrieval import (
     DeterministicEmbeddingProvider,
     IndexRequest,
     LexicalReranker,

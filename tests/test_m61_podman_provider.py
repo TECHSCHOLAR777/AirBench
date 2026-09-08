@@ -3,8 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from airbench.podman_provider import PodmanProvider
-from airbench.sandbox import SandboxExecutionRequest, SandboxError
+from airbench.tools.podman_provider import PodmanProvider
+from airbench.tools.sandbox import SandboxExecutionRequest, SandboxError
 
 
 IMAGE = "docker.io/library/python@sha256:" + "a" * 64
@@ -60,7 +60,7 @@ class PodmanProviderTests(unittest.TestCase):
                     "max_processes": 8,
                 },
             )
-            with patch("airbench.podman_provider.os.name", "posix"):
+            with patch("airbench.tools.podman_provider.os.name", "posix"):
                 command, limits, name = provider.build_command(request)
         self.assertEqual(command[0], "podman")
         self.assertIn("--pull=never", command)
@@ -84,7 +84,7 @@ class PodmanProviderTests(unittest.TestCase):
 
     def test_windows_host_fails_closed_instead_of_mis_mapping_paths(self):
         provider = PodmanProvider(IMAGE)
-        with patch("airbench.podman_provider.os.name", "nt"):
+        with patch("airbench.tools.podman_provider.os.name", "nt"):
             with self.assertRaises(SandboxError) as caught:
                 provider.verify()
         self.assertEqual(caught.exception.code, "provider_host_unsupported")

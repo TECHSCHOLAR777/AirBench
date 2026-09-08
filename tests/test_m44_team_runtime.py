@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from airbench.team_runtime import (
+from airbench.orchestration.team_runtime import (
     ContextCompaction,
     LifecycleEvent,
     TeamRuntime,
     WorkerExecution,
 )
-from airbench.worker_context import ScopedEvidence
+from airbench.orchestration.worker_context import ScopedEvidence
 from contracts import (
     AdmissionRequest,
     Clearance,

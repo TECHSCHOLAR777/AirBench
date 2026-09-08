@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "frontend" / "src" / "generated" / "core_contracts.ts"
+OUTPUT = ROOT / "apps" / "desktop" / "src" / "generated" / "core_contracts.ts"
 CONTRACT_NAMES = (
     "TaskEnvelope",
     "TeamPlan",
@@ -62,7 +62,7 @@ PLAIN_TYPE_NAMES = (
     "NodeUnknownEventPayload",
 )
 
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 from contracts import models  # noqa: E402
 
 
@@ -127,7 +127,7 @@ def generate() -> str:
     }
     lines = [
         "// AUTO-GENERATED FILE. DO NOT EDIT.",
-        "// Source of truth: contracts/models.py and its ledger event catalog.",
+        "// Source of truth: src/contracts/models.py and its ledger event catalog.",
         "",
         f'export const CORE_CONTRACT_SCHEMA_VERSION = {json.dumps(models.SCHEMA_VERSION)} as const;',
         f'export const CORE_CONTRACT_COMPATIBILITY_ID = {json.dumps(models.COMPATIBILITY_ID)} as const;',

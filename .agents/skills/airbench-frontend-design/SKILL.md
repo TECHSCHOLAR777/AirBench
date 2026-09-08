@@ -9,12 +9,12 @@ Use this skill for screen proposals, interaction design, design-system changes, 
 
 ## Read first
 
-- `docs/frontend/README.md`
-- `docs/frontend/frontend_architecture.md`
-- `docs/frontend/frontend_design_system.md`
-- `docs/frontend/frontend_screen_specification.md`
-- `docs/architecture_design.md`
-- `docs/sovereignty_and_security.md`
+- `docs/desktop/README.md`
+- `docs/desktop/architecture/frontend_architecture.md`
+- `docs/desktop/design/frontend_design_system.md`
+- `docs/desktop/design/frontend_screen_specification.md`
+- `docs/foundations/01_architecture_design.md`
+- `docs/assurance/sovereignty_and_security.md`
 
 ## Design rules
 
