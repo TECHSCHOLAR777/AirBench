@@ -776,10 +776,64 @@ class CompletionRecord(Contract):
 
 
 @dataclass(frozen=True)
+class StageSignals(Contract):
+    """Deterministic progress signals supplied by the orchestrator."""
+
+    exploration: bool = False
+    error_severity: str = "none"
+    spinning: bool = False
+    recent_production: bool = False
+    test_result: str = "not_run"
+    context_pressure: str = "normal"
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.error_severity not in {"none", "recoverable", "critical"}:
+            issues.append(ValidationIssue("error_severity", "enum", "invalid error severity"))
+        if self.test_result not in {"not_run", "passed", "failed"}:
+            issues.append(ValidationIssue("test_result", "enum", "invalid test result"))
+        if self.context_pressure not in {"normal", "elevated", "critical"}:
+            issues.append(ValidationIssue("context_pressure", "enum", "invalid context pressure"))
+        return issues
+
+    @property
+    def requires_capable_route(self) -> bool:
+        return (
+            self.exploration
+            or self.spinning
+            or self.error_severity in {"recoverable", "critical"}
+            or self.test_result == "failed"
+            or self.context_pressure == "critical"
+        )
+
+    @property
+    def is_settled_mechanical(self) -> bool:
+        return (
+            self.recent_production
+            and self.test_result == "passed"
+            and not self.exploration
+            and not self.spinning
+            and self.error_severity == "none"
+            and self.context_pressure == "normal"
+        )
+
+
+@dataclass(frozen=True)
 class ModelCallRequest(Contract):
     request_id: str; task_id: str; team_id: str | None; worker_id: str | None; task_kind: str; modality: str; required_capability: str; evidence_summary: tuple[str, ...]; clearance: Clearance; action_risk: str; resource_budget: dict[str, int]; attempt: int; idempotency_key: str; timeout_ms: int
     role: str = ""
     resource_lease_id: str = ""
+    stage: str = "default"
+    previous_verification_status: str = "not_run"
+    stage_signals: StageSignals = field(default_factory=StageSignals)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "ModelCallRequest":
+        value = dict(payload)
+        signals = value.get("stage_signals", StageSignals())
+        value["stage_signals"] = signals if isinstance(signals, StageSignals) else StageSignals.from_dict(signals)
+        return super().from_dict(value)  # type: ignore[return-value]
+
     def _validate(self, hints):
         issues = super()._validate(hints)
         if type(self.timeout_ms) is not int or self.timeout_ms <= 0 or self.timeout_ms > 86_400_000: issues.append(ValidationIssue("timeout_ms", "range", "must be 1..86400000"))
@@ -787,6 +841,9 @@ class ModelCallRequest(Contract):
         if not self.role.strip(): issues.append(ValidationIssue("role", "required", "worker role is required"))
         if not self.resource_lease_id.strip(): issues.append(ValidationIssue("resource_lease_id", "required", "resource lease is required"))
         if not self.required_capability.strip(): issues.append(ValidationIssue("required_capability", "required", "model capability is required"))
+        if not self.stage.strip(): issues.append(ValidationIssue("stage", "required", "routing stage is required"))
+        if self.previous_verification_status not in {"not_run", "passed", "failed", "needs_review"}:
+            issues.append(ValidationIssue("previous_verification_status", "enum", "invalid previous verification status"))
         if isinstance(self.resource_budget, dict) and any(type(value) is not int or value < 0 for value in self.resource_budget.values()): issues.append(ValidationIssue("resource_budget", "resource", "budget values must be non-negative integers"))
         return issues
 
@@ -794,6 +851,25 @@ class ModelCallRequest(Contract):
 @dataclass(frozen=True)
 class RoutingDecision(Contract):
     decision_id: str; request_id: str; eligible_targets: tuple[str, ...]; selected_target: str | None; policy_version_hash: str; decision_source: str; rule_or_threshold: str; qualification_certificate: str; session_affinity: str; fallback_target: str | None; resource_admission: str; status: ContractStatus; reason: str
+    stage: str = "default"
+    stage_signals: StageSignals = field(default_factory=StageSignals)
+    routing_mode: str = "standard"
+    escalation_sticky: bool = False
+    attempt: int = 1
+    task_id: str = "unknown"
+    team_id: str = "unknown"
+    worker_id: str = "unknown"
+    resource_lease_id: str = "unknown"
+    hardware_profile_ref: str = "unknown"
+    selected_artifact_digest: str = ""
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "RoutingDecision":
+        value = dict(payload)
+        signals = value.get("stage_signals", StageSignals())
+        value["stage_signals"] = signals if isinstance(signals, StageSignals) else StageSignals.from_dict(signals)
+        return super().from_dict(value)  # type: ignore[return-value]
+
     def _validate(self, hints):
         issues = super()._validate(hints)
         if not self.eligible_targets and self.status == ContractStatus.accepted:
@@ -804,6 +880,12 @@ class RoutingDecision(Contract):
             issues.append(ValidationIssue("selected_target", "admission", "accepted routing requires target, qualification, and admitted resources"))
         if self.resource_admission not in {"admitted", "queued", "rejected", "needs_review"}:
             issues.append(ValidationIssue("resource_admission", "enum", "invalid resource admission"))
+        if not self.stage.strip():
+            issues.append(ValidationIssue("stage", "required", "routing stage is required"))
+        if self.routing_mode not in {"standard", "capable", "efficient", "escalated_sticky"}:
+            issues.append(ValidationIssue("routing_mode", "enum", "invalid routing mode"))
+        if type(self.attempt) is not int or self.attempt < 1:
+            issues.append(ValidationIssue("attempt", "range", "routing attempt must be >= 1"))
         return issues
 
 
