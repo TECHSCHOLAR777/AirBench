@@ -29,8 +29,8 @@ The user may connect to a GPU server across the organization's private network. 
 | Native shell | Tauri 2 and Rust | Window lifecycle, capability permissions, approved transport, certificate or trust handling, secure file-picker handoff, and packaged offline runtime. |
 | Webview UI | React 19 and TypeScript | Screens, interaction state, accessibility, event projections, previews, and typed command dispatch. |
 | Build | Vite | Static frontend bundle and development server only. No Node runtime is shipped in production. |
-| Accessible interaction | React Aria primitives | Focus, keyboard, dialog, menu, tabs, listbox, grid, and screen-reader behavior. |
-| Styling | CSS Modules and AirBench tokens | Local component styles, density, color semantics, high contrast, and theme. |
+| Accessible interaction | Semantic React controls and native browser behavior | Focus, keyboard, dialog, menu, form, and screen-reader behavior. React Aria primitives may be introduced only where they improve a tested interaction. |
+| Styling | AirBench semantic CSS token layer | Local styles, density, color semantics, high contrast, and theme. |
 | Backend protocol | Versioned typed API and event stream | Snapshot, command, event, artifact, evidence, clearance, and error contracts. |
 | Test runtime | Vitest, React Testing Library, accessibility tooling, Tauri WebDriver, and local network fixtures | Unit, component, contract, desktop, recovery, and no-egress evidence. |
 
@@ -59,6 +59,7 @@ The Rust layer does not reinterpret task policy or become a second orchestrator.
 The React application owns:
 
 - the current screen and local presentation state;
+- local theme, density, and contrast preferences that never represent authoritative task state;
 - rendering server snapshots and ordered events;
 - local filters, selections, drawers, and unsent form text;
 - accessible interactions;

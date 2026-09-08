@@ -28,11 +28,20 @@ events:
   - task.cancelled
   - task.failed
   - team.created
+  - team.execution.started
+  - team.execution.completed
+  - team.execution.failed
+  - team.execution.cancelled
+  - lifecycle.intercepted
+  - lifecycle.blocked
+  - worker.context.compacted
   - worker.assigned
   - worker.started
   - worker.completed
   - worker.failed
   - worker.handoff
+  - worker.handoff.rejected
+  - worker.handoff.late
   - model.requested
   - routing.decided
   - model.responded
@@ -125,6 +134,13 @@ events:
   - resource.exhaustion.detected
   - resource.recovered
   - resource.lease.granted
+  - resource.lease.activated
   - resource.lease.released
+  - resource.lease.expired
+  - resource.lease.cancelled
+  - resource.lease.failed
+  - team.resource_plan.released
+  - team.resource_plan.cancelled
   - resource.admission.degraded
   - resource.queue.updated
+  - join_barrier.resolved

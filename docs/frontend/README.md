@@ -10,6 +10,12 @@ The first frontend runtime now lives in the repository's `frontend/` directory. 
 
 The implementation order is tracked by the development issues below. The validation issues remain evidence gates and are not replaced by a rendered mockup.
 
+The P1 command-center refactor is tracked separately in [#105](https://github.com/TECHSCHOLAR777/AirBench/issues/105). Its foundation, [#107](https://github.com/TECHSCHOLAR777/AirBench/issues/107), now provides the local Obsidian Signal and Ledger Paper shell, static local SVG icons, presentation-only display preferences, accessibility token support, and passing source/build/no-egress checks. It does not claim desktop visual-baseline or packaged evidence; those stay open in [#111](https://github.com/TECHSCHOLAR777/AirBench/issues/111).
+
+The next P1 slice, [#106](https://github.com/TECHSCHOLAR777/AirBench/issues/106), replaces the static task form with a progressive Launchpad. It preserves the typed task-create envelope, routes files only to File Intake, keeps Auto route Node-controlled, and deliberately withholds a manual model preference until the Node provides a qualified, clearance-filtered catalog. See `fe_ref_02_launchpad.md` for the exact product and contract boundary.
+
+The current P1 slice, [#110](https://github.com/TECHSCHOLAR777/AirBench/issues/110), turns the existing authoritative task snapshot, plan, and ordered events into an audit-safe Live Work Trace. It makes plan, work, evidence, verification, review, artifacts, outcome, and technical metadata readable without exposing raw model reasoning, raw event payloads, or invented activity. Exact selected targets, fallback records, pause and resume, and question responses remain absent until the Node supplies typed contracts. See `fe_ref_03_live_work_trace.md`.
+
 | Development issue | Outcome | Lane |
 | --- | --- | --- |
 | [FE-DEV-01, #73](https://github.com/TECHSCHOLAR777/AirBench/issues/73) | Secure Tauri shell | Parallel foundation |
@@ -37,7 +43,8 @@ Future frontend capabilities are tracked separately in [FE-FUT-01 through FE-FUT
 5. `frontend_contracts_and_state.md` for snapshots, sequence-numbered events, commands, provenance, permissions, and reconnect behavior.
 6. `frontend_validation_plan.md` for the six validation tracks, evidence, pass criteria, and failure tests.
 7. `frontend_development_workflow.md` for issue ownership, parallel work, integration order, and completion evidence.
-8. `frontend_validation_issues.md` for the six GitHub issue definitions, dependencies, labels, and acceptance evidence.
+8. `frontend_execution_plan.md` for the current dependency-aware implementation order, contract blockers, and validation lanes.
+9. `frontend_validation_issues.md` for the six GitHub issue definitions, dependencies, labels, and acceptance evidence.
 
 ## Frontend invariants
 

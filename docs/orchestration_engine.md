@@ -87,7 +87,7 @@ The scheduler may queue background work, serialize roles, use a smaller qualifie
 
 ## Harness lifecycle interceptors
 
-The orchestrator runs core-owned interceptors around task, team, worker, model, tool, compaction, barrier, verification, and completion events. A failed interceptor blocks or escalates the operation. Uploaded documents, worker prompts, domain skills, and project-local files cannot disable these interceptors.
+The orchestrator runs core-owned interceptors around task, team, worker, model, tool, compaction, barrier, verification, and completion events. A failed interceptor blocks or escalates the operation. Uploaded documents, worker prompts, domain skills, and project-local files cannot disable these interceptors. The M4.4 reference implementation dispatches these boundaries through `airbench.team_runtime.TeamRuntime` and records the interception outcome through the orchestrator.
 
 Context compaction is a state rebuild, not a trusted model summary. The orchestrator reconstructs worker context from the last committed transition, verified WorkPackets, active constraints, evidence references, and the current budget. The compaction input and output manifests are written to the ledger.
 
@@ -95,4 +95,4 @@ Context compaction is a state rebuild, not a trusted model summary. The orchestr
 
 Worker transport failure, malformed output, tool failure, barrier timeout, disagreement, verifier failure, and resource exhaustion each produce typed events. The orchestrator can retry or reroute only within the declared policy. If the independent verifier cannot run, the task becomes `needs_review` or stops; it does not complete by majority vote or by trusting the generator.
 
-The complete harness contract, including TaskEnvelope, TeamPlan, WorkPacket, hardware modes, lifecycle interceptors, and default-fail completion, is specified in `airbench_harness.md`.
+The complete harness contract, including TaskEnvelope, TeamPlan, WorkPacket, hardware modes, lifecycle interceptors, and default-fail completion, is specified in `airbench_harness.md`. The tested runtime behavior and current non-goals are recorded in `m4_4_team_runtime_evidence.md`.

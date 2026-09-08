@@ -48,6 +48,20 @@ from .verification import (
     VerificationRule,
     VerificationRunner,
 )
+from .team_runtime import (
+    ContextCompaction,
+    LifecycleEvent,
+    LifecycleInterceptor,
+    LifecycleVeto,
+    TeamExecutionFailure,
+    TeamExecutionReport,
+    TeamPlanRejected,
+    TeamRuntime,
+    TeamRuntimeError,
+    WorkerExecution,
+    WorkerInvocation,
+    WorkerRunRecord,
+)
 
 __all__ = [
     "FileIntakeLayer",
@@ -91,4 +105,16 @@ __all__ = [
     "VerificationResult",
     "VerificationRule",
     "VerificationRunner",
+    "ContextCompaction",
+    "LifecycleEvent",
+    "LifecycleInterceptor",
+    "LifecycleVeto",
+    "TeamExecutionFailure",
+    "TeamExecutionReport",
+    "TeamPlanRejected",
+    "TeamRuntime",
+    "TeamRuntimeError",
+    "WorkerExecution",
+    "WorkerInvocation",
+    "WorkerRunRecord",
 ]

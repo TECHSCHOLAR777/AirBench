@@ -98,15 +98,21 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **User outcome**: submit a bounded outcome and a complete input manifest.
 
-**Step 1, Outcome**: prompt, project, title, deliverable type, priority, optional deadline.
+**Launchpad core**: one compact, scrollable outcome prompt with a concise row of progressive controls for Sources, Deliverable, Auto route, Task details, and Review. The operator should not have to configure implementation details to begin useful work. A long brief scrolls inside the prompt field rather than expanding the task canvas.
 
-**Step 2, Sources**: files, knowledge sources, intake status, clearance compatibility, manifest identity, safe preview availability.
+**Outcome**: a bounded result request, plus optional project, title, priority, and deadline fields that already exist in the typed task-create envelope.
 
-**Step 3, Preferences**: default Node-selected execution team, permitted review posture, deadline, notifications.
+**Sources**: native file selection, File Intake state, manifest identity, and safe preview availability. Files, OCR, vision, clearance compatibility, and taint remain Node-owned.
 
-**Actions**: add files, remove files before intake commit, choose project, submit, return to edit.
+**Deliverable**: a non-authoritative intent such as document, summary, spreadsheet, presentation, or code. The Node verifies final deliverables and computes authoritative values.
 
-**Rules**: all files go through File Intake; content is untrusted data; UI does not parse, OCR, or execute it.
+**Routing and review**: Auto route is always the default. The Node selects qualified capabilities, fallback, resource admission, and review posture after validation. An advanced preference is unavailable until the Node sends a clearance-filtered qualified catalog.
+
+**Knowledge and tools**: only Node-provided governed catalogs can make these interactive. The desktop app does not offer free-text collection names or tool permissions.
+
+**Actions**: add files, remove files before intake commit, choose deliverable intent, add bounded task context, launch, and return to edit.
+
+**Rules**: all files go through File Intake; content is untrusted data; UI does not parse, OCR, or execute it. A keyboard shortcut may invoke Launch only when the same Node readiness rule has enabled the primary action. The UI never sends a direct model name, endpoint, or routing fallback.
 
 ### S03 Task Plan Review
 
@@ -134,17 +140,20 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 **Content**:
 
 - task status and current phase;
-- server-authoritative execution timeline;
-- worker roles and hardware mode;
-- tool and evidence summaries;
-- verification progress;
-- questions waiting for the user;
-- emerging artifacts;
-- stream cursor and connection status.
+- current Node state and last recorded activity;
+- server-authoritative staged work trace: Plan, Work, Evidence, Verification, Review, Artifacts, and Outcome;
+- worker roles, tool activity, and plan-level hardware mode;
+- source-backed evidence with confidence, clearance, taint, source location, and ledger reference;
+- verification summaries and blocked or failed state;
+- questions reported by the Node and emerging artifact references;
+- stream cursor, reconnect, replay, gap, and connection status;
+- collapsed technical trace with event metadata and the Node-supplied routing and hardware context.
 
-**Actions**: pause, stop, resume, answer question, open source, open artifact, open technical event detail.
+**Actions**: stop when the current typed Node command allows it, refresh the projection, open permitted source or artifact paths, and open technical trace detail. Pause, resume, answer-question, source-open, and artifact-open controls appear only after their typed Node command or safe-preview contract exists.
 
-**Rules**: no guessed completion; no optimistic stop or approval; reconnect by cursor replay or snapshot.
+**Rules**: no guessed completion, timer, typing indicator, raw model reasoning, raw event payload, or optimistic stop or approval. Reconnect by cursor replay or snapshot. The desktop shows an unavailable routing target or fallback as not supplied, never as a local estimate.
+
+**Current question state**: a Node-reported question is a labeled, read-only region. Its decision-state title is announced politely and separately from the question content. Options, free-text answers, pause, resume, stop, and revision controls remain absent until the Node provides bounded, sequence-aware commands.
 
 ### S05 Evidence and Sources
 
@@ -158,6 +167,8 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **Rules**: source is data, not instruction; reviewer notes do not rewrite facts.
 
+**Current preview boundary**: a Node-returned source or artifact preview is labeled read-only before its content is shown. It remains untrusted data and is not the original document, a verification result, or an approval decision. A missing preview is shown as unavailable, never replaced with a client-side interpretation.
+
 ### S06 Review Queue
 
 **User outcome**: find deliverables that require an authorized decision.
@@ -167,6 +178,8 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 **Actions**: open review, filter assigned to me, return, request clarification.
 
 **Rules**: the Node assigns authority and clearance; queue actions are ledgered.
+
+**Pre-contract state**: an absent Node review query is not an empty queue. The screen states that the clearance-filtered queue and ledgered actions have not been supplied, then offers only safe local navigation.
 
 ### S07 Artifact Review
 
@@ -188,6 +201,8 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **Rules**: approval is disabled when required evidence, verification, clearance, or authority is missing. Numbers come from deterministic fields.
 
+**Current desktop slice**: the inspector can present Node-generated preview blocks and can request a permitted download through the typed bridge. The download label explicitly means a Node permission check, and a local save receipt is separate from artifact approval. Artifact status, verification, deterministic values, approval, comparison, and clarification remain unavailable until their Node-owned projection and commands exist.
+
 ### S08 Artifact Library
 
 **User outcome**: find durable outputs and their versions.
@@ -197,6 +212,8 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 **Actions**: open, compare, review, download when permitted, open provenance, archive through policy.
 
 **Rules**: the UI cannot silently delete authoritative records.
+
+**Pre-contract state**: an absent Node artifact-library query is not an empty library. The screen states that status, clearance, version, provenance, and actions must come from the Node.
 
 ### S09 Task History
 
@@ -208,6 +225,8 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **Rules**: history is rebuilt from snapshots and ledger references, not a model-written summary.
 
+**Pre-contract state**: the desktop does not assemble a local history. Until a paged Node projection exists, the screen identifies the missing contract rather than showing an unverified recent-task list.
+
 ### S10 Audit Ledger
 
 **User outcome**: verify and export the record of what happened.
@@ -218,6 +237,8 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **Rules**: read-only for ordinary users; exports come from the Node.
 
+**Pre-contract state**: the desktop does not create or reconstruct a ledger. Until the Node supplies the read-only query, chain status, and export permission, the screen identifies the missing contract rather than reporting an empty or healthy ledger.
+
 ### S11 AirBench Node and Model Roster
 
 **User outcome**: understand local execution health and qualified capability.
@@ -227,6 +248,10 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 **Actions**: recheck health, open connection settings, inspect qualification, view router decision history.
 
 **Rules**: UI cannot manually route around qualification or policy.
+
+**Current connection proof**: when the Rust-owned handshake is verified, show only the approved profile label, Node identity, authenticated subject, clearance context, domain-pack reference, transport kind, protocol version, and handshake ledger reference. Do not expose endpoint URLs, certificate material, credential references, or retained proof fields after a disconnect.
+
+**Pre-contract operational state**: a trusted connection is not evidence that the GPU, sandbox, workload, model roster, qualification, or router history is healthy. Until the Node sends those typed projections, the screen shows them as not supplied and leaves model preference unavailable.
 
 ### S12 Settings and Identity
 

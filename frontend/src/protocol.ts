@@ -101,6 +101,7 @@ export interface TaskProjection {
   status: TaskStatus;
   phase: string;
   clearanceContext: Clearance;
+  inputManifestRef: string;
   nodeConnectionRef: string;
   ledgerHeadRef: string;
   lastAppliedSequence: number;
@@ -129,6 +130,7 @@ export function projectionFromSnapshot(snapshot: TaskSnapshot): TaskProjection {
     status: snapshot.status,
     phase: snapshot.phase,
     clearanceContext: snapshot.clearanceContext,
+    inputManifestRef: snapshot.inputManifestRef,
     nodeConnectionRef: snapshot.nodeConnectionRef,
     ledgerHeadRef: snapshot.ledgerHeadRef,
     lastAppliedSequence: snapshot.asOfSequence,
