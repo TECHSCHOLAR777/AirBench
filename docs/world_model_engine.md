@@ -40,9 +40,18 @@ None of this needs model retraining. The intelligence lives in the structured, s
 
 ## Interfaces
 
-Input: typed graph fragments from extractors, each with source, confidence, clearance, and time.
+Input: typed graph fragments or `CandidateFact` values from extractors and
+retrieval, each with source, confidence, clearance, taint, and time. A
+`CandidateFactWriter` first records the candidate and any typed graph
+relations, and only commits them after both injected consistency and
+verification gates approve them.
 
-Output: answers to structured queries, each carrying confidence and respecting the caller's clearance. Every write goes through the Memory and Audit Ledger so the graph's history is itself provable.
+Output: answers to `WorldModelQuery` values, each carrying confidence and
+respecting the caller's clearance. `WorldModelStore` exposes committed facts
+and bounded relation traversals only; staged candidates are not query-visible,
+and both edges and target facts are clearance-filtered. Every query, candidate,
+and commit goes through the Memory and Audit Ledger so the graph's history is
+provable.
 
 ## Failure handling
 

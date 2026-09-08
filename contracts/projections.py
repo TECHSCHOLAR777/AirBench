@@ -23,7 +23,7 @@ class EventSource(Protocol):
 _LEVEL = {Clearance.public: 0, Clearance.internal: 1, Clearance.restricted: 2, Clearance.secret: 3}
 _EVIDENCE_EVENTS = {"evidence.created", "fact.candidate", "fact.committed"}
 _ARTIFACT_EVENTS = {"artifact.staged", "artifact.checked"}
-_SEARCH_EVENTS = {"evidence.created", "fact.candidate", "fact.committed", "artifact.staged"}
+_SEARCH_EVENTS = {"evidence.created", "fact.candidate", "fact.committed", "retrieval.completed", "artifact.staged"}
 
 
 def _jsonable(value: Any) -> Any:
