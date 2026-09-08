@@ -1,0 +1,6 @@
+schema_version: "1.0"
+policy: deny_all_runtime_egress
+observer_must_cover: [ipv4, ipv6, dns, proxy, telemetry, update_checks, huggingface, ngc, remote_model_endpoints]
+run_requirements: [begin_before_model_startup, continue_until_artifact_and_ledger_export_complete, capture_allowed_and_denied_attempts, preserve_raw_observer_output_and_hash, record_ledger_event_reference]
+pass_rule: no_external_connection_attempt_succeeds_or_is_unexplained
+status: blocked_until_target_host_observer_run

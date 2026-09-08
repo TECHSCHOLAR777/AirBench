@@ -1,0 +1,11 @@
+schema_version: "1.0"
+completion_states: [blocked, needs_review, ready_for_human_review, complete]
+default_fail:
+  missing_source: needs_review
+  failed_check: needs_review
+  unavailable_verifier: needs_review
+  unverified_number: needs_review
+  ledger_write_failure: blocked
+  egress_violation: blocked
+  missing_human_review: ready_for_human_review
+completion_requires: [all_required_evidence_present, all_required_checks_pass, independent_verifier_passed, ledger_export_replays_offline, human_review_record_present, no_egress_evidence_present]
