@@ -1,0 +1,15 @@
+objects: [inspection_report, inspection_finding, equipment, maintenance_procedure, approval_note]
+links:
+  - id: finding_observed_on_equipment
+    from: inspection_finding
+    to: equipment
+  - id: finding_checked_against_procedure
+    from: inspection_finding
+    to: maintenance_procedure
+  - id: note_derived_from_finding
+    from: approval_note
+    to: inspection_finding
+authoritative_sources:
+  equipment: reserved_engineering_drawing_adapter
+  inspection_finding: scanned_inspection_report
+  maintenance_procedure: maintenance_manual

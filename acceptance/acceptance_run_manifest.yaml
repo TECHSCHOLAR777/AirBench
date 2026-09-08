@@ -1,0 +1,24 @@
+run_id: mvp-refinery-psu-v0
+status: blocked_pending_external_evidence
+scope: refinery_psu_inspection_review_v0
+execution_modes: [parallel, serial_virtual_team]
+source_of_truth: acceptance/acceptance_matrix.yaml
+repository_evidence:
+  contract_replay: contracts/examples/inspection_trace.jsonl
+  ledger_catalog: contracts/ledger_event_catalog.yaml
+  domain_pack: packs/refinery_psu_v0/manifest.yaml
+external_evidence_required:
+  - id: target_hardware_measurements
+    status: missing
+  - id: model_qualification
+    status: missing
+  - id: no_egress_observation
+    status: missing
+  - id: vertical_slice_run
+    status: missing
+  - id: docx_structural_visual_checks
+    status: missing
+  - id: human_review_record
+    status: missing
+  - id: authorized_signatures
+    status: missing
