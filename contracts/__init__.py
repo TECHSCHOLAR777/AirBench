@@ -30,6 +30,10 @@ from .backend import (BackendAdapter, BackendCallError, BackendCapabilities, Bac
 from .router import ModelRouter, ResourceAdmission, RouteResult, RoutingError, RoutingRejected
 from .handoffs import (BarrierDecision, HandoffCoordinator, HandoffDecision,
                        HandoffRejected, HandoffReplayError, InMemoryRecordResolver)
+from .adapters import (
+    BaseToolParser, HermesToolParser, NoneToolParser, StandardJsonToolParser,
+    ToolCallParserRegistry, VllmAdapter, NimAdapter,
+)
 
 __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "stable_id",
            "TaskEnvelope", "TeamPlan", "TaskPlanReview", "WorkerAssignment", "WorkPacket", "WorkerResult",
@@ -55,4 +59,8 @@ __all__ += ["BackendAdapter", "BackendCallError", "BackendCapabilities", "Backen
             "BackendUsage", "CancellationToken", "FakeBackend", "ResponseProvenance"]
 __all__ += ["ModelRouter", "ResourceAdmission", "RouteResult", "RoutingError", "RoutingRejected"]
 __all__ += ["ModelCallExecution"]
+__all__ += [
+    "BaseToolParser", "HermesToolParser", "NoneToolParser", "StandardJsonToolParser",
+    "ToolCallParserRegistry", "VllmAdapter", "NimAdapter",
+]
 __all__ += ["BarrierStatus", "LeaseStatus", "work_packet_hash", "BarrierDecision", "HandoffCoordinator", "HandoffDecision", "HandoffRejected", "HandoffReplayError", "InMemoryRecordResolver"]

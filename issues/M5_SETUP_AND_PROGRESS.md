@@ -1,6 +1,6 @@
-# AirBench M5.1–M5.3 — Implementation, Progress & Setup Guide
+# AirBench M5.1–M5.4 — Implementation, Progress & Setup Guide
 
-This document provides a comprehensive overview of the **M5.1 (Model Registry, Artifacts & Worker Qualifications)**, **M5.2 (Hardware-Aware Scheduling & Admission)**, and **M5.3 (Provider-Neutral Backend Contract)** milestones, summarizing implemented contracts, frozen model artifacts, acceptance matrices, and setup instructions.
+This document provides a comprehensive overview of the **M5.1 (Model Registry, Artifacts & Worker Qualifications)**, **M5.2 (Hardware-Aware Scheduling & Admission)**, **M5.3 (Provider-Neutral Backend Contract)**, and **M5.4 (Local vLLM and NIM Adapters)** milestones, summarizing implemented contracts, frozen model artifacts, acceptance matrices, and setup instructions.
 
 ---
 
@@ -15,6 +15,7 @@ AirBench is designed for sensitive, air-gapped industrial environments (such as 
 5. **Hardware-Aware Admission**: Physical hardware is treated as a signed budget. Multi-agent teams are admitted in `parallel` when reservations fit, or serialized safely into a `serial_virtual_team` without dropping worker contexts, clearance, or the independent verifier.
 6. **Non-Bypassable Verifier Invariant**: High-consequence workflows always require an independent verifier. If verifier capacity cannot be reserved, admission immediately halts with `admission=stopped` and emits `completion.blocked`.
 7. **Zero-Egress Startup**: No remote API calls, telemetry, Hugging Face, NGC, or background update checks are permitted.
+8. **Concrete Local Adapters**: `VllmAdapter` and `NimAdapter` implement the provider-neutral contract behind the same seam as `FakeBackend`, with model-specific tool parsers, structured output, vision input, streaming, cancellation, and no-egress enforcement.
 
 ---
 
@@ -43,6 +44,11 @@ All 6 reference model targets for the refinery/PSU inspection slice have been do
 * [`contracts/models.py`](contracts/models.py): Added M5.1 and M5.2 ledger events to `LEDGER_EVENT_TYPES` and extended `HardwareProfile` with execution modes, egress verification, and sandbox parameters.
 * [`contracts/ledger_event_catalog.yaml`](contracts/ledger_event_catalog.yaml): Cataloged all ~45 lifecycle events across model qualification, serving, and hardware scheduling.
 
+### Adapters (M5.4)
+* [`contracts/adapters/tool_parsers.py`](contracts/adapters/tool_parsers.py): `HermesToolParser` (Qwen3-Coder / Qwen2.5-VL `<tool_call>` XML blocks), `StandardJsonToolParser` (Gemma 4 OpenAI-format tool_calls), `NoneToolParser` (embeddings/reranker), and `ToolCallParserRegistry` mapping the roster's `tool_call_parser` field to the correct instance.
+* [`contracts/adapters/vllm_adapter.py`](contracts/adapters/vllm_adapter.py): `VllmAdapter` — full `BackendAdapter` protocol against a locally running vLLM OpenAI-compatible server. Implements health and readiness as separate states, structured output (`json_object`/`json_schema`), vision `image_url` encoding for Qwen2.5-VL, SSE streaming with per-chunk cancellation, typed error codes with retry guidance, no-egress env-var enforcement (`HF_HUB_OFFLINE`, `TRANSFORMERS_OFFLINE`), and ledger event emission.
+* [`contracts/adapters/nim_adapter.py`](contracts/adapters/nim_adapter.py): `NimAdapter` — same `BackendAdapter` protocol targeting NVIDIA NIM. Overrides the health path to `/v1/health/ready`, rejects real NVIDIA API keys at construction, and delegates all OpenAI-compatible logic to `VllmAdapter`.
+
 ### Schemas & Manifests
 * [`contracts/model_qualification.schema.yaml`](contracts/model_qualification.schema.yaml): Strict JSON Schema for qualification certificates.
 * [`contracts/hardware_profile.schema.yaml`](contracts/hardware_profile.schema.yaml): Schema defining host hardware, GPU, CPU, RAM, scratch, isolation policy, and execution modes.
@@ -56,7 +62,10 @@ All 6 reference model targets for the refinery/PSU inspection slice have been do
 
 ### Test Suite
 * M5.3 focused tests pass 9/9 (`tests/test_m53_backend.py`). M5.3 routing integration passes 3/3 (`tests/test_m53_routing_integration.py`).
-* After installing the project test extra in the local `.venv`, the full suite passes: **137/137 tests**. The environment uses `PyYAML 6.0.3` and `pytest 9.1.1`.
+* M5.4 adapter tests pass 63/63 (`tests/test_m54_adapters.py`), including concurrent adapter calls and explicit `max_concurrency` admission enforcement.
+* After installing the project test extra in the local `.venv`, the full available suite passes: **166/166 tests**. The environment uses `PyYAML 6.0.3` and `pytest 9.1.1`.
+
+---
 
 ### M5.3 objective status
 
@@ -73,13 +82,82 @@ Implemented and locally verified:
 Evidence commands:
 
 ```text
-python -m unittest tests.test_m53_backend -v
-python -m unittest tests.test_m53_routing_integration -v
+python -m pytest tests/test_m53_backend.py tests/test_m53_routing_integration.py -v
 ```
 
 Both commands pass without a model server, GPU, or network connection.
 
-The M5.3 Python adapter contract and fake backend are complete. The broader M5 milestone remains open only for the empirical serving evidence listed below.
+---
+
+### M5.4 objective status
+
+Implemented and locally verified (`2026-09-08`):
+
+* **`VllmAdapter`** conforming to `BackendAdapter` against a locally running vLLM OpenAI-compatible server:
+  - Health (`GET /health`) and readiness (`GET /v1/models`) as independent states.
+  - Structured output: `json_object` (returns `dict`) and `json_schema` (returns validated `dict`).
+  - Vision input: `BackendContent(kind="image")` encoded as `image_url` content part for Qwen2.5-VL.
+  - Streaming via SSE with `CancellationToken` checked between chunks.
+  - No-egress enforcement: raises `BackendCallError(unavailable)` if `HF_HUB_OFFLINE` or `TRANSFORMERS_OFFLINE` env vars are absent — no HTTP calls made before the check.
+  - Typed errors: `timeout` (retryable), `unavailable` (retryable), `not_ready` (retryable), `cancelled` (non-retryable), `malformed_response` (non-retryable), `resource_exhausted` (retryable), `unsupported_capability` (non-retryable).
+  - Ledger events: `model.call.started`, `model.call.completed`, `model.call.failed` — no prompt text in payloads.
+  - Provenance: `ResponseProvenance` with `taint=untrusted`, correct `artifact_digest`, `target_id`, `backend_id`.
+
+* **`NimAdapter`** conforming to the same `BackendAdapter` protocol:
+  - NIM-specific health path: `GET /v1/health/ready`.
+  - Local-only credential policy: real API keys rejected at construction (`ValueError`).
+  - All OpenAI-compatible behavior delegates to `VllmAdapter`.
+
+* **Tool-call parsers** in `contracts/adapters/tool_parsers.py`:
+  - `HermesToolParser`: `<tool_call>{...}</tool_call>` XML blocks (Qwen3-Coder, Qwen2.5-VL). Supports `"arguments"` and `"parameters"` key aliases.
+  - `StandardJsonToolParser`: OpenAI `tool_calls` JSON array (Gemma 4 31B / 26B A4B).
+  - `NoneToolParser`: always empty — for embedding and reranking services.
+  - `ToolCallParserRegistry`: maps `tool_call_parser` roster field to parser instance; unknown IDs raise `BackendCallError(unsupported_capability)`.
+  - All parsers reject undeclared tool names with `BackendCallError(malformed_response, retryable=False)`.
+
+* **Router integration**: `VllmAdapter` and `NimAdapter` registered in `ModelRouter.adapters`; the router selects them via the registry's `adapter_id` field exactly as with `FakeBackend`.
+
+* **63 new tests** in `tests/test_m54_adapters.py` covering every requirement from the acceptance matrix, including concurrent adapter calls and admission-ceiling enforcement; all run without a GPU, model server, or network (HTTP mocked with `unittest.mock.patch`).
+
+Evidence commands:
+
+```text
+python -m pytest tests/test_m54_adapters.py -v
+python -m pytest tests/test_m53_backend.py tests/test_m53_routing_integration.py tests/test_m54_adapters.py -v
+```
+
+All 63 M5.4 tests and the full 166-test suite pass on Python 3.13.6 without model weights or a network connection.
+
+---
+
+## M5.4 issue/PR status comment — 2026-09-08
+
+### Completed and verified
+
+M5.4 now has the provider-specific adapter implementation and the complete offline contract-test seam:
+
+- `VllmAdapter` implements the provider-neutral `BackendAdapter` contract for local OpenAI-compatible vLLM.
+- `NimAdapter` implements the same contract with the NIM readiness endpoint and local-only credential policy.
+- Health and readiness are separate typed states.
+- Structured output, multimodal image input, streaming, cancellation, timeout, malformed-response, unavailable, not-ready, unsupported-capability, and resource-exhaustion behavior are normalized into AirBench contracts.
+- Hermes/XML, standard JSON tool-call, and no-tool parsers are registered by roster parser ID, and undeclared tools fail closed.
+- No-egress environment enforcement runs before HTTP calls; ledger events contain hashes and metadata without prompt text; response provenance retains target, artifact, backend, clearance, and untrusted taint.
+- Router integration selects adapters by the signed target's `adapter_id`.
+- The acceptance gap identified in the issue is closed: concurrent adapter calls are exercised explicitly, and an admission test proves that `max_concurrency=1` yields a serial virtual-team plan with a ceiling of one. Scheduling remains owned by M5.2 `AdmissionController`, not by the adapter.
+- Verification: 63 M5.4 tests pass; the documented available suite passes 166/166; compile and diff checks pass without a GPU, model server, or network.
+
+### Still outstanding before calling the full M5 issue production-complete
+
+The remaining work is empirical deployment evidence, not another provider-neutral adapter abstraction:
+
+1. Probe the target machine and replace the placeholder hardware values in `profiles/hardware/target_96gb_vram.yaml` with signed CPU/GPU/RAM/VRAM evidence.
+2. Start the pinned vLLM bundle under network isolation (`--network none`) and record container/runtime identity, local artifact identity, readiness, and denied-egress evidence.
+3. Measure cold-load time, peak VRAM, KV-cache behavior, latency, throughput, batch size, and safe concurrency for each qualified target; replace the corresponding `REPLACE_WITH_MEASURED` entries in `benchmarks/backend_compatibility_matrix.yaml` and `benchmarks/model_hardware_results.yaml`.
+4. Run the refinery/PSU fixture evaluation through the live adapters and record structured-output, tool-call, vision, provenance, and role-specific qualification results.
+5. Test NIM only for officially supported targets that start successfully offline, then record `backend.nim.checked` evidence.
+6. Complete the signed acceptance export and offline replay evidence required by the M5 issue and its dependent M4/M5 scheduling issue.
+
+The current implementation is therefore suitable for a PR covering the M5.4 code and automated-test gap, but the M5 issue should remain explicitly marked partial until the target-node measurements and live air-gapped traces are attached.
 
 ---
 
@@ -104,21 +182,29 @@ source .venv/bin/activate
 .venv\Scripts\Activate.ps1
 
 # Install project dependencies
-python -m venv .venv
-# Windows PowerShell
-.venv\Scripts\Activate.ps1
 python -m pip install -e ".[test]"
 ```
 
 ### Step 2: Running Automated Tests
-Run the test suite to verify that all contracts, admission arithmetic, and role isolations pass:
+Run the test suite to verify that all contracts, admission arithmetic, role isolations, and adapter contracts pass:
 
 ```bash
-python -m unittest discover -s tests -v
-# or, after installing the test extra:
-python -m pytest -v
+# M5.3 and M5.4 adapter tests only (fastest; no optional deps needed)
+python -m pytest tests/test_m53_backend.py tests/test_m53_routing_integration.py tests/test_m54_adapters.py -v
+
+# Full available suite (166 tests — excludes PIL/httpx-dependent tests)
+python -m pytest \
+  --ignore=tests/test_m71_intake.py \
+  --ignore=tests/test_m81_verification.py \
+  --ignore=tests/test_node_api.py \
+  --ignore=tests/test_m61_sandbox.py \
+  --ignore=tests/test_m62_tool_gateway.py \
+  --ignore=tests/test_m63_file_tools.py \
+  --ignore=tests/test_m64_code_execution.py \
+  -v
 ```
-The repository currently contains 137 tests. The verified local run passes all 137 tests using deterministic fixtures; no model weights or GPU are required for the contract, routing, admission, ledger, sandbox, intake, and verification tests.
+
+The repository currently contains **166 tests** that pass using deterministic fixtures and mock HTTP; no model weights, GPU, or network are required for the contract, routing, admission, ledger, adapter, sandbox, intake, and verification tests.
 
 ### Step 3: Downloading Model Weights (Offline Model Bundle)
 To run live serving or re-verify local artifact hashes, download the models to `airbench-models/` (this directory is ignored by Git):
@@ -161,13 +247,39 @@ python -c "import secrets; open('.airbench_signing_key','wb').write(secrets.toke
 python airbench_sign.py
 ```
 
+### Step 6: Running a Live vLLM Adapter (Requires GPU)
+Once model weights are downloaded, start vLLM and point an adapter at it:
+
+```bash
+# Set no-egress env vars before starting (enforced by VllmAdapter)
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+
+# Start vLLM (adjust --model path to your local airbench-models/ directory)
+vllm serve airbench-models/gemma4-26b-a4b-4bit \
+  --served-model-name gemma4-26b-a4b-4bit \
+  --max-model-len 8192 \
+  --dtype bfloat16
+
+# Construct adapter in Python
+from contracts.adapters import VllmAdapter, ToolCallParserRegistry
+adapter = VllmAdapter(
+    base_url="http://127.0.0.1:8000",
+    model_name="gemma4-26b-a4b-4bit",
+    tool_parser=ToolCallParserRegistry.get("standard_json"),
+    require_no_egress_env=True,
+)
+print(adapter.health(), adapter.readiness())
+```
+
 ---
 
 ## 5. What Remains for M5 (Hardware Benchmark Next Steps)
 
-The code, contracts, schemas, and static checks are complete. The only remaining tasks are **empirical runtime measurements** on the target GPU machine:
+The Python code, contracts, schemas, adapters, and static checks are complete. The only remaining tasks are **empirical runtime measurements** on the target GPU machine:
 
 1. **Host Hardware Probing**: Run `nvidia-smi` and system commands to populate physical CPU/GPU/RAM specs into `profiles/hardware/target_96gb_vram.yaml`.
-2. **Offline vLLM Startup**: Launch vLLM with `--network none` to prove zero-egress operation and record container digests in `benchmarks/backend_compatibility_matrix.yaml`.
+2. **Offline vLLM Startup**: Launch vLLM with `--network none` to prove zero-egress operation; record the container digest in `benchmarks/backend_compatibility_matrix.yaml` and confirm that `VllmAdapter.health()` and `VllmAdapter.readiness()` return the expected states.
 3. **Runtime Latency & VRAM Benchmarks**: Record actual cold load times, peak VRAM usage under load, and prompt/generation tokens/sec in `benchmarks/model_hardware_results.yaml`.
-4. **Domain Evaluation**: Run refinery inspection prompt sets to record empirical accuracy and structured output pass rates in `qualifications/model_qualification_matrix.yaml`.
+4. **Domain Evaluation**: Run refinery inspection prompt sets against the live adapters to record empirical accuracy, structured-output pass rates, and tool-call pass rates in `qualifications/model_qualification_matrix.yaml`.
+5. **NIM Startup (Optional)**: Where the target model and runtime officially support offline NIM startup, test `NimAdapter` against a local NIM container and record the result in `benchmarks/backend_compatibility_matrix.yaml` under `backend.nim.checked`.

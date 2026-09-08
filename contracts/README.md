@@ -16,23 +16,6 @@ Use `stable_id(kind, ...)` for deterministic UUID5 identities and `idempotency_k
 
 `FactEnvelope` always carries source, confidence, clearance, timestamps, derivation parents, and taint. `UntrustedEvidence` can never be marked clean. `ToolAction` accepts only clean, policy-cleared inputs. Worker/model outputs are proposals until deterministic orchestration and verification accept them.
 
-## M5.1/M5.2 model and resource boundary
-
-`model_registry.py` loads only a locally supplied, HMAC-signed registry. Each
-target is bound to its artifact digest, tokenizer/template, quantization,
-runtime/backend, exact role and modality, risk class, clearance, domain pack,
-hardware profile, license, and qualification expiry. Artifact paths stay below
-the supplied local artifact root and are hashed before use. Unsigned, stale,
-tampered, or out-of-root targets fail closed; a reasoning qualification cannot
-be reused for coding, vision, or verification.
-
-`admission.py` accepts measured hardware values rather than probing a remote
-service. It carries VRAM/RAM/KV-cache, model residency, latency, throughput,
-sandbox limits, concurrency, and verified no-egress status. Admission returns
-deterministic parallel, serial virtual-team, queued, or stopped plans. Every
-admitted plan has an independent verifier reservation, and active reservations
-are included in subsequent capacity checks.
-
 M1.3 adds `HardwareProfile`, role-aware `ModelCallRequest` and `RoutingDecision`, resource admission through `TeamResourcePlan`, and strict tool/evidence gates. Model calls require a worker role, capability, attempt, idempotency key, and resource lease. Accepted routes require qualification and admitted resources. Resource plans require a verifier reservation and a declared execution mode. Hardware and resource values reject malformed or negative inputs before any state mutation.
 
 M1.4 adds `EventLedger` and `build_event()`. Events are canonicalized, hash chained, immutable, sequence checked, and idempotent. Reusing an idempotency key for the same event is safe; reusing it for different content raises `IdempotencyConflict`. Invalid ordering, hashes, event names, or state preconditions raise a typed failure before append. `replay()` rebuilds task state from committed events, and `verify_chain()` checks the complete local chain. The example JSONL trace documents the wire shape; generated events should be used for executable replay fixtures.
@@ -49,20 +32,8 @@ M3.1 adds `Orchestrator`, the only state-mutating control-plane API. It creates 
 
 M3.2 adds `AuthorizationService` for local principal resolution, clearance ceilings, evidence/tool/risk/resource bounds, and required signed pack/policy references.
 
-M3.3 adds typed `PlanProposal`/`PlanStep` validation for tools, evidence, budgets, dependency cycles, supported execution kinds, and completion criteria. M3.4 extends the executor to retrieval/world-model/verification kinds, generic typed step failures, cancellation, review requests, and dependency circuit breakers. All state changes remain orchestrator-owned and ledger-backed.
+M3.3 adds typed `PlanProposal`/`PlanStep` validation for tools, evidence, budgets, dependency cycles, supported execution kinds, and completion criteria.
 
-M3.5 adds the restart walking-skeleton acceptance test. It runs fake model, retrieval, tool, verification, and artifact adapters through the complete pipeline, closes and reopens the durable control plane after every transition, replays the final trace, and proves tool/artifact side effects are not repeated.
-
-## M5.3 backend and routing boundary
-
-`backend.py` defines the provider-neutral model adapter contract. It carries
-typed messages, governed media references, tools, structured-output requests,
-streaming and cancellation signals, normalized usage, typed failures, and
-response provenance. `FakeBackend` is the deterministic offline adapter for
-contract tests. `router.py` applies signed registry eligibility before backend
-health/readiness and injected M5.2 resource admission. `Orchestrator.execute_model_call()`
-records the routing decision and invokes the selected adapter through the
-existing timeout, retry, and task-state machinery. Queued or rejected routes
-never call a backend.
+M3.4 extends the executor to retrieval/world-model/verification kinds, generic typed step failures, cancellation, review requests, and dependency circuit breakers. All state changes remain orchestrator-owned and ledger-backed.
 
 The compatibility rules are in `compatibility_policy.md`; the machine-readable registry and event/state catalogs are YAML and require no network or runtime service.
