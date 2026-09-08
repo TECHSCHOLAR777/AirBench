@@ -12,7 +12,7 @@ describe("AirBench desktop shell", () => {
     await browser.$('[aria-controls="launchpad-routing"]').click();
     await expect(browser.$("#launchpad-routing")).toHaveText(expect.stringContaining("Auto route is always in control"));
     await expect(browser.$("#launchpad-routing select")).toBeDisabled();
-    await expect(browser.$("#launchpad-routing")).toHaveText(expect.stringContaining("Connect a verified Node first"));
+    await expect(browser.$("#launchpad-routing")).toHaveText(expect.stringContaining("The Node selects a qualified capability for each validated step"));
     await expect(browser.$("#launchpad-routing")).not.toHaveText(expect.stringContaining("http://"));
     await expect(browser.$("#launchpad-routing")).not.toHaveText(expect.stringContaining("https://"));
   });
@@ -80,7 +80,7 @@ describe("AirBench desktop shell", () => {
     await browser.$("button*=Reload").click();
     await expect(browser.$(".profile-card")).toBeDisplayed();
     await browser.$(".profile-card button").click();
-    await expect(browser.$(".settings-status")).toHaveText(expect.stringContaining("Fixture Node is connected"));
+    await expect(browser.$('[data-testid="node-readiness-panel"]')).toHaveText(expect.stringContaining("Approved Node connection verified"));
     await browser.$(".new-task-button").click();
     await browser.$('[data-testid="attach-files"]').click();
     await browser.$(".compact-button").click();
