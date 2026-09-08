@@ -1,0 +1,11 @@
+actions:
+  prepare_approval_note:
+    risk_class: regulated_document_draft
+    reversibility: reversible
+    autonomy_ceiling: draft_for_review
+    required_human_authority: human_reviewer
+  release_approval_note:
+    risk_class: organizational_decision
+    reversibility: non_reversible
+    autonomy_ceiling: human_only
+    required_human_authority: authorized_approver

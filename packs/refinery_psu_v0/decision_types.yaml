@@ -1,0 +1,7 @@
+decision_types:
+  - id: inspection_finding_disposition
+    required_features: [finding_id, severity, cited_rule, authority_level]
+    minimum_authority: reviewer
+  - id: approval_note_review_status
+    required_features: [artifact_id, verification_result, reviewer_id]
+    minimum_authority: human_reviewer

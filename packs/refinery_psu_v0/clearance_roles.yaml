@@ -1,0 +1,11 @@
+clearance_levels: [public, internal, restricted, secret]
+roles:
+  operator:
+    maximum_clearance: restricted
+    may_review: [approval_note_draft]
+  human_reviewer:
+    maximum_clearance: restricted
+    may_review: [approval_note_draft]
+  authorized_approver:
+    maximum_clearance: restricted
+    may_approve: [approval_note]
