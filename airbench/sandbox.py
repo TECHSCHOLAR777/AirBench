@@ -12,6 +12,7 @@ import base64
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -44,6 +45,12 @@ class SandboxPolicy:
     allowed_write_paths: tuple[Path, ...] = ()
 
     def validate(self) -> None:
+        try:
+            root_dir = self.root_dir.resolve()
+        except OSError as exc:
+            raise SandboxError("invalid_root", "sandbox root cannot be resolved") from exc
+        if not root_dir.is_dir():
+            raise SandboxError("invalid_root", "sandbox root must be an existing directory")
         if self.max_wall_seconds <= 0 or self.max_wall_seconds > 300:
             raise SandboxError("invalid_timeout", "sandbox wall time must be between 0 and 300 seconds")
         if self.max_output_bytes <= 0 or self.max_output_bytes > 50_000_000:
@@ -218,6 +225,13 @@ def _safe_child_env() -> dict[str, str]:
     }
 
 
+def _truncate_utf8(value: str, limit: int) -> str:
+    encoded = value.encode("utf-8", errors="replace")
+    if len(encoded) <= limit:
+        return value
+    return encoded[:limit].decode("utf-8", errors="ignore")
+
+
 class SandboxRunner:
     def __init__(self, ledger: LedgerSink) -> None:
         self._ledger = ledger
@@ -253,8 +267,14 @@ class SandboxRunner:
             requested_ref = authorization.requested_event_ref
             authorized_ref = authorization.authorized_event_ref
         assert requested_ref is not None and authorized_ref is not None
-        run_dir = Path(tempfile.mkdtemp(prefix=f"airbench-{execution_id[:8]}-", dir=policy.root_dir))
+        hard_network_isolation = policy.require_hard_network_isolation and policy.hard_network_isolation_available
+        stdout = ""
+        stderr = ""
+        exit_code: int | None = None
+        status: Literal["succeeded", "failed", "timed_out", "rejected"] = "failed"
+        run_dir: Path | None = None
         try:
+            run_dir = Path(tempfile.mkdtemp(prefix=f"airbench-{execution_id[:8]}-", dir=policy.root_dir))
             payload = {
                 "run_dir": str(run_dir),
                 "read_roots": [str(path.resolve()) for path in policy.allowed_read_paths],
@@ -272,16 +292,27 @@ class SandboxRunner:
                 if len(stdout.encode()) > policy.max_output_bytes or len(stderr.encode()) > policy.max_output_bytes:
                     status = "failed"
                     stderr = "sandbox output limit exceeded"
-                    stdout = stdout[:policy.max_output_bytes]
+                    stdout = _truncate_utf8(stdout, policy.max_output_bytes)
+                    stderr = _truncate_utf8(stderr, policy.max_output_bytes)
             except subprocess.TimeoutExpired:
                 process.kill()
                 raw_stdout, raw_stderr = process.communicate()
                 exit_code = None
-                stdout = raw_stdout[:policy.max_output_bytes]
+                stdout = _truncate_utf8(raw_stdout, policy.max_output_bytes)
                 stderr = "sandbox execution timed out"
                 status = "timed_out"
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+                stderr = "sandbox worker failed or returned invalid output"
+                status = "failed"
+        except (OSError, ValueError):
+            stderr = "sandbox worker could not be started"
+            status = "failed"
         finally:
-            pass
+            if run_dir is not None:
+                shutil.rmtree(run_dir, ignore_errors=True)
         finished_at = _now()
         output_hash = hashlib.sha256((stdout + "\n" + stderr).encode("utf-8", errors="replace")).hexdigest()
         result_ref = _append_tool_event(
@@ -293,8 +324,9 @@ class SandboxRunner:
                 "status": status,
                 "exit_code": exit_code,
                 "output_hash": output_hash,
+                "hard_network_isolation": hard_network_isolation,
                 "provenance": {"source_ref": f"sandbox:{execution_id}", "confidence": 1.0 if status == "succeeded" else 0.0, "clearance": action.clearance.value, "taint": Taint.untrusted.value},
             },
             occurred_at=finished_at,
         )
-        return SandboxResult(execution_id, status, exit_code, stdout, stderr, output_hash, policy_hash, policy.hard_network_isolation_available, (requested_ref, authorized_ref, result_ref), started_at, finished_at)
+        return SandboxResult(execution_id, status, exit_code, stdout, stderr, output_hash, policy_hash, hard_network_isolation, (requested_ref, authorized_ref, result_ref), started_at, finished_at)

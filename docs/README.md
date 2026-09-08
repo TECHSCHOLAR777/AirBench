@@ -17,6 +17,8 @@ Start with `architecture_design.md`. It explains the whole system and points to 
 - `ui_design_proposal.md` - the desktop workbench screen system, updated UI stack, interaction model, and UI-to-Node boundary.
 - `backend_development_plan.md` - the Python implementation baseline, M1-M10 dependency graph, and backend-complete definition.
 - `agent_development_workflow.md` - the issue-first workflow, document map, parallel work rules, and completion evidence required from coding agents.
+- `assigned_issue_execution_status.md` - the last verified user-assignment snapshot, autonomous work lanes, dependency order, and local execution evidence.
+- `m10_1_node_api_evidence.md` - the authenticated Python Node API boundary, task-local event cursor, clearance projection, tests, and remaining production gates.
 - `serving_and_routing.md` - hosting the models and sending each task to the right one.
 - `backend_adapter_contract.md` - the provider-neutral Python model backend seam and fake adapter.
 - `verification_framework.md` - checking that an answer is valid by the field's rules.

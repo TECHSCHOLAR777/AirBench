@@ -1,6 +1,6 @@
 use crate::node_transport::{
-    approved_profile_by_id, build_client, credential_token, node_url, verify_certificate_pin, NodeProfile,
-    NodeTransportError,
+    approved_profile_by_id, build_client, credential_token, node_url, verify_certificate_pin,
+    NodeProfile, NodeTransportError,
 };
 use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 const MAX_QUERY_UPLOAD_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_NODE_REFERENCE_BYTES: usize = 256;
+const MAX_PREVIEW_TEXT_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Default)]
 pub struct IntakeState {
@@ -63,6 +64,25 @@ pub struct SafePreview {
     pub ledger_event_ref: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ArtifactPreviewBlock {
+    pub kind: String,
+    pub text: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ArtifactPreview {
+    pub artifact_id: String,
+    pub preview_kind: String,
+    pub title: String,
+    pub blocks: Vec<ArtifactPreviewBlock>,
+    pub clearance: String,
+    pub taint: String,
+    pub ledger_event_ref: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub struct DownloadReceipt {
@@ -98,6 +118,184 @@ fn validate_node_reference(reference: &str, label: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+fn validate_sha256(value: &str, label: &str) -> Result<(), String> {
+    let valid = value
+        .strip_prefix("sha256:")
+        .map(|digest| digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        == Some(true);
+    if !valid {
+        return Err(format!(
+            "The Node {label} is not a valid SHA-256 reference."
+        ));
+    }
+    Ok(())
+}
+
+fn validate_clearance(value: &str) -> Result<(), String> {
+    if !matches!(value, "public" | "internal" | "restricted" | "secret") {
+        return Err("The Node returned an invalid clearance value.".to_string());
+    }
+    Ok(())
+}
+
+fn clearance_rank(value: &str) -> Option<u8> {
+    match value {
+        "public" => Some(0),
+        "internal" => Some(1),
+        "restricted" => Some(2),
+        "secret" => Some(3),
+        _ => None,
+    }
+}
+
+fn validate_clearance_for_profile(
+    value: &str,
+    approved_context: &str,
+    label: &str,
+) -> Result<(), String> {
+    validate_clearance(value)?;
+    validate_clearance(approved_context)?;
+    if clearance_rank(value) > clearance_rank(approved_context) {
+        return Err(format!(
+            "The Node returned {label} above the approved profile clearance."
+        ));
+    }
+    Ok(())
+}
+
+fn validate_taint(value: &str) -> Result<(), String> {
+    if !matches!(value, "clean" | "untrusted" | "contaminated") {
+        return Err("The Node returned an invalid taint value.".to_string());
+    }
+    Ok(())
+}
+
+fn validate_status(value: &str, label: &str) -> Result<(), String> {
+    if !matches!(
+        value,
+        "pending" | "running" | "completed" | "failed" | "not_applicable" | "unavailable"
+    ) {
+        return Err(format!("The Node returned an invalid {label} status."));
+    }
+    Ok(())
+}
+
+fn validate_intake_manifest(
+    manifest: &IntakeManifest,
+    approved_context: &str,
+) -> Result<(), String> {
+    validate_node_reference(&manifest.intake_id, "intake")?;
+    validate_node_reference(&manifest.revision_id, "revision")?;
+    validate_node_reference(&manifest.preview_ref, "preview")?;
+    validate_node_reference(&manifest.artifact_ref, "artifact")?;
+    validate_node_reference(&manifest.ledger_event_ref, "ledger event")?;
+    if manifest.file_name.is_empty()
+        || manifest.file_name.len() > 255
+        || manifest.file_name.contains('/')
+        || manifest.file_name.contains('\\')
+        || manifest.file_name.contains('\0')
+    {
+        return Err("The Node returned an invalid intake file name.".to_string());
+    }
+    if manifest.byte_size == 0 || manifest.byte_size > MAX_QUERY_UPLOAD_BYTES {
+        return Err("The Node returned an invalid intake byte size.".to_string());
+    }
+    if manifest.page_count == 0 {
+        return Err("The Node returned an invalid intake page count.".to_string());
+    }
+    if manifest.media_type.trim().is_empty() || manifest.media_type.contains('\0') {
+        return Err("The Node returned an invalid intake media type.".to_string());
+    }
+    validate_sha256(&manifest.source_hash, "source hash")?;
+    validate_status(&manifest.ocr_status, "OCR")?;
+    validate_status(&manifest.vision_status, "vision")?;
+    validate_clearance_for_profile(&manifest.clearance, approved_context, "intake clearance")?;
+    validate_taint(&manifest.taint)
+}
+
+fn validate_safe_preview(
+    preview: &SafePreview,
+    requested_ref: &str,
+    approved_context: &str,
+) -> Result<(), String> {
+    validate_node_reference(requested_ref, "preview")?;
+    if preview.preview_ref != requested_ref {
+        return Err("The Node preview reference does not match the requested preview.".to_string());
+    }
+    if !matches!(
+        preview.preview_kind.as_str(),
+        "text" | "image" | "pdf_page" | "table"
+    ) {
+        return Err("The Node returned an unsupported safe preview kind.".to_string());
+    }
+    if preview.text.as_bytes().len() > MAX_PREVIEW_TEXT_BYTES || preview.text.contains('\0') {
+        return Err("The Node preview text exceeds the safe preview limit.".to_string());
+    }
+    validate_sha256(&preview.source_hash, "preview source hash")?;
+    if preview.source_region.trim().is_empty() || preview.source_region.contains('\0') {
+        return Err("The Node returned an invalid preview source region.".to_string());
+    }
+    if !preview.confidence.is_finite() || !(0.0..=1.0).contains(&preview.confidence) {
+        return Err("The Node returned an invalid preview confidence.".to_string());
+    }
+    validate_clearance_for_profile(&preview.clearance, approved_context, "preview clearance")?;
+    validate_taint(&preview.taint)?;
+    validate_node_reference(&preview.ledger_event_ref, "ledger event")
+}
+
+fn validate_preview_source_hash(
+    preview: &SafePreview,
+    expected_source_hash: &str,
+) -> Result<(), String> {
+    validate_sha256(expected_source_hash, "expected source hash")?;
+    if preview.source_hash != expected_source_hash {
+        return Err("The Node preview source hash does not match the intake manifest.".to_string());
+    }
+    Ok(())
+}
+
+fn validate_artifact_preview(
+    preview: &ArtifactPreview,
+    requested_artifact_id: &str,
+    approved_context: &str,
+) -> Result<(), String> {
+    validate_node_reference(requested_artifact_id, "artifact")?;
+    if preview.artifact_id != requested_artifact_id {
+        return Err("The Node artifact preview does not match the requested artifact.".to_string());
+    }
+    if !matches!(
+        preview.preview_kind.as_str(),
+        "structured_document" | "pdf" | "text"
+    ) {
+        return Err("The Node returned an unsupported artifact preview kind.".to_string());
+    }
+    if preview.title.trim().is_empty()
+        || preview.title.len() > 255
+        || preview.title.contains('\0')
+        || preview.blocks.is_empty()
+        || preview.blocks.len() > 1_024
+    {
+        return Err("The Node returned an invalid artifact preview.".to_string());
+    }
+    for block in &preview.blocks {
+        if block.kind.trim().is_empty()
+            || block.kind.len() > 64
+            || block.kind.contains('\0')
+            || block.text.len() > MAX_PREVIEW_TEXT_BYTES
+            || block.text.contains('\0')
+        {
+            return Err("The Node returned an unsafe artifact preview block.".to_string());
+        }
+    }
+    validate_clearance_for_profile(
+        &preview.clearance,
+        approved_context,
+        "artifact preview clearance",
+    )?;
+    validate_taint(&preview.taint)?;
+    validate_node_reference(&preview.ledger_event_ref, "ledger event")
 }
 
 #[tauri::command]
@@ -146,8 +344,14 @@ pub async fn upload_query_file_from_path(
     let bytes = tokio::fs::read(&path)
         .await
         .map_err(|_| "The selected file could not be opened for intake.".to_string())?;
+    if metadata.len() != bytes.len() as u64 {
+        return Err(
+            "The selected file changed while it was being prepared for intake.".to_string(),
+        );
+    }
+    let expected_source_hash = format!("sha256:{}", hex::encode(Sha256::digest(&bytes)));
     let part = reqwest::multipart::Part::bytes(bytes)
-        .file_name(file_name)
+        .file_name(file_name.clone())
         .mime_str("application/octet-stream")
         .map_err(|_| "The intake media type could not be constructed.")?;
     let form = reqwest::multipart::Form::new()
@@ -170,10 +374,18 @@ pub async fn upload_query_file_from_path(
             response.status().as_u16()
         ));
     }
-    response
+    let manifest = response
         .json::<IntakeManifest>()
         .await
-        .map_err(|_| "The Node did not return the File Intake manifest schema.".to_string())
+        .map_err(|_| "The Node did not return the File Intake manifest schema.".to_string())?;
+    validate_intake_manifest(&manifest, &profile.clearance_context)?;
+    if manifest.file_name != file_name || manifest.byte_size != metadata.len() {
+        return Err("The Node intake manifest does not match the uploaded file.".to_string());
+    }
+    if manifest.source_hash != expected_source_hash {
+        return Err("The Node intake source hash does not match the uploaded file.".to_string());
+    }
+    Ok(manifest)
 }
 
 #[tauri::command]
@@ -199,8 +411,10 @@ pub async fn upload_selected_query_file(
 pub async fn fetch_safe_preview_from_profile(
     profile: NodeProfile,
     preview_ref: String,
+    expected_source_hash: String,
 ) -> Result<SafePreview, String> {
     validate_node_reference(&preview_ref, "preview")?;
+    validate_sha256(&expected_source_hash, "expected source hash")?;
     let token = credential_token(&profile).map_err(String::from)?;
     let response = build_client(&profile)
         .map_err(String::from)?
@@ -220,10 +434,13 @@ pub async fn fetch_safe_preview_from_profile(
             response.status().as_u16()
         ));
     }
-    response
+    let preview = response
         .json::<SafePreview>()
         .await
-        .map_err(|_| "The Node did not return a safe preview schema.".to_string())
+        .map_err(|_| "The Node did not return a safe preview schema.".to_string())?;
+    validate_safe_preview(&preview, &preview_ref, &profile.clearance_context)?;
+    validate_preview_source_hash(&preview, &expected_source_hash)?;
+    Ok(preview)
 }
 
 #[tauri::command]
@@ -231,9 +448,55 @@ pub async fn fetch_safe_preview(
     app: tauri::AppHandle,
     profile_id: String,
     preview_ref: String,
+    expected_source_hash: String,
 ) -> Result<SafePreview, String> {
     let profile = approved_profile_by_id(&app, &profile_id)?;
-    fetch_safe_preview_from_profile(profile, preview_ref).await
+    fetch_safe_preview_from_profile(profile, preview_ref, expected_source_hash).await
+}
+
+pub async fn fetch_artifact_preview_from_profile(
+    profile: NodeProfile,
+    artifact_id: String,
+) -> Result<ArtifactPreview, String> {
+    validate_node_reference(&artifact_id, "artifact")?;
+    let token = credential_token(&profile).map_err(String::from)?;
+    let response = build_client(&profile)
+        .map_err(String::from)?
+        .get(
+            node_url(
+                &profile,
+                &format!("/api/v1/artifacts/{artifact_id}/preview"),
+            )
+            .map_err(String::from)?,
+        )
+        .header("Accept", "application/json")
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|_| "The approved Node artifact preview request failed.".to_string())?;
+    verify_certificate_pin(&profile, &response).map_err(String::from)?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "The Node artifact preview request returned HTTP {}.",
+            response.status().as_u16()
+        ));
+    }
+    let preview = response
+        .json::<ArtifactPreview>()
+        .await
+        .map_err(|_| "The Node did not return an artifact preview schema.".to_string())?;
+    validate_artifact_preview(&preview, &artifact_id, &profile.clearance_context)?;
+    Ok(preview)
+}
+
+#[tauri::command]
+pub async fn fetch_artifact_preview(
+    app: tauri::AppHandle,
+    profile_id: String,
+    artifact_id: String,
+) -> Result<ArtifactPreview, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    fetch_artifact_preview_from_profile(profile, artifact_id).await
 }
 
 pub async fn download_artifact_to_path(
@@ -276,6 +539,8 @@ pub async fn download_artifact_to_path(
         .and_then(|value| value.to_str().ok())
         .ok_or_else(|| "The artifact response did not contain a ledger reference.".to_string())?
         .to_string();
+    validate_sha256(&expected_hash, "artifact hash")?;
+    validate_node_reference(&ledger_event_ref, "ledger event")?;
     let bytes = response
         .bytes()
         .await
@@ -324,7 +589,30 @@ fn _keep_error_type_linked(_: NodeTransportError) {}
 
 #[cfg(test)]
 mod tests {
-    use super::validate_node_reference;
+    use super::{
+        validate_artifact_preview, validate_intake_manifest, validate_node_reference,
+        validate_preview_source_hash, validate_safe_preview, ArtifactPreview, ArtifactPreviewBlock,
+        IntakeManifest, SafePreview,
+    };
+
+    fn valid_manifest() -> IntakeManifest {
+        IntakeManifest {
+            intake_id: "intake-1".to_string(),
+            file_name: "report.pdf".to_string(),
+            byte_size: 1,
+            source_hash: format!("sha256:{}", "a".repeat(64)),
+            revision_id: "revision-1".to_string(),
+            media_type: "application/pdf".to_string(),
+            page_count: 1,
+            ocr_status: "completed".to_string(),
+            vision_status: "completed".to_string(),
+            clearance: "restricted".to_string(),
+            taint: "untrusted".to_string(),
+            preview_ref: "preview-1".to_string(),
+            artifact_ref: "artifact-1".to_string(),
+            ledger_event_ref: "ledger-1".to_string(),
+        }
+    }
 
     #[test]
     fn accepts_opaque_node_references_without_fixture_prefixes() {
@@ -338,5 +626,104 @@ mod tests {
             assert!(validate_node_reference(reference, "preview").is_err());
         }
         assert!(validate_node_reference(&"a".repeat(257), "artifact").is_err());
+    }
+
+    #[test]
+    fn intake_manifest_validation_rejects_inconsistent_or_untrusted_shapes() {
+        let mut manifest = valid_manifest();
+        assert!(validate_intake_manifest(&manifest, "restricted").is_ok());
+
+        manifest.source_hash = "sha256:not-a-digest".to_string();
+        assert!(validate_intake_manifest(&manifest, "restricted").is_err());
+        manifest = valid_manifest();
+        manifest.page_count = 0;
+        assert!(validate_intake_manifest(&manifest, "restricted").is_err());
+        manifest = valid_manifest();
+        manifest.file_name = "..\\secret.pdf".to_string();
+        assert!(validate_intake_manifest(&manifest, "restricted").is_err());
+    }
+
+    #[test]
+    fn safe_preview_validation_preserves_reference_and_provenance_requirements() {
+        let preview = SafePreview {
+            preview_ref: "preview-1".to_string(),
+            preview_kind: "text".to_string(),
+            text: "untrusted preview data".to_string(),
+            source_hash: format!("sha256:{}", "b".repeat(64)),
+            source_region: "page:1;region:full-page".to_string(),
+            confidence: 0.98,
+            clearance: "restricted".to_string(),
+            taint: "untrusted".to_string(),
+            ledger_event_ref: "ledger-preview-1".to_string(),
+        };
+        assert!(validate_safe_preview(&preview, "preview-1", "restricted").is_ok());
+        assert!(validate_safe_preview(&preview, "preview-2", "restricted").is_err());
+
+        let mut invalid = preview;
+        invalid.confidence = 1.1;
+        assert!(validate_safe_preview(&invalid, "preview-1", "restricted").is_err());
+    }
+
+    #[test]
+    fn artifact_preview_validation_rejects_mismatched_or_unsafe_blocks() {
+        let preview = ArtifactPreview {
+            artifact_id: "artifact-1".to_string(),
+            preview_kind: "structured_document".to_string(),
+            title: "Approval note".to_string(),
+            blocks: vec![ArtifactPreviewBlock {
+                kind: "paragraph".to_string(),
+                text: "Node-generated untrusted preview data".to_string(),
+            }],
+            clearance: "restricted".to_string(),
+            taint: "untrusted".to_string(),
+            ledger_event_ref: "ledger-artifact-1".to_string(),
+        };
+        assert!(validate_artifact_preview(&preview, "artifact-1", "restricted").is_ok());
+        assert!(validate_artifact_preview(&preview, "artifact-2", "restricted").is_err());
+
+        let mut invalid = preview;
+        invalid.blocks[0].text = "bad\0preview".to_string();
+        assert!(validate_artifact_preview(&invalid, "artifact-1", "restricted").is_err());
+    }
+
+    #[test]
+    fn clearance_above_approved_profile_is_rejected() {
+        let mut manifest = valid_manifest();
+        manifest.clearance = "secret".to_string();
+        assert!(validate_intake_manifest(&manifest, "restricted").is_err());
+
+        let mut preview = SafePreview {
+            preview_ref: "preview-1".to_string(),
+            preview_kind: "text".to_string(),
+            text: "preview".to_string(),
+            source_hash: format!("sha256:{}", "b".repeat(64)),
+            source_region: "page:1".to_string(),
+            confidence: 1.0,
+            clearance: "secret".to_string(),
+            taint: "untrusted".to_string(),
+            ledger_event_ref: "ledger-preview-1".to_string(),
+        };
+        assert!(validate_safe_preview(&preview, "preview-1", "restricted").is_err());
+        preview.clearance = "restricted".to_string();
+        assert!(validate_safe_preview(&preview, "preview-1", "restricted").is_ok());
+    }
+
+    #[test]
+    fn safe_preview_source_hash_must_match_intake_manifest() {
+        let preview = SafePreview {
+            preview_ref: "preview-1".to_string(),
+            preview_kind: "text".to_string(),
+            text: "preview".to_string(),
+            source_hash: format!("sha256:{}", "b".repeat(64)),
+            source_region: "page:1".to_string(),
+            confidence: 1.0,
+            clearance: "restricted".to_string(),
+            taint: "untrusted".to_string(),
+            ledger_event_ref: "ledger-preview-1".to_string(),
+        };
+        assert!(validate_preview_source_hash(&preview, &preview.source_hash).is_ok());
+        assert!(
+            validate_preview_source_hash(&preview, &format!("sha256:{}", "a".repeat(64))).is_err()
+        );
     }
 }

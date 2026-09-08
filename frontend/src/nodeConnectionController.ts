@@ -14,6 +14,7 @@ export interface NodeConnectionView {
   protocolVersion: string | null;
   clearanceContext: Clearance | null;
   authenticatedSubject: string | null;
+  domainPackRef: string | null;
   sovereignty: "unknown" | "verified" | "blocked";
   ledgerEventRef: string | null;
   failure: { code: string; message: string } | null;
@@ -28,8 +29,9 @@ const initialConnection: NodeConnectionView = {
   profileId: null,
   nodeIdentity: null,
   protocolVersion: null,
-  clearanceContext: null,
-  authenticatedSubject: null,
+    clearanceContext: null,
+    authenticatedSubject: null,
+    domainPackRef: null,
   sovereignty: "unknown",
   ledgerEventRef: null,
   failure: null,
@@ -80,6 +82,7 @@ export class NodeConnectionController {
         protocolVersion: result.protocol_version,
         clearanceContext: result.clearance_context,
         authenticatedSubject: result.authenticated_subject,
+        domainPackRef: result.domain_pack_ref,
         sovereignty: result.sovereignty,
         ledgerEventRef: result.ledger_event_ref,
         failure: null,
