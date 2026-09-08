@@ -7,7 +7,7 @@ import types
 from dataclasses import MISSING, dataclass, field, fields
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, ClassVar, Union, get_args, get_origin, get_type_hints
+from typing import Any, ClassVar, Literal, Union, get_args, get_origin, get_type_hints
 
 from .errors import ContractValidationError, ValidationIssue
 
@@ -16,7 +16,7 @@ COMPATIBILITY_ID = "airbench-core-contracts"
 _ID = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 LEDGER_EVENT_TYPES = {
     # ── Core task lifecycle ────────────────────────────────────────────────────
-    "task.created", "task.authorized", "task.plan.committed", "task.checkpoint.committed", "task.cancelled", "task.failed",
+    "task.created", "task.authorized", "task.plan.committed", "task.plan.approved", "task.checkpoint.committed", "task.cancelled", "task.failed",
     "team.created", "worker.assigned", "worker.started", "worker.completed", "worker.failed", "worker.handoff",
     "model.requested", "routing.decided", "model.responded", "model.failed", "tool.requested", "tool.authorized", "tool.denied", "tool.result",
     "evidence.created", "fact.candidate", "fact.committed", "verification.completed", "retry.started", "fallback.selected",
@@ -172,6 +172,85 @@ class Contract:
         return hashlib.sha256(self.canonical_json().encode()).hexdigest()
 
 
+NODE_COMMAND_TYPES = {
+    "task.create",
+    "task.authorize",
+    "task.cancel",
+    "task.request_review",
+    "task.approve_plan",
+    "node.recheck",
+}
+
+
+@dataclass(frozen=True)
+class NodeCommandEnvelope(Contract):
+    """Versioned, authenticated command envelope at the Node boundary.
+
+    The command is transport-neutral. The Node validates it before handing
+    the requested mutation to the orchestrator, and the ledger stores only a
+    non-sensitive receipt derived from this envelope.
+    """
+
+    command_id: str
+    task_id: str | None
+    actor: str
+    expected_sequence: int | None
+    idempotency_key: str
+    client_version: str
+    command_type: str
+    arguments: dict[str, Any]
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if not self.actor.strip():
+            issues.append(ValidationIssue("actor", "required", "command actor is required"))
+        if not self.idempotency_key.strip() or len(self.idempotency_key) > 256:
+            issues.append(ValidationIssue("idempotency_key", "required", "idempotency key must be 1..256 characters"))
+        if not self.client_version.strip() or len(self.client_version) > 64:
+            issues.append(ValidationIssue("client_version", "required", "client version must be 1..64 characters"))
+        if self.command_type not in NODE_COMMAND_TYPES:
+            issues.append(ValidationIssue("command_type", "enum", "unsupported Node command"))
+        if self.expected_sequence is not None and (type(self.expected_sequence) is not int or self.expected_sequence < 0):
+            issues.append(ValidationIssue("expected_sequence", "range", "expected sequence must be a non-negative integer or null"))
+        if not isinstance(self.arguments, dict):
+            issues.append(ValidationIssue("arguments", "type", "command arguments must be an object"))
+        return issues
+
+
+@dataclass(frozen=True)
+class NodeCommandResult(Contract):
+    """Bounded result returned after a command is accepted or rejected."""
+
+    outcome: Literal["accepted", "rejected", "needs_review"]
+    command_id: str
+    task_id: str | None
+    idempotency_key: str
+    ledger_event_ref: str | None
+    sequence: int | None
+    state: str | None
+    node_identity: str
+    protocol_version: str
+    clearance_context: Clearance
+    event_type: str | None = None
+    code: str | None = None
+    message: str | None = None
+    reason: str | None = None
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if not self.idempotency_key.strip():
+            issues.append(ValidationIssue("idempotency_key", "required", "result idempotency key is required"))
+        if self.sequence is not None and (type(self.sequence) is not int or self.sequence < 0):
+            issues.append(ValidationIssue("sequence", "range", "result sequence must be non-negative"))
+        if self.outcome == "accepted" and (not self.task_id or not self.ledger_event_ref or not self.state or not self.event_type):
+            issues.append(ValidationIssue("outcome", "result", "accepted results require task, ledger, and state"))
+        if not self.node_identity.strip() or not self.protocol_version.strip():
+            issues.append(ValidationIssue("node_identity", "result", "Node identity and protocol are required"))
+        if self.outcome == "rejected" and not self.code:
+            issues.append(ValidationIssue("code", "result", "rejected results require a code"))
+        return issues
+
+
 def _type_issues(path: str, value: Any, expected: Any) -> list[ValidationIssue]:
     if expected is Any:
         return []
@@ -237,13 +316,21 @@ class UntrustedEvidence(Contract):
 
 @dataclass(frozen=True)
 class TaskEnvelope(Contract):
-    task_id: str; principal_id: str; clearance: Clearance; request: str; domain_pack_ref: str; risk_class: str; autonomy_ceiling: str; allowed_evidence_scope: tuple[str, ...]; permitted_worker_capabilities: tuple[str, ...]; permitted_tools: tuple[str, ...]; output_contract: str; verification_criteria: tuple[str, ...]; resource_budget: dict[str, int]; state: str = "created"; parent_task_id: str | None = None; created_at: str = field(default_factory=_now)
+    task_id: str; principal_id: str; clearance: Clearance; request: str; domain_pack_ref: str; risk_class: str; autonomy_ceiling: str; allowed_evidence_scope: tuple[str, ...]; permitted_worker_capabilities: tuple[str, ...]; permitted_tools: tuple[str, ...]; output_contract: str; verification_criteria: tuple[str, ...]; resource_budget: dict[str, int]; title: str = ""; project_ref: str | None = None; priority: str = "normal"; deadline: str | None = None; input_manifest_refs: tuple[str, ...] = (); state: str = "created"; parent_task_id: str | None = None; created_at: str = field(default_factory=_now)
     def _validate(self, hints):
         issues = super()._validate(hints)
         if self.state not in {"created", "authorized", "planned", "executing", "awaiting_check", "awaiting_review", "rendering", "deliverable_verified", "complete", "needs_review", "blocked", "failed", "cancelled"}:
             issues.append(ValidationIssue("state", "enum", "invalid task state"))
         if not self.request.strip():
             issues.append(ValidationIssue("request", "required", "request must not be empty"))
+        if len(self.title) > 256:
+            issues.append(ValidationIssue("title", "length", "title must not exceed 256 characters"))
+        if self.project_ref is not None and len(self.project_ref) > 256:
+            issues.append(ValidationIssue("project_ref", "length", "project reference must not exceed 256 characters"))
+        if not self.priority.strip() or len(self.priority) > 64:
+            issues.append(ValidationIssue("priority", "required", "priority must be 1..64 characters"))
+        if self.deadline is not None and len(self.deadline) > 64:
+            issues.append(ValidationIssue("deadline", "length", "deadline must not exceed 64 characters"))
         if isinstance(self.resource_budget, dict) and any(type(value) is not int or value < 0 for value in self.resource_budget.values()):
             issues.append(ValidationIssue("resource_budget", "resource", "budget values must be non-negative integers"))
         return issues
@@ -262,6 +349,57 @@ class TeamPlan(Contract):
             issues.append(ValidationIssue("assignments", "required", "team must contain at least one assignment"))
         if not self.completion_criteria:
             issues.append(ValidationIssue("completion_criteria", "required", "completion criteria are required"))
+        return issues
+
+
+@dataclass(frozen=True)
+class TaskPlanReview(Contract):
+    """Clearance-filtered plan projection for the desktop review surface.
+
+    The Node creates this view from committed orchestrator and hardware
+    admission events. The desktop cannot construct or revise it locally.
+    """
+
+    task_id: str
+    node_identity: str
+    protocol_version: str
+    clearance_context: Clearance
+    plan_state: str
+    task_sequence: int
+    team_id: str | None
+    assignments: tuple[str, ...]
+    dependency_graph: dict[str, tuple[str, ...]]
+    concurrency_ceiling: int
+    execution_mode: str
+    worker_capabilities: dict[str, str]
+    hardware_profile_ref: str | None
+    hardware_reason: str
+    required_verification: bool
+    completion_criteria: tuple[str, ...]
+    required_authority: str
+    authority_reason: str
+    plan_version_hash: str | None
+    policy_version_hash: str | None
+    ledger_event_ref: str | None
+    failure_code: str | None = None
+    failure_reason: str | None = None
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.plan_state not in {"not_ready", "ready", "queued", "needs_review", "blocked", "rejected"}:
+            issues.append(ValidationIssue("plan_state", "enum", "invalid plan state"))
+        if type(self.task_sequence) is not int or self.task_sequence < 0:
+            issues.append(ValidationIssue("task_sequence", "range", "task sequence must be non-negative"))
+        if type(self.concurrency_ceiling) is not int or self.concurrency_ceiling < 0:
+            issues.append(ValidationIssue("concurrency_ceiling", "range", "concurrency ceiling must be non-negative"))
+        if self.execution_mode not in {"parallel", "pipelined", "serial_virtual_team", "not_selected"}:
+            issues.append(ValidationIssue("execution_mode", "enum", "invalid execution mode"))
+        if not self.required_verification:
+            issues.append(ValidationIssue("required_verification", "safety", "independent verification is mandatory"))
+        if self.plan_state == "ready" and (not self.team_id or not self.plan_version_hash or self.execution_mode == "not_selected"):
+            issues.append(ValidationIssue("plan_state", "authority", "ready plans require a committed team and hardware mode"))
+        if self.plan_state in {"blocked", "rejected"} and not (self.failure_code and self.failure_reason):
+            issues.append(ValidationIssue("failure_reason", "required", "blocked plans require a bounded failure reason"))
         return issues
 
 

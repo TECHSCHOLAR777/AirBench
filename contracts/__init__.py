@@ -7,9 +7,10 @@ from .ledger import (EVENT_TYPES, Checkpoint, CommittedTransaction, EventLedger,
                      ReplayRejected, ReplayState, SQLiteLedgerStore,
                      StorageFailure, TransitionRejected, build_event)
 from .models import *
-from .models import (TaskEnvelope, TeamPlan, WorkerAssignment, WorkPacket, WorkerResult,
+from .models import (TaskEnvelope, TeamPlan, TaskPlanReview, WorkerAssignment, WorkPacket, WorkerResult,
                      CompletionRecord, ModelCallRequest, RoutingDecision, TeamResourcePlan, HardwareProfile,
-                     ToolAction, FactEnvelope, UntrustedEvidence, LedgerEventEnvelope)
+                     ToolAction, FactEnvelope, UntrustedEvidence, LedgerEventEnvelope,
+                     NodeCommandEnvelope, NodeCommandResult)
 from .projections import ProjectionBuilder, ProjectionSnapshot
 from .recovery import RecoveryManager, RecoveryPoint, RetryRecord, SideEffectUncertain
 from .verification import verify_projection_export, verify_signed_export
@@ -27,9 +28,10 @@ from .backend import (BackendAdapter, BackendCallError, BackendCapabilities, Bac
 from .router import ModelRouter, ResourceAdmission, RouteResult, RoutingError, RoutingRejected
 
 __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "stable_id",
-           "TaskEnvelope", "TeamPlan", "WorkerAssignment", "WorkPacket", "WorkerResult",
+           "TaskEnvelope", "TeamPlan", "TaskPlanReview", "WorkerAssignment", "WorkPacket", "WorkerResult",
            "CompletionRecord", "ModelCallRequest", "RoutingDecision", "TeamResourcePlan", "HardwareProfile",
            "ToolAction", "FactEnvelope", "UntrustedEvidence", "LedgerEventEnvelope",
+           "NodeCommandEnvelope", "NodeCommandResult",
            "EVENT_TYPES", "Checkpoint", "CommittedTransaction", "EventLedger",
            "IdempotencyConflict", "LedgerStore", "ProvenanceRejected",
            "ReplayRejected", "ReplayState", "SQLiteLedgerStore", "StorageFailure",

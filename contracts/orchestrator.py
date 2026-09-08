@@ -80,6 +80,7 @@ _TARGETS = {
     "task.created": "created",
     "task.authorized": "authorized",
     "task.plan.committed": "planned",
+    "task.plan.approved": "planned",
     "resource.plan.admitted": "executing",
     "model.requested": "executing",
     "retrieval.requested": "executing",
@@ -99,6 +100,7 @@ _TARGETS = {
 _ALLOWED = {
     "task.authorized": {"created"},
     "task.plan.committed": {"authorized"},
+    "task.plan.approved": {"planned"},
     "resource.plan.admitted": {"planned"},
     "model.requested": {"planned", "executing"},
     "retrieval.requested": {"planned", "executing"},
@@ -136,7 +138,10 @@ class Orchestrator:
                     permitted_tools: tuple[str, ...] = (), output_contract: str = "text",
                     verification_criteria: tuple[str, ...] = (),
                     resource_budget: dict[str, int] | None = None,
-                    task_id: str | None = None) -> TaskEnvelope:
+                    title: str = "", project_ref: str | None = None, priority: str = "normal",
+                    deadline: str | None = None, input_manifest_refs: tuple[str, ...] = (),
+                    task_id: str | None = None,
+                    command_metadata: dict[str, str] | None = None) -> TaskEnvelope:
         task = TaskEnvelope(
             task_id=task_id or stable_id("task", principal_id, request, domain_pack_ref),
             principal_id=principal_id, clearance=clearance if isinstance(clearance, Clearance) else Clearance(clearance),
@@ -144,7 +149,8 @@ class Orchestrator:
             autonomy_ceiling=autonomy_ceiling, allowed_evidence_scope=allowed_evidence_scope,
             permitted_worker_capabilities=permitted_worker_capabilities, permitted_tools=permitted_tools,
             output_contract=output_contract, verification_criteria=verification_criteria,
-            resource_budget=resource_budget or {},
+            resource_budget=resource_budget or {}, title=title, project_ref=project_ref,
+            priority=priority, deadline=deadline, input_manifest_refs=input_manifest_refs,
         )
         try:
             if self.authorization is not None:
@@ -158,22 +164,42 @@ class Orchestrator:
             payload = {"task": task.to_dict(), "state": "created"}
             if decision is not None:
                 payload["authorization"] = {"principal_id": decision.principal_id, "pack_ref": decision.pack.reference, "pack_digest": decision.pack.digest, "policy_ref": decision.policy.reference, "policy_digest": decision.policy.digest}
-            self._append("task.created", task.task_id, payload, "TaskEnvelope", idempotency_key("orchestrator.task.create", task.task_id))
+            if command_metadata is not None:
+                payload["_command"] = dict(command_metadata)
+            create_key = (
+                idempotency_key("orchestrator.task.create", task.task_id, command_metadata)
+                if command_metadata is not None
+                else idempotency_key("orchestrator.task.create", task.task_id)
+            )
+            self._append("task.created", task.task_id, payload, "TaskEnvelope", create_key)
         except (ContractValidationError, LedgerError) as exc:
             raise StorageFailure("task creation was not committed") from exc
         return task
 
-    def authorize(self, task_id: str, *, authorization_ref: str) -> TransitionResult:
+    def authorize(self, task_id: str, *, authorization_ref: str,
+                  command_metadata: dict[str, str] | None = None) -> TransitionResult:
         if not authorization_ref.strip():
             raise AuthorizationRejected("authorization reference is required")
-        return self.transition(task_id, "task.authorized", {"authorization_ref": authorization_ref})
+        return self.transition(task_id, "task.authorized", {"authorization_ref": authorization_ref}, command_metadata=command_metadata)
 
     def commit_plan(self, plan: TeamPlan) -> TransitionResult:
         task = self._task(plan.task_id)
         self.validate_plan(task, plan)
         if plan.status != ContractStatus.proposed:
             raise PlanRejected("only proposed plans may be committed")
-        return self.transition(plan.task_id, "task.plan.committed", {"team_id": plan.team_id, "plan_hash": plan.plan_version_hash})
+        return self.transition(plan.task_id, "task.plan.committed", {
+            "team_id": plan.team_id,
+            "plan_hash": plan.plan_version_hash,
+            "plan": plan.to_dict(),
+        })
+
+    def approve_plan(self, task_id: str, *, approval_ref: str,
+                     command_metadata: dict[str, str] | None = None) -> TransitionResult:
+        if not approval_ref.strip():
+            raise AuthorizationRejected("plan approval reference is required")
+        if not any(event.task_id == task_id and event.event_type == "task.plan.committed" for event in self.store.events):
+            raise PlanRejected("a committed plan is required before approval")
+        return self.transition(task_id, "task.plan.approved", {"approval_ref": approval_ref}, command_metadata=command_metadata)
 
     def commit_proposal(self, proposal: PlanProposal) -> TransitionResult:
         task = self._task(proposal.task_id)
@@ -202,7 +228,8 @@ class Orchestrator:
             if value > original.resource_budget.get(name, 0):
                 raise PlanRejected(f"replan cannot increase budget {name}")
 
-    def transition(self, task_id: str, event_type: str, payload: dict[str, Any], *, timeout_ms: int = 60_000) -> TransitionResult:
+    def transition(self, task_id: str, event_type: str, payload: dict[str, Any], *, timeout_ms: int = 60_000,
+                   command_metadata: dict[str, str] | None = None) -> TransitionResult:
         if timeout_ms <= 0 or timeout_ms > 86_400_000:
             raise StepTimeout("transition timeout must be 1..86400000 ms")
         state = self.state(task_id)
@@ -215,11 +242,14 @@ class Orchestrator:
             criteria = payload.get("criteria")
             if not isinstance(criteria, dict) or not criteria or any(value is not True for value in criteria.values()):
                 raise TransitionRejected("completion requires all criteria to be explicitly true")
-        key = idempotency_key("orchestrator.transition", task_id, event_type, payload)
+        event_payload = dict(payload)
+        if command_metadata is not None:
+            event_payload["_command"] = dict(command_metadata)
+        key = idempotency_key("orchestrator.transition", task_id, event_type, event_payload)
         existing = next((event for event in self.store.events if event.idempotency_key == key), None)
         if existing is not None:
             return TransitionResult(task_id, existing.event_id, event_type, self.state(task_id), existing.sequence, key, self._transaction_id(existing.event_id))
-        result = self._append(event_type, task_id, payload, "OrchestratorTransition", key)
+        result = self._append(event_type, task_id, event_payload, "OrchestratorTransition", key)
         if event_type not in {"task.failed", "task.cancelled"}:
             self._checkpoint(task_id, result)
         return result
@@ -345,15 +375,17 @@ class Orchestrator:
         )
         return ModelCallExecution(request.request_id, route, step.result, step)
 
-    def cancel(self, task_id: str, *, reason: str) -> TransitionResult:
+    def cancel(self, task_id: str, *, reason: str,
+               command_metadata: dict[str, str] | None = None) -> TransitionResult:
         if not reason.strip():
             raise CancellationRequested("cancellation reason is required")
-        return self.transition(task_id, "task.cancelled", {"reason": reason})
+        return self.transition(task_id, "task.cancelled", {"reason": reason}, command_metadata=command_metadata)
 
-    def request_review(self, task_id: str, *, reason: str) -> TransitionResult:
+    def request_review(self, task_id: str, *, reason: str,
+                       command_metadata: dict[str, str] | None = None) -> TransitionResult:
         if not reason.strip():
             raise TransitionRejected("review reason is required")
-        return self.transition(task_id, "human.review.required", {"reason": reason})
+        return self.transition(task_id, "human.review.required", {"reason": reason}, command_metadata=command_metadata)
 
     def _record_dependency_failure(self, dependency: str) -> None:
         failures = self._circuit_failures.get(dependency, 0) + 1

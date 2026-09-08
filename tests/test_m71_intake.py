@@ -1,7 +1,14 @@
+import io
 import json
+import stat
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
+
+from PIL import Image
+from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from airbench.intake import (
     FileIntakeLayer,
@@ -37,6 +44,84 @@ class FileIntakeTests(unittest.TestCase):
         def append(self, event):
             raise RuntimeError("ledger unavailable")
 
+    @staticmethod
+    def office_archive(parts):
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+            for name, content in parts.items():
+                archive.writestr(name, content)
+        return output.getvalue()
+
+    @classmethod
+    def docx_fixture(cls):
+        document = b'''<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Inspection finding</w:t></w:r></w:p>
+    <w:p><w:r><w:br w:type="page"/></w:r></w:p>
+    <w:p><w:r><w:t>Approval note</w:t></w:r></w:p>
+    <w:tbl><w:tr><w:tc><w:p><w:r><w:t>Header</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Value</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+  </w:body>
+</w:document>'''
+        return cls.office_archive({
+            "[Content_Types].xml": b"<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'/>",
+            "word/document.xml": document,
+        })
+
+    @classmethod
+    def xlsx_fixture(cls):
+        workbook = b'''<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+ <sheets><sheet name="Findings" sheetId="1" r:id="rId1"/></sheets>
+</workbook>'''
+        relationships = b'''<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+ <Relationship Id="rId1" Target="worksheets/sheet1.xml" Type="worksheet"/>
+</Relationships>'''
+        shared_strings = b'''<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="1" uniqueCount="1">
+ <si><t>Inspection finding</t></si>
+</sst>'''
+        sheet = b'''<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+ <sheetData>
+  <row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1"><v>10</v></c></row>
+  <row r="2"><c r="A2"><f>SUM(B1:B1)</f><v>10</v></c></row>
+ </sheetData>
+</worksheet>'''
+        return cls.office_archive({
+            "[Content_Types].xml": b"<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'/>",
+            "xl/workbook.xml": workbook,
+            "xl/_rels/workbook.xml.rels": relationships,
+            "xl/sharedStrings.xml": shared_strings,
+            "xl/worksheets/sheet1.xml": sheet,
+        })
+
+    @staticmethod
+    def pdf_fixture(*, with_text: bool = False):
+        output = io.BytesIO()
+        writer = PdfWriter()
+        page = writer.add_blank_page(width=612, height=792)
+        writer.add_blank_page(width=612, height=792)
+        if with_text:
+            font = DictionaryObject({
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject("/Helvetica"),
+            })
+            font_ref = writer._add_object(font)
+            page[NameObject("/Resources")] = DictionaryObject({
+                NameObject("/Font"): DictionaryObject({NameObject("/F1"): font_ref}),
+            })
+            stream = DecodedStreamObject()
+            stream.set_data(b"BT /F1 12 Tf 72 720 Td (Inspection finding) Tj ET")
+            page[NameObject("/Contents")] = writer._add_object(stream)
+        writer.write(output)
+        return output.getvalue()
+
+    @staticmethod
+    def image_fixture():
+        output = io.BytesIO()
+        Image.new("RGB", (64, 32), color=(20, 40, 60)).save(output, format="PNG")
+        return output.getvalue()
+
     def test_bulk_and_query_upload_share_parser_and_stable_revision(self):
         first_ledger = EventLedger()
         task_created(first_ledger, "task.intake")
@@ -62,18 +147,183 @@ class FileIntakeTests(unittest.TestCase):
         self.assertEqual(len(first_ledger.events), 2)
         self.assertEqual(first_ledger.events[-1].event_type, "evidence.created")
 
+    def test_csv_is_normalized_as_a_table_and_formulas_remain_data(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.csv")
+        manifest = FileIntakeLayer(ledger).query_upload(
+            task_id="task.csv", source_ref="upload:csv", file_name="findings.csv",
+            content=b"Item,Value\n\"Finding, critical\",=SUM(B2:B2)\n", clearance=Clearance.internal,
+        )
+
+        self.assertEqual(manifest.media_type, "text/csv")
+        self.assertEqual(manifest.pages[0].extraction_method, "csv_table")
+        self.assertEqual(manifest.pages[0].text, "Item\tValue\nFinding, critical\t=SUM(B2:B2)")
+        self.assertEqual(manifest.pages[0].confidence, 1.0)
+
+    def test_malformed_csv_fails_before_a_ledger_evidence_event(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.csv-invalid")
+        with self.assertRaises(IntakeError) as caught:
+            FileIntakeLayer(ledger).query_upload(
+                task_id="task.csv-invalid", source_ref="upload:csv-invalid", file_name="bad.csv",
+                content=b'"unterminated', clearance=Clearance.internal,
+            )
+        self.assertEqual(caught.exception.code, "malformed_csv")
+        self.assertEqual(len(ledger.events), 1)
+
     def test_pdf_manifest_has_stable_page_identity_and_no_instruction_authority(self):
         ledger = EventLedger()
         task_created(ledger, "task.pdf")
-        pdf = b"%PDF-1.7\n/Type /Page\n/Type /Page\n"
+        pdf = self.pdf_fixture()
         manifest = FileIntakeLayer(ledger).intake(IntakeRequest("task.pdf", "bulk:pdf", "scan.pdf", pdf, IntakeMode.bulk_ingest, Clearance.internal))
         self.assertEqual(manifest.media_type, "application/pdf")
         self.assertEqual(manifest.page_count, 2)
-        self.assertEqual(manifest.pages[0].extraction_method, "pdf_metadata_only")
+        self.assertEqual(manifest.pages[0].extraction_method, "pdf_text")
         self.assertEqual(manifest.pages[0].render_status, "deferred")
         self.assertEqual(manifest.pages[0].text, "")
         self.assertEqual(manifest.taint.value, "untrusted")
         self.assertTrue(manifest.ledger_event_ref)
+
+    def test_digital_pdf_text_is_extracted_with_page_provenance(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.pdf-text")
+        manifest = FileIntakeLayer(ledger).query_upload(
+            task_id="task.pdf-text", source_ref="upload:pdf-text", file_name="report.pdf",
+            content=self.pdf_fixture(with_text=True), clearance=Clearance.restricted,
+        )
+        self.assertIn("Inspection finding", manifest.pages[0].text)
+        self.assertEqual(manifest.pages[0].source_region, "page:1")
+        self.assertEqual(manifest.pages[0].confidence, 1.0)
+        self.assertEqual(manifest.pages[1].confidence, 0.0)
+
+    def test_malformed_pdf_fails_before_ledger_evidence(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.pdf-invalid")
+        with self.assertRaises(IntakeError) as caught:
+            FileIntakeLayer(ledger).query_upload(
+                task_id="task.pdf-invalid", source_ref="upload:invalid", file_name="invalid.pdf",
+                content=b"%PDF-1.7\nnot-a-real-pdf", clearance=Clearance.internal,
+            )
+        self.assertEqual(caught.exception.code, "malformed_pdf")
+        self.assertEqual(len(ledger.events), 1)
+
+    def test_image_structure_is_validated_without_claiming_ocr(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.image")
+        manifest = FileIntakeLayer(ledger).query_upload(
+            task_id="task.image", source_ref="upload:image", file_name="inspection.png",
+            content=self.image_fixture(), clearance=Clearance.restricted,
+        )
+        self.assertEqual(manifest.pages[0].extraction_method, "image_metadata_only")
+        self.assertEqual(manifest.pages[0].text, "")
+        self.assertEqual(manifest.pages[0].confidence, 0.0)
+
+    def test_malformed_image_fails_before_ledger_evidence(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.image-invalid")
+        with self.assertRaises(IntakeError) as caught:
+            FileIntakeLayer(ledger).query_upload(
+                task_id="task.image-invalid", source_ref="upload:image-invalid", file_name="scan.png",
+                content=b"\x89PNG\r\n\x1a\nnot-an-image", clearance=Clearance.internal,
+            )
+        self.assertEqual(caught.exception.code, "malformed_image")
+        self.assertEqual(len(ledger.events), 1)
+
+    def test_docx_xml_text_is_bounded_and_keeps_untrusted_provenance(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.docx")
+        manifest = FileIntakeLayer(ledger).query_upload(
+            task_id="task.docx", source_ref="upload:docx", file_name="report.docx",
+            content=self.docx_fixture(), clearance=Clearance.restricted,
+        )
+
+        self.assertEqual(manifest.media_type, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        self.assertEqual(manifest.page_count, 2)
+        self.assertEqual(manifest.pages[0].extraction_method, "docx_xml_text")
+        self.assertIn("Inspection finding", manifest.pages[0].text)
+        self.assertIn("Header\tValue", manifest.pages[1].text)
+        self.assertEqual(manifest.pages[0].confidence, 1.0)
+        self.assertEqual(manifest.pages[0].taint.value, "untrusted")
+        self.assertEqual(manifest.pages[0].clearance, Clearance.restricted)
+
+    def test_xlsx_xml_table_preserves_formula_as_data_without_computation(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.xlsx")
+        manifest = FileIntakeLayer(ledger).bulk_ingest(
+            task_id="task.xlsx", source_ref="upload:xlsx", file_name="findings.xlsx",
+            content=self.xlsx_fixture(), clearance=Clearance.internal,
+        )
+
+        self.assertEqual(manifest.media_type, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        self.assertEqual(manifest.pages[0].source_region, "sheet:Findings")
+        self.assertEqual(manifest.pages[0].extraction_method, "xlsx_xml_table")
+        self.assertIn("Inspection finding\t10", manifest.pages[0].text)
+        self.assertIn("=SUM(B1:B1)", manifest.pages[0].text)
+        self.assertEqual(manifest.pages[0].confidence, 1.0)
+
+    def test_office_bulk_and_query_use_the_same_parser_revision(self):
+        first_ledger = EventLedger()
+        task_created(first_ledger, "task.office-parity")
+        first = FileIntakeLayer(first_ledger).bulk_ingest(
+            task_id="task.office-parity", source_ref="upload:docx", file_name="report.docx",
+            content=self.docx_fixture(), clearance=Clearance.internal,
+        )
+        second_ledger = EventLedger()
+        task_created(second_ledger, "task.office-parity")
+        second = FileIntakeLayer(second_ledger).query_upload(
+            task_id="task.office-parity", source_ref="upload:docx", file_name="report.docx",
+            content=self.docx_fixture(), clearance=Clearance.internal,
+        )
+
+        self.assertEqual(first.revision_id, second.revision_id)
+        self.assertEqual(first.parser_version, second.parser_version)
+        self.assertEqual(first.pages, second.pages)
+        self.assertEqual(first.destination, "permanent_knowledge")
+        self.assertEqual(second.destination, "task_scratch")
+
+    def test_office_archive_safety_rejects_malformed_paths_symlinks_and_macros(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.office-invalid")
+        intake = FileIntakeLayer(ledger)
+        malformed = IntakeRequest("task.office-invalid", "src:docx", "bad.docx", b"PK-not-a-zip", IntakeMode.query_upload, Clearance.internal)
+        with self.assertRaises(IntakeError) as caught:
+            intake.intake(malformed)
+        self.assertEqual(caught.exception.code, "malformed_office")
+
+        unsafe_path = self.office_archive({"../escape": b"x", "[Content_Types].xml": b"x", "word/document.xml": b"x"})
+        with self.assertRaises(IntakeError) as caught:
+            intake.intake(IntakeRequest("task.office-invalid", "src:path", "path.docx", unsafe_path, IntakeMode.query_upload, Clearance.internal))
+        self.assertEqual(caught.exception.code, "office_archive_path")
+
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            info = zipfile.ZipInfo("symlink")
+            info.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(info, b"target")
+        with self.assertRaises(IntakeError) as caught:
+            intake.intake(IntakeRequest("task.office-invalid", "src:symlink", "link.docx", output.getvalue(), IntakeMode.query_upload, Clearance.internal))
+        self.assertEqual(caught.exception.code, "office_archive_symlink")
+
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("[Content_Types].xml", b"x")
+            with self.assertWarns(UserWarning):
+                archive.writestr("[Content_Types].xml", b"x")
+        with self.assertRaises(IntakeError) as caught:
+            intake.intake(IntakeRequest("task.office-invalid", "src:duplicate", "duplicate.docx", output.getvalue(), IntakeMode.query_upload, Clearance.internal))
+        self.assertEqual(caught.exception.code, "office_archive_duplicate")
+
+        entity_document = b'''<!DOCTYPE w:document [<!ENTITY x "unsafe">]>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>&x;</w:t></w:r></w:p></w:body></w:document>'''
+        entity_docx = self.office_archive({"[Content_Types].xml": b"x", "word/document.xml": entity_document})
+        with self.assertRaises(IntakeError) as caught:
+            intake.intake(IntakeRequest("task.office-invalid", "src:entity", "entity.docx", entity_docx, IntakeMode.query_upload, Clearance.internal))
+        self.assertEqual(caught.exception.code, "office_xml_entities")
+
+        macro = self.office_archive({"[Content_Types].xml": b"x", "word/document.xml": b"x", "word/vbaProject.bin": b"macro"})
+        with self.assertRaises(IntakeError) as caught:
+            intake.intake(IntakeRequest("task.office-invalid", "src:macro", "macro.docx", macro, IntakeMode.query_upload, Clearance.internal))
+        self.assertEqual(caught.exception.code, "office_macros_not_allowed")
 
     def test_unsupported_malformed_oversized_and_path_like_inputs_fail_closed(self):
         ledger = EventLedger()

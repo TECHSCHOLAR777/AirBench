@@ -12,6 +12,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import socket
 import ssl
 import sys
 from email.parser import BytesParser
@@ -35,6 +36,86 @@ def fixture_events() -> list[dict[str, object]]:
         {**base, "eventId": "event-4", "sequence": 4, "eventType": "approval.required", "payloadHash": "hash-4", "ledgerEventRef": "ledger-approval-4", "payload": {"reason": "Approval note is ready for review"}},
         {**base, "eventId": "event-5", "sequence": 5, "eventType": "artifact.ready", "payloadHash": "hash-5", "ledgerEventRef": "ledger-artifact-5", "payload": {"artifactId": "artifact-approval-note"}},
     ]
+
+
+def fixture_snapshot(server: "FixtureServer") -> dict[str, object]:
+    return {
+        "taskId": "task-fixture",
+        "schemaVersion": server.protocol_version,
+        "snapshotId": "snapshot-fixture-1",
+        "asOfSequence": len(fixture_events()),
+        "title": "Synthetic fixture task",
+        "requestSummary": "Validate a local fixture task",
+        "status": "needs_review",
+        "phase": "review",
+        "clearanceContext": server.clearance_context,
+        "inputManifestRef": "",
+        "evidence": [],
+        "facts": [],
+        "artifactRefs": ["artifact-approval-note"],
+        "unresolvedQuestions": [],
+        "nodeConnectionRef": server.node_identity,
+        "ledgerHeadRef": "ledger-artifact-5",
+    }
+
+
+def fixture_plan_review(server: "FixtureServer") -> dict[str, object]:
+    return {
+        "schema_version": "1.0",
+        "compatibility_id": "airbench-core-contracts",
+        "task_id": "task-fixture",
+        "node_identity": server.node_identity,
+        "protocol_version": server.protocol_version,
+        "clearance_context": server.clearance_context,
+        "plan_state": "ready",
+        "task_sequence": len(fixture_events()),
+        "team_id": "team-fixture",
+        "assignments": ["assignment-intake", "assignment-review", "assignment-verifier"],
+        "dependency_graph": {
+            "intake": [],
+            "review": ["intake"],
+            "verify": ["review"],
+        },
+        "concurrency_ceiling": 2,
+        "execution_mode": "parallel",
+        "worker_capabilities": {
+            "worker-intake": "vision",
+            "worker-review": "reasoning",
+            "worker-verifier": "verification",
+        },
+        "hardware_profile_ref": "hardware.fixture.midrange",
+        "hardware_reason": "Two independent workers fit the measured local GPU budget; verification remains reserved.",
+        "required_verification": True,
+        "completion_criteria": ["source_check", "approval_note_review"],
+        "required_authority": "operator_approval",
+        "authority_reason": "An authorized operator must approve this plan before execution.",
+        "plan_version_hash": "plan-fixture-v1",
+        "policy_version_hash": "policy-fixture-v1",
+        "ledger_event_ref": "ledger-plan-fixture",
+        "failure_code": None,
+        "failure_reason": None,
+    }
+
+
+def command_result(server: "FixtureServer", command: dict[str, object], event_type: str, state: str, sequence: int) -> dict[str, object]:
+    return {
+        "schema_version": "1.0",
+        "compatibility_id": "airbench-core-contracts",
+        "outcome": "accepted",
+        "command_id": command.get("command_id", "fixture-command"),
+        "task_id": command.get("task_id"),
+        "idempotency_key": command.get("idempotency_key", "fixture-idempotency"),
+        "ledger_event_ref": f"ledger-command-{sequence}",
+        "sequence": sequence,
+        "state": state,
+        "event_type": event_type,
+        "node_identity": server.node_identity,
+        "protocol_version": server.protocol_version,
+        "clearance_context": server.clearance_context,
+        "code": None,
+        "message": None,
+        "reason": None,
+    }
 
 
 class FixtureHandler(BaseHTTPRequestHandler):
@@ -76,6 +157,14 @@ class FixtureHandler(BaseHTTPRequestHandler):
             })
             return
 
+        if parsed.path == "/api/v1/tasks/task-fixture":
+            self._json(200, fixture_snapshot(self.server))  # type: ignore[arg-type]
+            return
+
+        if parsed.path == "/api/v1/tasks/task-fixture/plan":
+            self._json(200, fixture_plan_review(self.server))  # type: ignore[arg-type]
+            return
+
         if parsed.path.startswith("/api/v1/intake/") and parsed.path.endswith("/preview"):
             intake_id = parsed.path.split("/")[4]
             manifest = self.server.intakes.get(intake_id)  # type: ignore[attr-defined]
@@ -84,12 +173,12 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 return
             self._json(200, {
                 "preview_ref": manifest["preview_ref"],
-                "preview_kind": "text",
+                "preview_kind": "html" if self.server.malformed_preview else "text",
                 "text": "Synthetic scanned-document page preview. The source remains untrusted data and was not executed.",
-                "source_hash": manifest["source_hash"],
+                "source_hash": f"sha256:{'0' * 64}" if self.server.wrong_source_hash else manifest["source_hash"],
                 "source_region": "page:1;region:full-page",
                 "confidence": 0.98,
-                "clearance": manifest["clearance"],
+                "clearance": "secret" if self.server.clearance_mismatch else manifest["clearance"],
                 "taint": manifest["taint"],
                 "ledger_event_ref": "fixture-ledger-preview-001",
             })
@@ -104,8 +193,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     {"kind": "heading", "text": "Approval note"},
                     {"kind": "paragraph", "text": "Synthetic fixture artifact preview. Values are supplied by the Node artifact contract."},
                 ],
-                "clearance": "restricted",
-                "taint": "trusted",
+                "clearance": "secret" if self.server.clearance_mismatch else "restricted",
+                "taint": "untrusted",
                 "ledger_event_ref": "fixture-ledger-artifact-preview-001",
             })
             return
@@ -115,13 +204,22 @@ class FixtureHandler(BaseHTTPRequestHandler):
                 self._json(403, {"error": "clearance_denied"})
                 return
             pdf = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<<>>\n%%EOF\n"
+            response_body = pdf[: len(pdf) // 2] if self.server.truncate_download else pdf  # type: ignore[attr-defined]
             self.send_response(200)
             self.send_header("Content-Type", "application/pdf")
             self.send_header("Content-Length", str(len(pdf)))
             self.send_header("X-AirBench-Artifact-Hash", f"sha256:{hashlib.sha256(pdf).hexdigest()}")
             self.send_header("X-AirBench-Ledger-Event-Ref", "fixture-ledger-download-001")
             self.end_headers()
-            self.wfile.write(pdf)
+            self.wfile.write(response_body)
+            self.wfile.flush()
+            if self.server.truncate_download:  # type: ignore[attr-defined]
+                self.close_connection = True
+                try:
+                    self.connection.shutdown(socket.SHUT_WR)
+                except OSError:
+                    pass
+                return
             self.server.log_event({"event": "artifact_download_allowed", "artifact_id": "artifact-approval-note"})  # type: ignore[attr-defined]
             return
 
@@ -135,6 +233,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             "protocol_version": self.server.protocol_version,  # type: ignore[attr-defined]
             "clearance_context": self.server.clearance_context,  # type: ignore[attr-defined]
             "authenticated_subject": self.server.authenticated_subject,  # type: ignore[attr-defined]
+            "domain_pack_ref": self.server.domain_pack_ref,  # type: ignore[attr-defined]
             "ledger_event_ref": "fixture-ledger-connection-001",
         }
         self.server.log_event(  # type: ignore[attr-defined]
@@ -153,6 +252,45 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.server.log_event({"event": "auth_rejected", "path": self.path})  # type: ignore[attr-defined]
             self._json(401, {"error": "unauthorized"})
             return
+
+        if self.path == "/api/v1/tasks" or self.path in {
+            "/api/v1/tasks/task-fixture/authorize",
+            "/api/v1/tasks/task-fixture/approve",
+            "/api/v1/tasks/task-fixture/cancel",
+            "/api/v1/tasks/task-fixture/review",
+        }:
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+                body = json.loads(self.rfile.read(content_length))
+            except (ValueError, json.JSONDecodeError):
+                self._json(400, {"error": "invalid_command"})
+                return
+            if not isinstance(body, dict):
+                self._json(400, {"error": "invalid_command"})
+                return
+            if self.path == "/api/v1/tasks":
+                create_command_result = command_result(self.server, body, "task.created", "created", 1)  # type: ignore[arg-type]
+                create_command_result["task_id"] = "task-fixture"
+                response = {
+                    "task": {"task_id": "task-fixture", "state": "created"},
+                    "snapshot": fixture_snapshot(self.server),  # type: ignore[arg-type]
+                    "ledger_event_ref": "ledger-task-created",
+                    "command": create_command_result,
+                }
+                self.server.log_event({"event": "command_accepted", "command_type": "task.create"})  # type: ignore[attr-defined]
+                self._json(201, response)
+                return
+            command_result_by_path = {
+                "/api/v1/tasks/task-fixture/authorize": ("task.authorized", "authorized"),
+                "/api/v1/tasks/task-fixture/approve": ("task.plan.approved", "planned"),
+                "/api/v1/tasks/task-fixture/cancel": ("task.cancelled", "cancelled"),
+                "/api/v1/tasks/task-fixture/review": ("human.review.required", "awaiting_review"),
+            }
+            event_type, state = command_result_by_path[self.path]
+            self.server.log_event({"event": "command_accepted", "command_type": str(body.get("command_type", "unknown"))})  # type: ignore[attr-defined]
+            self._json(202, command_result(self.server, body, event_type, state, 6))  # type: ignore[arg-type]
+            return
+
         if self.path != "/api/v1/intake/query-upload":
             self._json(404, {"error": "not_found"})
             return
@@ -163,6 +301,15 @@ class FixtureHandler(BaseHTTPRequestHandler):
             return
         if content_length <= 0 or content_length > 100 * 1024 * 1024:
             self._json(413, {"error": "upload_too_large"})
+            return
+        if self.server.interrupt_upload:  # type: ignore[attr-defined]
+            self.rfile.read(min(content_length, 1))
+            self.server.log_event({"event": "intake_upload_interrupted"})  # type: ignore[attr-defined]
+            self.close_connection = True
+            try:
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             return
         body = self.rfile.read(content_length)
         raw_message = b"Content-Type: " + self.headers.get("Content-Type", "").encode("utf-8") + b"\r\nMIME-Version: 1.0\r\n\r\n" + body
@@ -193,12 +340,14 @@ class FixtureHandler(BaseHTTPRequestHandler):
             "page_count": 1,
             "ocr_status": "completed",
             "vision_status": "completed",
-            "clearance": "restricted",
+            "clearance": "secret" if self.server.clearance_mismatch else "restricted",
             "taint": "untrusted",
             "preview_ref": intake_id,
             "artifact_ref": "artifact-approval-note",
             "ledger_event_ref": "fixture-ledger-intake-001",
         }
+        if self.server.unsafe_preview_ref:
+            manifest["preview_ref"] = "../unsafe-preview"
         self.server.intakes[intake_id] = manifest  # type: ignore[attr-defined]
         self.server.log_event({"event": "intake_created", "intake_id": intake_id, "source_hash": source_hash, "taint": "untrusted", "intake_mode": "query_upload"})  # type: ignore[attr-defined]
         self._json(200, manifest)
@@ -222,9 +371,16 @@ class FixtureServer(ThreadingHTTPServer):
         self.protocol_version = args.protocol_version
         self.clearance_context = args.clearance_context
         self.authenticated_subject = args.authenticated_subject
+        self.domain_pack_ref = args.domain_pack_ref
         self.log_path = args.log_path
         self.intakes: dict[str, dict[str, object]] = {}
         self.deny_download = args.deny_download
+        self.interrupt_upload = args.interrupt_upload
+        self.truncate_download = args.truncate_download
+        self.clearance_mismatch = args.clearance_mismatch
+        self.malformed_preview = args.malformed_preview
+        self.wrong_source_hash = args.wrong_source_hash
+        self.unsafe_preview_ref = args.unsafe_preview_ref
 
     def log_event(self, event: dict[str, str]) -> None:
         event = {"fixture": "airbench-node", **event}
@@ -244,10 +400,17 @@ def main() -> int:
     parser.add_argument("--protocol-version", default="0.1")
     parser.add_argument("--clearance-context", default="restricted")
     parser.add_argument("--authenticated-subject", default="fixture-user")
+    parser.add_argument("--domain-pack-ref", default="fixture-pack.v0")
     parser.add_argument("--log-path", default="")
     parser.add_argument("--cert-path")
     parser.add_argument("--key-path")
     parser.add_argument("--deny-download", action="store_true")
+    parser.add_argument("--interrupt-upload", action="store_true")
+    parser.add_argument("--truncate-download", action="store_true")
+    parser.add_argument("--clearance-mismatch", action="store_true")
+    parser.add_argument("--malformed-preview", action="store_true")
+    parser.add_argument("--wrong-source-hash", action="store_true")
+    parser.add_argument("--unsafe-preview-ref", action="store_true")
     args = parser.parse_args()
 
     if bool(args.cert_path) != bool(args.key_path):

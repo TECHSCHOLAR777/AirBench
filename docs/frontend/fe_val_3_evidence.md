@@ -8,7 +8,10 @@ Status: cursor transport and projection validation in progress. No complete pack
 - The command accepts only an approved Node profile, task identifier, and numeric cursor.
 - It reads the bearer credential from the OS credential store, requests the cursor range from the Node, checks Node identity, protocol version, clearance context, and numeric event sequences, and returns the typed batch to the webview.
 - `frontend/src/eventTransport.ts` is the only TypeScript entry point for this command.
+- The Rust transport deserializes each event into a typed envelope before it crosses IPC; the payload remains opaque structured data for the presentation projection.
+- The TypeScript boundary rejects path-like or oversized task identifiers and negative or unsafe-integer cursors before IPC; Rust repeats the validation at the native boundary.
 - `frontend/src/eventStore.ts` applies a batch through the existing sequence-aware projection and stops at the first gap.
+- The Rust transport rejects a batch for the wrong task, non-increasing sequences, missing event identity fields, non-object payloads, cursor regression, or ledger-reference cardinality mismatch before the batch reaches the webview.
 - `TaskEventSynchronizer` now coordinates cursor replay without owning task truth. It marks temporary transport loss as `reconnecting`, retries with bounded backoff, requests the missing cursor range after a gap, and uses an injected Node snapshot loader when replay does not converge. The projection is blocked for consequential commands while the sync state is not `connected`.
 - Snapshot projection now retains schema version, snapshot ID, clearance context, Node connection reference, and ledger head instead of reducing them to display-only task fields.
 - `CommandDeduplicator` prevents a second in-flight reservation for the same idempotency key. Consequential commands remain blocked unless the projection is current.

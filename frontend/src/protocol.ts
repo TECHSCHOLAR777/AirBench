@@ -1,8 +1,17 @@
+import type {
+  Clearance as CoreClearance,
+  NodeCommandEnvelope,
+  NodeCommandResult,
+  Taint as CoreTaint,
+} from "./generated/core_contracts";
+
 export const FRONTEND_PROTOCOL_VERSION = "0.1" as const;
 
 export type TaskStatus = "accepted" | "planning" | "running" | "needs_review" | "completed" | "blocked" | "failed" | "stopped";
-export type Clearance = "public" | "internal" | "restricted" | "highly_restricted";
-export type Taint = "untrusted" | "screened" | "trusted";
+/** Wire clearance values are generated from contracts.models. */
+export type Clearance = CoreClearance;
+/** Wire taint values are generated from contracts.models. */
+export type Taint = CoreTaint;
 export type ProjectionHealth = "current" | "replaying" | "resynchronizing" | "blocked";
 
 export interface ProvenanceRef {
@@ -70,7 +79,7 @@ export interface TaskEventBase {
 }
 
 export type TaskEvent =
-  | (TaskEventBase & { eventType: "task.accepted" | "plan.created" | "plan.revised" | "task.paused" | "task.resumed" | "task.blocked" | "task.failed" | "task.stopped" | "task.completed"; payload: { phase: string; status: TaskStatus; summary?: string } })
+  | (TaskEventBase & { eventType: "task.accepted" | "plan.created" | "plan.revised" | "plan.approved" | "task.paused" | "task.resumed" | "task.blocked" | "task.failed" | "task.stopped" | "task.completed"; payload: { phase: string; status: TaskStatus; summary?: string } })
   | (TaskEventBase & { eventType: "worker.started" | "worker.completed" | "tool.started" | "tool.completed"; payload: { role: string; label: string; status: string } })
   | (TaskEventBase & { eventType: "evidence.added" | "evidence.revised"; payload: { evidence: EvidenceRef } })
   | (TaskEventBase & { eventType: "verification.completed" | "verification.failed"; payload: { summary: string; passed: boolean } })
@@ -79,26 +88,9 @@ export type TaskEvent =
   | (TaskEventBase & { eventType: "ledger.written" | "ledger.verification_changed" | "node.connection_changed" | "node.sovereignty_changed"; payload: { summary: string } })
   | (TaskEventBase & { eventType: "unknown"; payload: { originalType: string; raw: unknown } });
 
-export interface CommandBase {
-  commandId: string;
-  taskId: string | null;
-  actor: string;
-  expectedSequence: number | null;
-  idempotencyKey: string;
-  clientVersion: string;
-}
-
-export type Command =
-  | (CommandBase & { commandType: "task.create"; arguments: { title: string; requestSummary: string; inputManifestRef: string } })
-  | (CommandBase & { commandType: "task.submit" | "task.pause" | "task.stop" | "task.resume"; arguments: Record<string, never> })
-  | (CommandBase & { commandType: "task.answer_question"; arguments: { questionId: string; answer: string } })
-  | (CommandBase & { commandType: "artifact.approve" | "artifact.return_for_changes"; arguments: { artifactId: string; reason?: string } })
-  | (CommandBase & { commandType: "node.recheck"; arguments: Record<string, never> });
-
-export type CommandResult =
-  | { outcome: "accepted"; commandId: string; ledgerEventRef: string }
-  | { outcome: "rejected"; commandId: string; code: string; message: string; ledgerEventRef: string | null }
-  | { outcome: "needs_review"; commandId: string; reason: string; ledgerEventRef: string };
+/** Node command types are generated from the authoritative Python contract. */
+export type Command = NodeCommandEnvelope;
+export type CommandResult = NodeCommandResult;
 
 export interface TaskProjection {
   taskId: string;
@@ -174,7 +166,7 @@ export function applyEvent(projection: TaskProjection, event: TaskEvent): Projec
     health: "current",
   };
 
-  if (event.eventType === "task.accepted" || event.eventType === "plan.created" || event.eventType === "plan.revised" || event.eventType === "task.paused" || event.eventType === "task.resumed" || event.eventType === "task.blocked" || event.eventType === "task.failed" || event.eventType === "task.stopped" || event.eventType === "task.completed") {
+  if (event.eventType === "task.accepted" || event.eventType === "plan.created" || event.eventType === "plan.revised" || event.eventType === "plan.approved" || event.eventType === "task.paused" || event.eventType === "task.resumed" || event.eventType === "task.blocked" || event.eventType === "task.failed" || event.eventType === "task.stopped" || event.eventType === "task.completed") {
     next.status = event.payload.status;
     next.phase = event.payload.phase;
   }
