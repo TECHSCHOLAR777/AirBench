@@ -17,6 +17,8 @@ _ID = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 LEDGER_EVENT_TYPES = {
     # ── Core task lifecycle ────────────────────────────────────────────────────
     "task.created", "task.authorized", "task.plan.committed", "task.plan.approved", "task.checkpoint.committed", "task.cancelled", "task.failed",
+    "team.execution.started", "team.execution.completed", "team.execution.failed", "team.execution.cancelled",
+    "lifecycle.intercepted", "lifecycle.blocked", "worker.context.compacted",
     "team.created", "worker.assigned", "worker.started", "worker.completed", "worker.failed", "worker.handoff", "worker.handoff.rejected", "worker.handoff.late",
     "model.requested", "routing.decided", "model.responded", "model.failed", "tool.requested", "tool.authorized", "tool.denied", "tool.result",
     "evidence.created", "fact.candidate", "fact.committed", "verification.completed", "retry.started", "fallback.selected",

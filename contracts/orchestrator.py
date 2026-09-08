@@ -11,7 +11,7 @@ from .backend import (BackendAdapter, BackendChunk, BackendMessage, BackendOutpu
                       BackendRequest, BackendResponse, BackendTool, CancellationToken)
 from .ids import idempotency_key, stable_id
 from .authorization import AuthorizationService
-from .ledger import (CommittedTransaction, EventLedger, LedgerError, SQLiteLedgerStore,
+from .ledger import (EVENT_TYPES, CommittedTransaction, EventLedger, LedgerError, SQLiteLedgerStore,
                      StorageFailure, TransitionRejected, build_event)
 from .models import Clearance, ContractStatus, ModelCallRequest, TaskEnvelope, TeamPlan, WorkerAssignment
 from .planning import PlanProposal, PlanValidator
@@ -83,6 +83,7 @@ _TARGETS = {
     "task.plan.approved": "planned",
     "worker.assigned": "planned",
     "worker.handoff": "executing",
+    "worker.started": "executing",
     "resource.plan.admitted": "executing",
     "model.requested": "executing",
     "retrieval.requested": "executing",
@@ -114,6 +115,10 @@ _ALLOWED = {
     "task.plan.approved": {"planned"},
     "worker.assigned": {"planned"},
     "worker.handoff": {"executing", "awaiting_check"},
+    "worker.started": {"planned", "executing", "awaiting_check"},
+    "worker.completed": {"executing", "awaiting_check"},
+    "worker.failed": {"executing", "awaiting_check"},
+    "worker.cancelled": {"planned", "executing", "awaiting_check"},
     "resource.plan.admitted": {"planned"},
     "model.requested": {"planned", "executing"},
     "retrieval.requested": {"planned", "executing"},
@@ -332,6 +337,28 @@ class Orchestrator:
         if event_type not in {"task.failed", "task.cancelled"}:
             self._checkpoint(task_id, result)
         return result
+
+    def audit_event(self, task_id: str, event_type: str, payload: dict[str, Any], *,
+                    contract: str, event_key: str,
+                    command_metadata: dict[str, str] | None = None) -> TransitionResult:
+        """Commit a catalogued runtime observation without changing task state.
+
+        Runtime observations such as lifecycle interception, team execution,
+        and context compaction are still committed by the orchestrator.  They
+        are deliberately separate from :meth:`transition`, so integrations
+        cannot smuggle a state change through an audit-only call.
+        """
+
+        if event_type not in EVENT_TYPES:
+            raise TransitionRejected(f"event {event_type} is not in the ledger catalog")
+        if event_type in _ALLOWED or event_type == "task.created":
+            raise TransitionRejected(f"event {event_type} must use the state transition API")
+        if self.state(task_id) == "absent":
+            raise TransitionRejected("audit event requires an existing task")
+        payload_value = dict(payload)
+        if command_metadata is not None:
+            payload_value["_command"] = dict(command_metadata)
+        return self._append_once(event_type, task_id, payload_value, contract, event_key)
 
     def execute_step(self, task_id: str, *, step_id: str, action: Callable[[], Any],
                      timeout_ms: int, max_attempts: int = 1, kind: str = "model",
