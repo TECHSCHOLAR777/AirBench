@@ -85,6 +85,22 @@ On a constrained workstation, the team may become a serial virtual team. The rou
 
 Every route event records the team ID, worker role, target identity, hardware profile, resource lease, policy hash, and attempt number. Health is not admission: a live backend that cannot reserve the required context or memory is not eligible for the call.
 
+### Approved remote endpoint transport
+
+The control plane may run on a machine without a local GPU and call an
+approved remote endpoint through `RemoteEndpointAdapter`. The endpoint profile
+is transport configuration, not a replacement for `ModelTarget`: the router
+still applies the signed registry, role, modality, risk, clearance, pack, and
+qualification gates first. The profile additionally requires HTTPS, an exact
+host allowlist, an environment or external-secret credential reference,
+explicit remote execution and egress approval, and fresh endpoint metadata.
+An endpoint that answers health checks but fails any of those gates remains
+unavailable. Remote responses carry endpoint and execution-location provenance,
+and endpoint failures are ledgered without credentials or unrestricted
+payloads. Switching to a local adapter changes only adapter/configuration
+wiring; `ModelCallRequest`, `BackendRequest`, `RoutingDecision`, and
+orchestrator ownership do not change.
+
 ## Team routing failure rules
 
 If one worker target is unavailable, the router may choose another already-qualified target for that worker assignment or return `queued`. If a worker result fails verification, the Orchestration Engine decides whether to retry, create a new assignment, escalate, or stop. The router does not own domain verification or completion.
