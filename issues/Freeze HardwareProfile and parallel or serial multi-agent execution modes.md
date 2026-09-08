@@ -585,6 +585,12 @@ This issue depends on:
 
 It must not be closed using a benchmark-only claim. The required result is the measured hardware profile plus a reproducible team execution trace and failure evidence.
 
+## M5.4 dependency handoff status — 2026-09-08
+
+The M5.4 adapter implementation is complete at the typed-contract and deterministic-test level. The vLLM and NIM adapters, parser registry, structured/multimodal/streaming/cancellation/error normalization, no-egress guard, ledger/provenance behavior, router registration, concurrent-call coverage, and explicit `max_concurrency` admission coverage are recorded in `issues/M5_SETUP_AND_PROGRESS.md`.
+
+This does not close the hardware-scheduling issue. Its remaining M5-dependent evidence is still required: signed target-machine measurements, live model load/residency/eviction and resource measurements, offline vLLM startup with network isolation, reproducible parallel and serial worker-team traces, and the signed ledger/acceptance export. Until those artifacts exist, M5.4 is code/test complete but the combined M4/M5 deployment evidence remains open.
+
 ## References
 
 - `docs/architecture_design.md`
