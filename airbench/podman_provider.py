@@ -391,7 +391,16 @@ class PodmanProvider:
 
     @staticmethod
     def _runtime_version(payload: Mapping[str, Any]) -> str | None:
-        for section in (payload.get("Server"), payload.get("server"), payload.get("Version"), payload.get("version")):
+        for section in (
+            payload.get("Server"),
+            payload.get("server"),
+            payload.get("Client"),
+            payload.get("client"),
+            payload.get("Version"),
+            payload.get("version"),
+        ):
+            if isinstance(section, str):
+                return section
             if isinstance(section, dict):
                 value = section.get("Version") or section.get("version")
                 if isinstance(value, str):

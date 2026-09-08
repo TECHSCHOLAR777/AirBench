@@ -11,6 +11,12 @@ IMAGE = "docker.io/library/python@sha256:" + "a" * 64
 
 
 class PodmanProviderTests(unittest.TestCase):
+    def test_runtime_version_accepts_local_client_identity(self):
+        self.assertEqual(
+            PodmanProvider._runtime_version({"Client": {"Version": "5.7.0"}}),
+            "5.7.0",
+        )
+
     def test_only_content_addressed_images_are_accepted(self):
         with self.assertRaises(SandboxError) as caught:
             PodmanProvider("docker.io/library/python:3.11-slim")
