@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "themes": ["obsidian", "ledger"],
+  "surfaces": [
+    {
+      "id": "launchpad",
+      "purpose": "Describe an outcome and submit it through the approved Node",
+      "markers": ["data-testid=\"task-composer\"", "aria-label=\"Task launchpad\"", "Auto route"]
+    },
+    {
+      "id": "disconnected-home",
+      "purpose": "Explain why work cannot start without a trusted Node",
+      "markers": ["Connect a trusted Node to begin", "Nothing has been submitted."]
+    },
+    {
+      "id": "empty-task-workspace",
+      "purpose": "Show an honest empty state when no Node task projection exists",
+      "markers": ["data-testid=\"task-empty-view\"", "No active task is open"]
+    },
+    {
+      "id": "plan-review",
+      "purpose": "Show Node-owned plan and approval state",
+      "markers": ["data-testid=\"plan-review\"", "Approve and run", "aria-label=\"Task plan review\""]
+    },
+    {
+      "id": "live-work-trace",
+      "purpose": "Show ordered Node records without exposing private reasoning",
+      "markers": ["data-testid=\"task-workspace\"", "aria-label=\"Node-backed work trace\"", "Private model reasoning is not shown."]
+    },
+    {
+      "id": "operator-question",
+      "purpose": "Show a Node question without inventing an answer command",
+      "markers": ["data-testid=\"operator-question-card\"", "Questions from the Node", "No response control is available"]
+    },
+    {
+      "id": "proof-inspector",
+      "purpose": "Expose provenance and clearance context for selected records",
+      "markers": ["data-testid=\"proof-inspector\"", "Select a record to inspect its proof.", "untrusted data"]
+    },
+    {
+      "id": "artifact-failure",
+      "purpose": "Keep preview and download failure states safe and explicit",
+      "markers": ["Preview unavailable", "No original document content was opened", "No unverified file was saved."]
+    }
+  ],
+  "requiredCssContracts": [
+    ".app-shell[data-theme=\"obsidian\"]",
+    ".app-shell[data-theme=\"ledger\"]",
+    ".app-shell[data-contrast=\"high\"]",
+    ":focus-visible",
+    "prefers-reduced-motion"
+  ],
+  "requiredLocalResourceContracts": [
+    "default-src 'self'",
+    "connect-src 'none'"
+  ]
+}
