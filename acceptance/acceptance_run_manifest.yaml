@@ -5,7 +5,7 @@ execution_modes: [parallel, serial_virtual_team]
 source_of_truth: acceptance/acceptance_matrix.yaml
 repository_evidence:
   contract_replay: contracts/examples/inspection_trace.jsonl
-  ledger_catalog: contracts/ledger_event_catalog.yaml
+  ledger_catalog: src/contracts/schemas/ledger_event_catalog.yaml
   domain_pack: packs/refinery_psu_v0/manifest.yaml
 external_evidence_required:
   - id: target_hardware_measurements
