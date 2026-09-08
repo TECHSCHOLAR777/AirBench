@@ -36,6 +36,35 @@ M7.3 still needs qualified BGE-M3/reranker runtime and corpus measurements. New 
 
 Implemented in `airbench/sandbox.py`.
 
+- `SandboxProvider` is the typed provider boundary. The runner no longer
+  accepts a caller-supplied hard-isolation boolean; capabilities come from the
+  provider identity and are hashed into the authorization and result evidence.
+- `LocalSubprocessProvider` is explicitly a development provider. It reports
+  no hard network, filesystem, non-root, or syscall isolation, so it cannot
+  satisfy a production hard-isolation policy.
+- `PodmanProvider` is the first real provider adapter. It is Linux/POSIX-first
+  so the host and container share the same explicit path semantics. It fails
+  closed on Windows rather than silently translating `C:\\` paths into a
+  Linux VM with different meaning.
+- `PodmanProvider` requires a content-addressed image, verifies the local
+  rootless runtime and seccomp state, verifies the exact image digest in the
+  local store, and uses `--pull=never` for execution. It applies explicit
+  `network=none`, read-only root, non-root UID/GID, dropped capabilities,
+  no-new-privileges, bind mounts only for approved scopes, CPU, memory, disk,
+  process, and wall-time controls. The current `--storage-opt size=...`
+  control covers the container writable layer; total disk enforcement for
+  bind-mounted scratch and output scopes is intentionally not claimed yet.
+- `SandboxExecutionRequest` carries the command, working directory, read and
+  write scopes, and resource limits explicitly to the OS/container provider. A
+  provider that cannot enforce a configured CPU, memory, disk, or process
+  limit is rejected before execution.
+- Every run produces a typed `SandboxManifest` with provider identity,
+  capability digest, policy hash, hashed path scopes, configured limits,
+  enforced limits, resource usage, isolation evidence references, output hash,
+  observed wall time, cleanup status, and a ledger reference.
+- Worker stdout and stderr are capped inside the worker before being returned,
+  and output overflow becomes a failed execution rather than an apparently
+  successful result.
 - `SandboxRunner` accepts only a validated `ToolAction` for `python.execute`.
 - Execution receives a fresh scratch directory, a sanitized environment, bounded wall time, bounded code size, bounded output, and read or write path checks.
 - Scratch directories are removed after success, timeout, worker failure, or malformed worker output. Worker launch and result decoding failures still produce a `tool.result` event with a failed status.
@@ -44,20 +73,31 @@ Implemented in `airbench/sandbox.py`.
 - The result marks hard network isolation only when the policy both requires it and the deployment supplies the declared hard-isolation capability. A capability flag alone is not treated as proof.
 - A policy can require hard OS network isolation. If the deployment cannot provide that capability, the runner fails closed with `network_isolation_unavailable`.
 
-The Python guard is defense in depth. It is not a substitute for a verified container, namespace, job-object, or firewall boundary. The current Windows development account has not supplied that hard isolation evidence, so M6.1 remains open pending the host enforcement provider and no-egress test.
+The Python guard is defense in depth. It is not a substitute for a verified
+container, namespace, job-object, or firewall boundary. A real Podman
+workstation smoke run has verified the runtime flags and observed behavior,
+including no route or TCP sockets in the container namespace, no DNS or direct
+TCP access, read-only root, zero effective capabilities, non-root execution,
+resource cgroups, absent host sockets, and clean removal. The integrated
+provider path still requires a native Linux GPU-box run and independent network
+observation before #113 can close. The target run must also verify that the
+chosen disk-control mechanism covers every writable scratch and output path,
+not only the container layer. If it does not, the provider must stage those
+paths into a quota-controlled workspace or use an approved host filesystem
+quota before the acceptance gate can close.
 
 ## Verification
 
 From the repository root:
 
 ```text
-python -m pytest -q tests/test_m61_sandbox.py tests/test_m71_intake.py tests/test_m72_ocr_vision.py tests/test_m73_retrieval.py tests/test_m74_world_model.py
+python -m pytest -q tests/test_m61_sandbox.py tests/test_m61_podman_provider.py tests/test_m71_intake.py tests/test_m72_ocr_vision.py tests/test_m73_retrieval.py tests/test_m74_world_model.py
 python -m pytest -q
 python -m compileall -q airbench contracts tests
 ```
 
 Observed result: the focused M7.1–M7.4 slice passes 40 tests, the full
-Python suite passes 296 tests, and the compile check passes in the local
+Python suite passes 306 tests, and the compile check passes in the local
 development environment. These are deterministic contract tests; they do not
 replace host-level sandbox, qualified model-serving, or packaged Node evidence.
 
@@ -65,6 +105,8 @@ replace host-level sandbox, qualified model-serving, or packaged Node evidence.
 
 - `airbench/intake.py`
 - `airbench/sandbox.py`
+- `airbench/podman_provider.py`
 - `tests/test_m71_intake.py`
 - `tests/test_m61_sandbox.py`
+- `tests/test_m61_podman_provider.py`
 - `pyproject.toml`

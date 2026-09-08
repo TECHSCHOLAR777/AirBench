@@ -2,7 +2,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from airbench.sandbox import SandboxError, SandboxPolicy, SandboxRunner
+from airbench.sandbox import (
+    LocalSubprocessProvider,
+    SandboxCapabilities,
+    SandboxError,
+    SandboxExecutionRequest,
+    SandboxExecutionResponse,
+    SandboxPolicy,
+    SandboxRunner,
+)
 from contracts import Clearance, EventLedger, ToolAction, build_event
 
 
@@ -21,6 +29,31 @@ def action(code: str, task_id: str = "task.sandbox") -> ToolAction:
         "clearance": "restricted", "taint": "clean", "risk_class": "low", "timeout_ms": 2000,
         "idempotency_key": "sandbox-action", "status": "proposed",
     })
+
+
+class RecordingProvider:
+    def __init__(self) -> None:
+        self.delegate = LocalSubprocessProvider()
+        self.requests: list[SandboxExecutionRequest] = []
+
+    @property
+    def capabilities(self) -> SandboxCapabilities:
+        return SandboxCapabilities(
+            provider_id="test.subprocess-provider",
+            provider_version="test-1",
+            hard_network_isolation=False,
+            hard_filesystem_isolation=False,
+            non_root_execution=False,
+            restricted_syscalls=False,
+            resource_limits=("code_bytes", "output_bytes", "wall_time"),
+        )
+
+    def verify(self) -> None:
+        return None
+
+    def execute(self, request: SandboxExecutionRequest) -> SandboxExecutionResponse:
+        self.requests.append(request)
+        return self.delegate.execute(request)
 
 
 class SandboxTests(unittest.TestCase):
@@ -55,11 +88,42 @@ try:
     import pip
 except Exception as exc:
     print(type(exc).__name__)
+try:
+    import socket
+    socket.create_connection(('198.51.100.1', 443))
+except Exception as exc:
+    print('ipv4:' + type(exc).__name__)
+try:
+    import socket
+    socket.create_connection(('2001:db8::1', 443))
+except Exception as exc:
+    print('ipv6:' + type(exc).__name__)
+try:
+    import socket
+    socket.getaddrinfo('example.invalid', 443)
+except Exception as exc:
+    print('dns:' + type(exc).__name__)
+try:
+    import urllib.request
+    urllib.request.urlopen('https://example.invalid')
+except Exception as exc:
+    print('proxy_or_http:' + type(exc).__name__)
+try:
+    import ensurepip
+except Exception as exc:
+    print('package_install:' + type(exc).__name__)
+print('proxy_env:' + str(not any(key in __import__('os').environ for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY'))))
 """
         with tempfile.TemporaryDirectory() as root:
             result = SandboxRunner(ledger).execute(action(code), SandboxPolicy(Path(root)))
         self.assertEqual(result.status, "succeeded")
-        self.assertEqual(result.stdout.count("ImportError"), 3)
+        self.assertEqual(result.stdout.count("ImportError"), 8)
+        self.assertIn("ipv4:ImportError", result.stdout)
+        self.assertIn("ipv6:ImportError", result.stdout)
+        self.assertIn("dns:ImportError", result.stdout)
+        self.assertIn("proxy_or_http:ImportError", result.stdout)
+        self.assertIn("package_install:ImportError", result.stdout)
+        self.assertIn("proxy_env:True", result.stdout)
         self.assertIn("ImportError", result.stdout)
 
     def test_timeout_and_hard_isolation_requirement_fail_safely(self):
@@ -94,6 +158,69 @@ except Exception as exc:
         self.assertEqual(result.status, "failed")
         self.assertEqual(result.output_hash.__len__(), 64)
         self.assertEqual(ledger.events[-1].event_type, "tool.result")
+
+    def test_provider_identity_capabilities_and_manifest_are_recorded(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.sandbox")
+        provider = RecordingProvider()
+        with tempfile.TemporaryDirectory() as root:
+            result = SandboxRunner(ledger, provider=provider).execute(
+                action("print('provider boundary')"),
+                SandboxPolicy(Path(root)),
+            )
+        self.assertEqual(result.status, "succeeded")
+        self.assertEqual(result.provider_id, "test.subprocess-provider")
+        self.assertEqual(result.provider_version, "test-1")
+        self.assertEqual(result.manifest_hash, result.manifest.digest())
+        self.assertEqual(result.manifest.resource_limits["max_processes"], None)
+        self.assertEqual(len(provider.requests), 1)
+        self.assertEqual(provider.requests[0].command[1:3], ("-I", "-c"))
+        self.assertEqual(provider.requests[0].root_dir, Path(root).resolve())
+        self.assertEqual(provider.requests[0].resource_limits["max_wall_seconds"], 10.0)
+        event = ledger.events[-1]
+        self.assertEqual(event.event_type, "tool.result")
+        self.assertEqual(event.payload["provider_id"], "test.subprocess-provider")
+        self.assertEqual(event.payload["manifest_hash"], result.manifest_hash)
+        self.assertNotIn(root, str(event.payload["manifest"]))
+
+    def test_worker_output_is_capped_before_result_is_returned(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.sandbox")
+        with tempfile.TemporaryDirectory() as root:
+            result = SandboxRunner(ledger).execute(
+                action("print('x' * 1000)"),
+                SandboxPolicy(Path(root), max_output_bytes=64),
+            )
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.stderr, "sandbox output limit exceeded")
+        self.assertLessEqual(len(result.stdout.encode("utf-8")), 64)
+        self.assertEqual(result.manifest.cleanup_status, "completed")
+
+    def test_hard_isolation_requires_provider_capabilities_not_a_caller_flag(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.sandbox")
+        provider = RecordingProvider()
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaises(SandboxError) as caught:
+                SandboxRunner(ledger, provider=provider).execute(
+                    action("print('must not run')"),
+                    SandboxPolicy(Path(root), require_hard_network_isolation=True),
+                )
+        self.assertEqual(caught.exception.code, "network_isolation_unavailable")
+        self.assertEqual(provider.requests, [])
+
+    def test_unenforced_resource_limit_fails_closed(self):
+        ledger = EventLedger()
+        task_created(ledger, "task.sandbox")
+        provider = RecordingProvider()
+        with tempfile.TemporaryDirectory() as root:
+            with self.assertRaises(SandboxError) as caught:
+                SandboxRunner(ledger, provider=provider).execute(
+                    action("print('must not run')"),
+                    SandboxPolicy(Path(root), max_memory_bytes=1024 * 1024),
+                )
+        self.assertEqual(caught.exception.code, "resource_isolation_unavailable")
+        self.assertEqual(provider.requests, [])
 
 
 if __name__ == "__main__":

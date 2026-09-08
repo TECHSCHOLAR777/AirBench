@@ -10,7 +10,7 @@ The user-owned backend parent milestones were M4, M6, M7, M8, M9, and M10. The o
 
 | Issues | Area | Execution status | Why |
 | --- | --- | --- | --- |
-| #38 | M6.1 sandbox and no-egress execution | Autonomous hardening, production gate blocked | Python defense in depth is testable locally. Hard OS isolation still needs a verified container, namespace, job object, or firewall provider. |
+| #38 | M6.1 sandbox and no-egress execution | Closed as implementation-complete; target acceptance remains open in #113 | Typed provider boundary, Podman adapter, digest verification, explicit isolation flags, manifests, resource metadata, denial tests, and real Podman smoke evidence are pushed. The adapter requires a Linux/POSIX AirBench host for same-path semantics. Disk quota coverage for bind-mounted scratch/output paths, integrated target-host execution, usage capture, and independent no-egress evidence remain mandatory in #113. |
 | #42 | M7.1 File Intake Layer | Autonomous slices, production gate blocked | Shared intake, transactional storage, CSV, DOCX, XLSX, bounded digital-PDF extraction, and structural image validation are local. OCR, rendering adapter coverage, and Node integration remain. |
 | #43 | M7.2 OCR and vision adapter | Blocked | Requires a qualified local OCR or vision runtime and the M5.3 qualification path. |
 | #44 | M7.3 embedding and reranking | Blocked | Requires qualified local embedding and reranking serving, not only downloaded artifacts. |
@@ -22,7 +22,7 @@ The user-owned backend parent milestones were M4, M6, M7, M8, M9, and M10. The o
 | #58 | Qwen3-VL qualification | Blocked | The target and a real local serving and measurement path were not available in the last audit. |
 | #59 | Qwen3-30B benchmark | Blocked | The target and a real local serving and measurement path were not available in the last audit. |
 
-Closed in the last snapshot: #29, #30, #31, #32, #39, #40, #41, and #46. Parent milestones are planning containers, not substitutes for their open subissues.
+Closed in the last snapshot: #29, #30, #31, #32, #38, #39, #40, #41, and #46. #38 is closed only for its implementation slice; #113 remains the target-host acceptance and release blocker. Parent milestones are planning containers, not substitutes for their open subissues.
 
 ### Frontend issues assigned to `TECHSCHOLAR777`
 
@@ -61,7 +61,7 @@ The focused P1 refactor parent is [#105](https://github.com/TECHSCHOLAR777/AirBe
 
 ## What can be done autonomously
 
-An agent can safely work now on bounded code, fixtures, tests, and evidence for #38, #42, #64, #65, #66, #67, #68, #73, and the core-contract portion of #74. Such work must remain honest about the missing production gates.
+An agent can safely work now on bounded code, fixtures, tests, and evidence for #42, #64, #65, #66, #67, #68, #73, and the core-contract portion of #74. The #38 implementation slice is closed; its remaining target-host evidence belongs to #113. Such work must remain honest about the missing production gates.
 
 The following work must be serialized around shared contracts: Python Node envelopes, event and command schemas, File Intake and artifact references, clearance and taint values, protocol negotiation, and ledger references. No two workers should edit those contracts concurrently.
 
@@ -81,6 +81,7 @@ There is no delegated subagent runtime available in this environment. Parallel r
 - Current FE-VAL-4 fixture evidence also rejects malformed previews, source-hash mismatches, and unsafe preview references.
 - `airbench/intake.py` now uses the declared `pypdf` adapter for bounded digital-PDF text extraction, with page and total text limits and fail-closed malformed/encrypted handling. The parser remains the one shared boundary for bulk and query upload.
 - The same parser now validates image structure and dimensions with Pillow without decoding pixels or claiming OCR; malformed image inputs fail before ledger evidence.
+- #38 is closed as implementation-complete at pushed commit `4c85693`. It has a typed `SandboxProvider` boundary, provider-owned capability identity, explicit filesystem and resource scopes, bounded worker output, and a hashed `SandboxManifest` carried into the tool-result ledger event. `PodmanProvider` verifies a pinned local image and rootless seccomp runtime, runs with no network, read-only root, explicit mounts, non-root identity, resource controls, and provider cleanup. The Windows workstation passed a real Podman smoke run, while the integrated adapter correctly fails closed on Windows path semantics. The current storage quota only covers the container writable layer, so bind-mounted scratch/output disk enforcement is not claimed. A native Linux GPU-box run through `SandboxRunner`, complete usage capture, an approved workspace-quota decision, and independent no-egress evidence remain mandatory in #113.
 - FE-VAL-4 fixture run `AirBenchNodeValidation-20260907-000611-1771bd0d55b5493baa5f3dcfbfc4a940` also covers interrupted upload, truncated artifact response, and oversized-file rejection before network transfer.
 - FE-DEV-02 now rejects inconsistent event batches before projection, including identity, protocol, clearance, cursor, sequence, metadata, and ledger-reference mismatches; frontend tests pass 38/38.
 - Rebuilt the external WebDriver binary after FE-DEV-02 changes; the packaged smoke suite passed 5/5 with retained log `frontend/logs/wdio-2026-09-06T18-49-21-126Z.log`. The known WDIO teardown warning remains non-fatal.
@@ -97,4 +98,4 @@ There is no delegated subagent runtime available in this environment. Parallel r
 - FE-REF-03 now turns the existing task projection and plan review into a seven-stage audit-safe Live Work Trace. The workspace displays current Node state, typed worker and tool records, evidence provenance, verification, Node-reported questions, artifacts, ordered activity, and a collapsed technical trace. It does not expose private reasoning, raw payload JSON, fake activity, a local routing decision, or an unsupported intervention command. Focused trace tests, the 52-test frontend suite, production build, contract generation, source no-egress scan, and Tauri configuration checks pass locally. See `docs/frontend/fe_ref_03_live_work_trace.md`.
 - File Intake revision and page identities now use canonical parsed content for Office archives, while raw source hashes remain preserved for provenance. This restores the documented bulk/query parity when ZIP metadata changes between reads.
 
-The latest local evidence includes the passing M4.4 team-runtime suite, full Python suite, generated-contract check, frontend tests, Rust tests, frontend build, and static no-egress and Tauri policy checks. Packaged live Node, clean-machine, network-capture, real GPU, hard sandbox, and full WebDriver evidence remain release gates. FE-DEV-04 is implemented locally but remains open until the real Python Node, authoritative event stream, and packaged integration are exercised. The current branch is synchronized with `origin/main` at `4eb409b`.
+The latest local evidence includes the passing M4.4 team-runtime suite, full Python suite, generated-contract check, frontend tests, Rust tests, frontend build, and static no-egress and Tauri policy checks. Packaged live Node, clean-machine, network-capture, real GPU, hard sandbox, and full WebDriver evidence remain release gates. FE-DEV-04 is implemented locally but remains open until the real Python Node, authoritative event stream, and packaged integration are exercised. The sandbox provider work is pushed to `main` at commit `4c85693`; #113 remains its native Linux GPU-box acceptance gate.
