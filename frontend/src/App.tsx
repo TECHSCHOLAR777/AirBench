@@ -48,7 +48,7 @@ function App() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [connection, setConnection] = useState<NodeConnectionView>({
     state: "not_connected", profileId: null, nodeIdentity: null, protocolVersion: null,
-    clearanceContext: null, authenticatedSubject: null, domainPackRef: null, sovereignty: "unknown", ledgerEventRef: null, failure: null,
+    protocolCompatibilityId: null, clearanceContext: null, authenticatedSubject: null, domainPackRef: null, sovereignty: "unknown", ledgerEventRef: null, failure: null,
   });
   const [profiles, setProfiles] = useState<ApprovedNodeProfileReference[]>([]);
   const [profilesState, setProfilesState] = useState<"idle" | "loading" | "ready" | "failed">("idle");

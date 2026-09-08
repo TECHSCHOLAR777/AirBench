@@ -1,4 +1,5 @@
 import { invoke } from "@airbench/tauri-invoke";
+import { CORE_CONTRACT_COMPATIBILITY_ID, CORE_CONTRACT_SCHEMA_VERSION } from "./generated/core_contracts";
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 import type { TaskSnapshot } from "./protocol";
 import type { NodeCommandEnvelope, NodeCommandResult, TaskEnvelope, TaskPlanReview } from "./generated/core_contracts";
@@ -22,6 +23,7 @@ function assertApprovedProfile(profile: ApprovedNodeProfileReference): void {
 }
 
 function assertCommand(command: NodeCommandEnvelope): void {
+  if (command.schema_version !== CORE_CONTRACT_SCHEMA_VERSION || command.compatibility_id !== CORE_CONTRACT_COMPATIBILITY_ID) throw new Error("The command contract is not supported by this Node.");
   if (!COMMAND_ID.test(command.command_id)) throw new Error("The command identifier is invalid.");
   if (!command.actor.trim() || !command.idempotency_key.trim()) throw new Error("The command identity is incomplete.");
   if (!command.client_version.trim()) throw new Error("The command protocol version is missing.");

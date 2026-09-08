@@ -210,8 +210,12 @@ function formatConfidence(value: number): string {
 
 function formatDerivation(fact: FactEnvelope): string {
   if (!fact.derivation) return "Source-derived or method not supplied";
-  const inputs = fact.derivation.inputFactIds.length > 0 ? ` from ${fact.derivation.inputFactIds.join(", ")}` : "";
-  return `${fact.derivation.method}${inputs}`;
+  const method = typeof fact.derivation.method === "string" ? fact.derivation.method : "Derivation method not supplied";
+  const inputFactIds = Array.isArray(fact.derivation.inputFactIds)
+    ? fact.derivation.inputFactIds.filter((value): value is string => typeof value === "string")
+    : [];
+  const inputs = inputFactIds.length > 0 ? ` from ${inputFactIds.join(", ")}` : "";
+  return `${method}${inputs}`;
 }
 
 function boundedText(value: string): string {

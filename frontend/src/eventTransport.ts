@@ -1,18 +1,10 @@
 import { invoke } from "@airbench/tauri-invoke";
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 import { toNativeNodeProfileReference } from "./nodeBridge";
-import type { Clearance, TaskEvent } from "./protocol";
+import { normalizeTaskEventBatch, type TaskEventBatch } from "./protocol";
+import type { NodeTaskEventBatch } from "./generated/core_contracts";
 
-export interface TaskEventBatch {
-  stream_id: string;
-  node_identity: string;
-  protocol_version: string;
-  clearance_context: Clearance;
-  events: TaskEvent[];
-  next_sequence: number;
-  has_more: boolean;
-  ledger_event_refs: string[];
-}
+export type { TaskEventBatch } from "./protocol";
 
 export function toNativeEventProfile(profile: ApprovedNodeProfileReference) {
   return toNativeNodeProfileReference(profile);
@@ -23,9 +15,9 @@ export function fetchTaskEventBatch(profile: ApprovedNodeProfileReference, taskI
   if (!profile.approvedByPolicy || !profile.profileId.trim()) throw new Error("The approved Node profile is incomplete or not approved by policy.");
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(taskId)) throw new Error("The task identifier is invalid.");
   if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) throw new Error("The event cursor is invalid.");
-  return invoke<TaskEventBatch>("fetch_task_events", {
+  return invoke<NodeTaskEventBatch>("fetch_task_events", {
     profileId: profile.profileId,
     taskId,
     afterSequence,
-  });
+  }).then(normalizeTaskEventBatch);
 }

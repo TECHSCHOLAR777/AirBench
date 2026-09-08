@@ -106,8 +106,12 @@ class NodeApiTests(unittest.TestCase):
         self.assertEqual(
             response.json(),
             {
+                "schema_version": "1.0",
+                "compatibility_id": "airbench-core-contracts",
                 "node_identity": "node.test.local",
                 "protocol_version": "0.1",
+                "protocol_compatibility_id": "airbench-node-protocol",
+                "supported_protocol_versions": ["0.1"],
                 "clearance_context": "restricted",
                 "authenticated_subject": "principal.api",
                 "domain_pack_ref": "pack.refinery.v0",
@@ -324,6 +328,9 @@ class NodeApiTests(unittest.TestCase):
         self.assertEqual([item["evidenceId"] for item in evidence.json()["evidence"]], ["evidence.one"])
         self.assertEqual(evidence.json()["evidence"][0]["confidence"], 0.91)
         self.assertEqual(evidence.json()["evidence"][0]["taint"], "untrusted")
+        self.assertEqual(evidence.json()["evidence"][0]["schemaVersion"], "0.1")
+        self.assertEqual(evidence.json()["evidence"][0]["compatibilityId"], "airbench-node-protocol")
+        self.assertEqual(evidence.json()["evidence"][0]["source"]["compatibilityId"], "airbench-node-protocol")
 
         route = self.request("GET", f"/api/v1/tasks/{task_id}/route-trace", headers=self.headers())
         self.assertEqual(route.status_code, 200, route.text)

@@ -11,9 +11,13 @@ import {
 } from "./proofInspector";
 
 const evidence: EvidenceRef = {
+  schemaVersion: "0.1",
+  compatibilityId: "airbench-node-protocol",
   evidenceId: "evidence-1",
   contentHash: "9f1e",
   source: {
+    schemaVersion: "0.1",
+    compatibilityId: "airbench-node-protocol",
     sourceDocumentId: "inspection-report.pdf",
     sourceVersion: "revision-4",
     location: { page: 2, region: "table:1" },
@@ -30,6 +34,7 @@ const evidence: EvidenceRef = {
 const fact: FactEnvelope = {
   factId: "fact-1",
   schemaVersion: "0.1",
+  compatibilityId: "airbench-node-protocol",
   value: 12.5,
   unit: "mm",
   source: evidence.source,

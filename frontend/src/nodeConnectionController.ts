@@ -12,6 +12,7 @@ export interface NodeConnectionView {
   profileId: string | null;
   nodeIdentity: string | null;
   protocolVersion: string | null;
+  protocolCompatibilityId: string | null;
   clearanceContext: Clearance | null;
   authenticatedSubject: string | null;
   domainPackRef: string | null;
@@ -29,6 +30,7 @@ const initialConnection: NodeConnectionView = {
   profileId: null,
   nodeIdentity: null,
   protocolVersion: null,
+  protocolCompatibilityId: null,
     clearanceContext: null,
     authenticatedSubject: null,
     domainPackRef: null,
@@ -80,6 +82,7 @@ export class NodeConnectionController {
         profileId: result.profile_id,
         nodeIdentity: result.node_identity,
         protocolVersion: result.protocol_version,
+        protocolCompatibilityId: result.protocol_compatibility_id,
         clearanceContext: result.clearance_context,
         authenticatedSubject: result.authenticated_subject,
         domainPackRef: result.domain_pack_ref,

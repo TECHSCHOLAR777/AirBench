@@ -1,5 +1,6 @@
-import { applyEvent, FRONTEND_PROTOCOL_VERSION, projectionFromSnapshot, type TaskEvent, type TaskProjection, type TaskSnapshot } from "./protocol";
+import { applyEvent, FRONTEND_PROTOCOL_COMPATIBILITY_ID, FRONTEND_PROTOCOL_VERSION, projectionFromSnapshot, type TaskEvent, type TaskProjection, type TaskSnapshot } from "./protocol";
 import type { TaskEventBatch } from "./eventTransport";
+import { CORE_CONTRACT_COMPATIBILITY_ID, CORE_CONTRACT_SCHEMA_VERSION } from "./generated/core_contracts";
 
 export type EventStoreOutcome =
   | { kind: "applied"; projection: TaskProjection }
@@ -239,6 +240,9 @@ export class TaskEventSynchronizer {
   }
 
   private validateBatch(batch: TaskEventBatch, taskId: string, afterSequence: number): void {
+    if (batch.schema_version !== CORE_CONTRACT_SCHEMA_VERSION || batch.compatibility_id !== CORE_CONTRACT_COMPATIBILITY_ID) {
+      throw new EventSyncProtocolError("The Node event batch core contract is not supported by this client.");
+    }
     if (batch.stream_id !== taskId) throw new EventSyncProtocolError("The Node returned an event batch for a different task.");
     const projection = this.store.current();
     if (typeof batch.node_identity !== "string" || !batch.node_identity.trim()) {
@@ -268,7 +272,7 @@ export class TaskEventSynchronizer {
       if (!Number.isSafeInteger(event.sequence) || event.sequence <= previousSequence) {
         throw new EventSyncProtocolError("The Node event sequence is not strictly increasing.");
       }
-      if (event.schemaVersion !== batch.protocol_version || event.clearanceContext !== batch.clearance_context) {
+      if (event.schemaVersion !== batch.protocol_version || event.compatibilityId !== FRONTEND_PROTOCOL_COMPATIBILITY_ID || event.clearanceContext !== batch.clearance_context) {
         throw new EventSyncProtocolError("The Node event metadata does not match the event batch.");
       }
       if (event.ledgerEventRef !== batch.ledger_event_refs[index]) {

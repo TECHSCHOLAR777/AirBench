@@ -5,6 +5,7 @@ import { buildRecordGateway } from "./recordGateway";
 const task: TaskProjection = {
   taskId: "task-1",
   schemaVersion: "0.1",
+  compatibilityId: "airbench-node-protocol",
   snapshotId: "snapshot-1",
   title: "Inspection approval note",
   requestSummary: "Review the report.",

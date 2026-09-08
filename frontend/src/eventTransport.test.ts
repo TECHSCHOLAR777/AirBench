@@ -45,4 +45,39 @@ describe("Rust-owned event transport", () => {
     expect(() => fetchTaskEventBatch(profile, "task-1", Number.MAX_SAFE_INTEGER + 1)).toThrowError(/event cursor/);
     expect(invokeMock).not.toHaveBeenCalled();
   });
+
+  it("normalizes a typed Node batch and retains both envelopes", async () => {
+    invokeMock.mockResolvedValue({
+      schema_version: "1.0",
+      compatibility_id: "airbench-core-contracts",
+      stream_id: "task-1",
+      node_identity: "node-1",
+      protocol_version: "0.1",
+      clearance_context: "restricted",
+      events: [{
+        eventId: "event-1",
+        taskId: "task-1",
+        sequence: 1,
+        schemaVersion: "0.1",
+        compatibilityId: "airbench-node-protocol",
+        eventType: "task.accepted",
+        occurredAt: "2026-09-09T00:00:00Z",
+        actor: "node-1",
+        clearanceContext: "restricted",
+        payloadHash: "hash-1",
+        ledgerEventRef: "ledger-1",
+        payload: { phase: "accepted", status: "accepted" },
+      }],
+      next_sequence: 1,
+      has_more: false,
+      ledger_event_refs: ["ledger-1"],
+    });
+
+    const result = await fetchTaskEventBatch(profile, "task-1", 0);
+
+    expect(result.schema_version).toBe("1.0");
+    expect(result.compatibility_id).toBe("airbench-core-contracts");
+    expect(result.events[0]?.compatibilityId).toBe("airbench-node-protocol");
+    expect(result.events[0]?.eventType).toBe("task.accepted");
+  });
 });

@@ -13,6 +13,8 @@ from .errors import ContractValidationError, ValidationIssue
 
 SCHEMA_VERSION = "1.0"
 COMPATIBILITY_ID = "airbench-core-contracts"
+NODE_PROTOCOL_VERSION = "0.1"
+NODE_PROTOCOL_COMPATIBILITY_ID = "airbench-node-protocol"
 _ID = re.compile(r"^[a-z0-9][a-z0-9._:-]{0,127}$")
 LEDGER_EVENT_TYPES = {
     # ── Core task lifecycle ────────────────────────────────────────────────────
@@ -190,6 +192,241 @@ class Contract:
         return hashlib.sha256(self.canonical_json().encode()).hexdigest()
 
 
+def _camel_case(name: str) -> str:
+    parts = name.split("_")
+    return parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
+
+
+def _snake_case(name: str) -> str:
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
+def _wire_value(value: Any) -> Any:
+    if isinstance(value, NodeWireContract):
+        return value.to_wire_dict()
+    if isinstance(value, Contract):
+        return value.to_dict()
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, tuple):
+        return [_wire_value(item) for item in value]
+    if isinstance(value, list):
+        return [_wire_value(item) for item in value]
+    if isinstance(value, dict):
+        return {_camel_case(str(key)): _wire_value(item) for key, item in value.items()}
+    return value
+
+
+def _from_wire_value(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_from_wire_value(item) for item in value]
+    if isinstance(value, dict):
+        return {_snake_case(str(key)): _from_wire_value(item) for key, item in value.items()}
+    return value
+
+
+class NodeWireContract(Contract):
+    """Camel-case response contract for the Rust-owned Node boundary."""
+
+    schema_version: ClassVar[str] = NODE_PROTOCOL_VERSION
+    compatibility_id: ClassVar[str] = NODE_PROTOCOL_COMPATIBILITY_ID
+
+    @classmethod
+    def from_wire_dict(cls, payload: dict[str, Any]) -> "NodeWireContract":
+        return cls.from_dict(_from_wire_value(payload))
+
+    def to_wire_dict(self) -> dict[str, Any]:
+        return _wire_value(self.to_dict())
+
+
+class NodeTaskStatus(str, Enum):
+    accepted = "accepted"
+    planning = "planning"
+    running = "running"
+    needs_review = "needs_review"
+    completed = "completed"
+    blocked = "blocked"
+    failed = "failed"
+    stopped = "stopped"
+
+
+@dataclass(frozen=True)
+class NodeLifecycleEventPayload:
+    phase: str
+    status: NodeTaskStatus
+    summary: str | None = None
+
+
+@dataclass(frozen=True)
+class NodeWorkerEventPayload:
+    role: str
+    label: str
+    status: str
+
+
+@dataclass(frozen=True)
+class NodeEvidenceEventPayload:
+    evidence: "NodeEvidenceRef"
+
+
+@dataclass(frozen=True)
+class NodeVerificationEventPayload:
+    summary: str
+    passed: bool
+
+
+@dataclass(frozen=True)
+class NodeApprovalEventPayload:
+    reason: str
+
+
+@dataclass(frozen=True)
+class NodeArtifactEventPayload:
+    artifact_id: str
+
+
+@dataclass(frozen=True)
+class NodeSummaryEventPayload:
+    summary: str
+
+
+@dataclass(frozen=True)
+class NodeUnknownEventPayload:
+    original_type: str
+    raw: Any
+
+
+@dataclass(frozen=True)
+class NodeProvenanceRef(NodeWireContract):
+    source_document_id: str
+    source_version: str
+    location: dict[str, Any] | None
+    extraction_method: str
+    observed_at: str | None
+    ingested_at: str
+    ledger_event_ref: str
+
+
+@dataclass(frozen=True)
+class NodeEvidenceRef(NodeWireContract):
+    evidence_id: str
+    content_hash: str
+    source: NodeProvenanceRef
+    confidence: float
+    clearance: Clearance
+    taint: Taint
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", self.content_hash):
+            issues.append(ValidationIssue("content_hash", "hash", "must be a SHA-256 hex digest"))
+        if not 0 <= self.confidence <= 1:
+            issues.append(ValidationIssue("confidence", "range", "must be between 0 and 1"))
+        return issues
+
+
+@dataclass(frozen=True)
+class NodeFactRef(NodeWireContract):
+    fact_id: str
+    value: Any
+    source: NodeProvenanceRef
+    confidence: float
+    clearance: Clearance
+    taint: Taint
+    parent_fact_ids: tuple[str, ...]
+    unit: str | None
+    derivation: dict[str, Any] | None
+    superseded_by: str | None
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if not 0 <= self.confidence <= 1:
+            issues.append(ValidationIssue("confidence", "range", "must be between 0 and 1"))
+        return issues
+
+
+@dataclass(frozen=True)
+class NodeTaskSnapshot(NodeWireContract):
+    task_id: str
+    snapshot_id: str
+    as_of_sequence: int
+    title: str
+    request_summary: str
+    status: NodeTaskStatus
+    phase: str
+    clearance_context: Clearance
+    input_manifest_ref: str
+    evidence: tuple[NodeEvidenceRef, ...]
+    facts: tuple[NodeFactRef, ...]
+    artifact_refs: tuple[str, ...]
+    unresolved_questions: tuple[str, ...]
+    node_connection_ref: str
+    ledger_head_ref: str
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.as_of_sequence < 0:
+            issues.append(ValidationIssue("as_of_sequence", "range", "snapshot sequence must be non-negative"))
+        for name in ("task_id", "snapshot_id", "node_connection_ref", "ledger_head_ref"):
+            if not getattr(self, name).strip():
+                issues.append(ValidationIssue(name, "required", "snapshot identity is required"))
+        return issues
+
+
+@dataclass(frozen=True)
+class NodeTaskEvent(NodeWireContract):
+    event_id: str
+    task_id: str
+    sequence: int
+    event_type: str
+    occurred_at: str
+    actor: str
+    clearance_context: Clearance
+    payload_hash: str
+    ledger_event_ref: str
+    payload: dict[str, Any]
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.sequence < 1:
+            issues.append(ValidationIssue("sequence", "range", "event sequence must be positive"))
+        for name in ("event_id", "task_id", "event_type", "occurred_at", "actor", "payload_hash", "ledger_event_ref"):
+            if not getattr(self, name).strip():
+                issues.append(ValidationIssue(name, "required", "event identity is required"))
+        if not isinstance(self.payload, dict):
+            issues.append(ValidationIssue("payload", "type", "event payload must be an object"))
+        return issues
+
+
+@dataclass(frozen=True)
+class NodeTaskEventBatch(Contract):
+    stream_id: str
+    node_identity: str
+    protocol_version: str
+    clearance_context: Clearance
+    events: tuple[NodeTaskEvent, ...]
+    next_sequence: int
+    has_more: bool
+    ledger_event_refs: tuple[str, ...]
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.next_sequence < 0:
+            issues.append(ValidationIssue("next_sequence", "range", "event cursor must be non-negative"))
+        if len(self.events) != len(self.ledger_event_refs):
+            issues.append(ValidationIssue("ledger_event_refs", "alignment", "ledger references must align with events"))
+        return issues
+
+    def to_dict(self) -> dict[str, Any]:
+        result = super().to_dict()
+        result["events"] = [event.to_wire_dict() for event in self.events]
+        return result
+
+    @classmethod
+    def from_wire_dict(cls, payload: dict[str, Any]) -> "NodeTaskEventBatch":
+        return cls.from_dict(_from_wire_value(payload))
+
+
 NODE_COMMAND_TYPES = {
     "task.create",
     "task.authorize",
@@ -198,6 +435,29 @@ NODE_COMMAND_TYPES = {
     "task.approve_plan",
     "node.recheck",
 }
+
+
+@dataclass(frozen=True)
+class NodeHandshake(Contract):
+    """Authenticated Node handshake and protocol negotiation result."""
+
+    node_identity: str
+    protocol_version: str
+    protocol_compatibility_id: str
+    supported_protocol_versions: tuple[str, ...]
+    clearance_context: Clearance
+    authenticated_subject: str
+    domain_pack_ref: str
+    ledger_event_ref: str
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.protocol_version not in self.supported_protocol_versions:
+            issues.append(ValidationIssue("protocol_version", "compatibility", "selected protocol is not in the supported protocol list"))
+        for name in ("node_identity", "protocol_version", "protocol_compatibility_id", "authenticated_subject", "domain_pack_ref", "ledger_event_ref"):
+            if not getattr(self, name).strip():
+                issues.append(ValidationIssue(name, "required", "handshake identity is required"))
+        return issues
 
 
 @dataclass(frozen=True)

@@ -6,6 +6,7 @@ import { applyEvent, projectionFromSnapshot, type TaskEvent, type TaskSnapshot }
 const snapshot: TaskSnapshot = {
   taskId: "task-1",
   schemaVersion: "0.1",
+  compatibilityId: "airbench-node-protocol",
   snapshotId: "snapshot-1",
   asOfSequence: 4,
   title: "Inspection approval note",
@@ -27,6 +28,7 @@ const event = (sequence: number, eventType: TaskEvent["eventType"], payload: Tas
   taskId: "task-1",
   sequence,
   schemaVersion: "0.1",
+  compatibilityId: "airbench-node-protocol",
   occurredAt: "2026-09-06T00:00:00Z",
   actor: "orchestrator",
   clearanceContext: "restricted",
@@ -37,6 +39,8 @@ const event = (sequence: number, eventType: TaskEvent["eventType"], payload: Tas
 });
 
 const batch = (events: TaskEvent[], nextSequence: number, hasMore = false): TaskEventBatch => ({
+  schema_version: "1.0",
+  compatibility_id: "airbench-core-contracts",
   stream_id: "task-1",
   node_identity: "node-1",
   protocol_version: "0.1",
@@ -116,6 +120,8 @@ describe("sequence-numbered task projection", () => {
     const store = new TaskEventStore();
     store.loadSnapshot(snapshot);
     const results = store.applyBatch({
+      schema_version: "1.0",
+      compatibility_id: "airbench-core-contracts",
       stream_id: "task-1",
       node_identity: "node-1",
       protocol_version: "0.1",
@@ -231,6 +237,20 @@ describe("sequence-numbered task projection", () => {
     expect(result.kind).toBe("blocked");
     expect(result.state.error?.code).toBe("event_protocol_invalid");
     expect(result.projection.lastAppliedSequence).toBe(4);
+  });
+
+  it("fails closed when the batch core compatibility contract changes", async () => {
+    const synchronizer = new TaskEventSynchronizer(async () => ({
+      ...batch([], 4),
+      compatibility_id: "foreign-event-contract",
+    }));
+    synchronizer.loadSnapshot(snapshot);
+
+    const result = await synchronizer.synchronizeOnce();
+
+    expect(result.kind).toBe("blocked");
+    expect(result.state.error?.code).toBe("event_protocol_invalid");
+    expect(result.projection.health).toBe("blocked");
   });
 
   it("fails closed for identity, clearance, and cursor inconsistencies", async () => {

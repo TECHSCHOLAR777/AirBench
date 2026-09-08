@@ -18,6 +18,7 @@ const verifiedConnection: NodeConnectionView = {
   profileId: "operations-node",
   nodeIdentity: "node-ops-01",
   protocolVersion: "0.1",
+  protocolCompatibilityId: "airbench-node-protocol",
   clearanceContext: "restricted",
   authenticatedSubject: "operator-17",
   domainPackRef: "organization-pack.v3",
@@ -41,6 +42,7 @@ describe("Node readiness summary", () => {
       { label: "Clearance", value: "restricted" },
       { label: "Domain pack", value: "organization-pack.v3" },
       { label: "Transport", value: "Internal network" },
+      { label: "Protocol contract", value: "airbench-node-protocol" },
       { label: "Handshake ledger", value: "ledger-connect-42" },
     ]));
     expect(summary.operational).toMatchObject({

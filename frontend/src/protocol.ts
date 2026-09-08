@@ -1,100 +1,63 @@
+import { CORE_CONTRACT_COMPATIBILITY_ID, CORE_CONTRACT_SCHEMA_VERSION, NODE_PROTOCOL_COMPATIBILITY_ID, NODE_PROTOCOL_VERSION } from "./generated/core_contracts";
 import type {
   Clearance as CoreClearance,
+  NodeApprovalEventPayload,
+  NodeArtifactEventPayload,
+  NodeEvidenceEventPayload,
+  NodeEvidenceRef,
+  NodeFactRef,
+  NodeLifecycleEventPayload,
   NodeCommandEnvelope,
   NodeCommandResult,
+  NodeSummaryEventPayload,
+  NodeTaskEvent,
+  NodeTaskEventBatch,
+  NodeTaskSnapshot,
+  NodeTaskStatus,
   Taint as CoreTaint,
+  NodeUnknownEventPayload,
+  NodeVerificationEventPayload,
+  NodeWorkerEventPayload,
+  NodeProvenanceRef,
 } from "./generated/core_contracts";
 
-export const FRONTEND_PROTOCOL_VERSION = "0.1" as const;
+export const FRONTEND_PROTOCOL_VERSION = NODE_PROTOCOL_VERSION;
+export const FRONTEND_PROTOCOL_COMPATIBILITY_ID = NODE_PROTOCOL_COMPATIBILITY_ID;
 
-export type TaskStatus = "accepted" | "planning" | "running" | "needs_review" | "completed" | "blocked" | "failed" | "stopped";
-/** Wire clearance values are generated from contracts.models. */
+export type TaskStatus = NodeTaskStatus;
 export type Clearance = CoreClearance;
-/** Wire taint values are generated from contracts.models. */
 export type Taint = CoreTaint;
 export type ProjectionHealth = "current" | "replaying" | "resynchronizing" | "blocked";
 
-export interface ProvenanceRef {
-  sourceDocumentId: string;
-  sourceVersion: string;
-  location: { page?: number; span?: string; cell?: string; region?: string } | null;
-  extractionMethod: string;
-  observedAt: string | null;
-  ingestedAt: string;
-  ledgerEventRef: string;
-}
-
-export interface FactEnvelope<TValue = unknown> {
-  factId: string;
-  schemaVersion: string;
-  value: TValue;
-  unit: string | null;
-  source: ProvenanceRef;
-  confidence: number;
-  clearance: Clearance;
-  taint: Taint;
-  parentFactIds: string[];
-  derivation: { method: string; inputFactIds: string[] } | null;
-  supersededBy: string | null;
-}
-
-export interface EvidenceRef {
-  evidenceId: string;
-  contentHash: string;
-  source: ProvenanceRef;
-  confidence: number;
-  clearance: Clearance;
-  taint: Taint;
-}
-
-export interface TaskSnapshot {
-  taskId: string;
-  schemaVersion: string;
-  snapshotId: string;
-  asOfSequence: number;
-  title: string;
-  requestSummary: string;
-  status: TaskStatus;
-  phase: string;
-  clearanceContext: Clearance;
-  inputManifestRef: string;
-  evidence: EvidenceRef[];
-  facts: FactEnvelope[];
-  artifactRefs: string[];
-  unresolvedQuestions: string[];
-  nodeConnectionRef: string;
-  ledgerHeadRef: string;
-}
-
-export interface TaskEventBase {
-  eventId: string;
-  taskId: string;
-  sequence: number;
-  schemaVersion: string;
-  occurredAt: string;
-  actor: string;
-  clearanceContext: Clearance;
-  payloadHash: string;
-  ledgerEventRef: string;
-}
+export type ProvenanceRef = NodeProvenanceRef;
+export type FactEnvelope = NodeFactRef;
+export type EvidenceRef = NodeEvidenceRef;
+export type TaskSnapshot = NodeTaskSnapshot;
+export type TaskEventBase = Omit<NodeTaskEvent, "eventType" | "payload">;
+type LifecycleEventType = "task.accepted" | "plan.created" | "plan.revised" | "plan.approved" | "task.paused" | "task.resumed" | "task.blocked" | "task.failed" | "task.stopped" | "task.completed";
+type WorkerEventType = "worker.started" | "worker.completed" | "tool.started" | "tool.completed";
+type SummaryEventType = "ledger.written" | "ledger.verification_changed" | "node.connection_changed" | "node.sovereignty_changed";
 
 export type TaskEvent =
-  | (TaskEventBase & { eventType: "task.accepted" | "plan.created" | "plan.revised" | "plan.approved" | "task.paused" | "task.resumed" | "task.blocked" | "task.failed" | "task.stopped" | "task.completed"; payload: { phase: string; status: TaskStatus; summary?: string } })
-  | (TaskEventBase & { eventType: "worker.started" | "worker.completed" | "tool.started" | "tool.completed"; payload: { role: string; label: string; status: string } })
-  | (TaskEventBase & { eventType: "evidence.added" | "evidence.revised"; payload: { evidence: EvidenceRef } })
-  | (TaskEventBase & { eventType: "verification.completed" | "verification.failed"; payload: { summary: string; passed: boolean } })
-  | (TaskEventBase & { eventType: "approval.required" | "approval.recorded" | "approval.returned"; payload: { reason: string } })
-  | (TaskEventBase & { eventType: "artifact.ready" | "artifact.superseded"; payload: { artifactId: string } })
-  | (TaskEventBase & { eventType: "ledger.written" | "ledger.verification_changed" | "node.connection_changed" | "node.sovereignty_changed"; payload: { summary: string } })
-  | (TaskEventBase & { eventType: "unknown"; payload: { originalType: string; raw: unknown } });
+  | (TaskEventBase & { eventType: LifecycleEventType; payload: NodeLifecycleEventPayload })
+  | (TaskEventBase & { eventType: WorkerEventType; payload: NodeWorkerEventPayload })
+  | (TaskEventBase & { eventType: "evidence.added" | "evidence.revised"; payload: NodeEvidenceEventPayload })
+  | (TaskEventBase & { eventType: "verification.completed" | "verification.failed"; payload: NodeVerificationEventPayload })
+  | (TaskEventBase & { eventType: "approval.required" | "approval.recorded" | "approval.returned"; payload: NodeApprovalEventPayload })
+  | (TaskEventBase & { eventType: "artifact.ready" | "artifact.superseded"; payload: NodeArtifactEventPayload })
+  | (TaskEventBase & { eventType: SummaryEventType; payload: NodeSummaryEventPayload })
+  | (TaskEventBase & { eventType: "unknown"; payload: NodeUnknownEventPayload });
 
 /** Node command types are generated from the authoritative Python contract. */
 export type Command = NodeCommandEnvelope;
 export type CommandResult = NodeCommandResult;
 
+export type TaskEventBatch = Pick<NodeTaskEventBatch, "schema_version" | "compatibility_id" | "stream_id" | "node_identity" | "protocol_version" | "clearance_context" | "next_sequence" | "has_more" | "ledger_event_refs"> & { events: TaskEvent[] };
+
 export interface TaskProjection {
   taskId: string;
   schemaVersion: string;
+  compatibilityId: string;
   snapshotId: string;
   title: string;
   requestSummary: string;
@@ -121,9 +84,11 @@ export type ProjectionResult =
   | { kind: "unknown"; projection: TaskProjection };
 
 export function projectionFromSnapshot(snapshot: TaskSnapshot): TaskProjection {
+  assertNodeEnvelope(snapshot.schemaVersion, snapshot.compatibilityId);
   return {
     taskId: snapshot.taskId,
     schemaVersion: snapshot.schemaVersion,
+    compatibilityId: snapshot.compatibilityId,
     snapshotId: snapshot.snapshotId,
     title: snapshot.title,
     requestSummary: snapshot.requestSummary,
@@ -143,6 +108,89 @@ export function projectionFromSnapshot(snapshot: TaskSnapshot): TaskProjection {
     health: "current",
   };
 }
+
+/** Convert a generated Node event into the safe, known projection union. */
+export function normalizeTaskEvent(event: NodeTaskEvent): TaskEvent {
+  const base: TaskEventBase = {
+    schemaVersion: event.schemaVersion,
+    compatibilityId: event.compatibilityId,
+    eventId: event.eventId,
+    taskId: event.taskId,
+    sequence: event.sequence,
+    occurredAt: event.occurredAt,
+    actor: event.actor,
+    clearanceContext: event.clearanceContext,
+    payloadHash: event.payloadHash,
+    ledgerEventRef: event.ledgerEventRef,
+  };
+  assertNodeEnvelope(event.schemaVersion, event.compatibilityId);
+  const payload = event.payload;
+
+  if (LIFECYCLE_EVENT_TYPES.has(event.eventType)) {
+    const candidate = payload as Partial<NodeLifecycleEventPayload>;
+    if (typeof candidate.phase === "string" && isTaskStatus(candidate.status)) {
+      return { ...base, eventType: event.eventType as LifecycleEventType, payload: { phase: candidate.phase, status: candidate.status, summary: typeof candidate.summary === "string" ? candidate.summary : null } };
+    }
+  }
+  if (WORKER_EVENT_TYPES.has(event.eventType)) {
+    const candidate = payload as Partial<NodeWorkerEventPayload>;
+    if (typeof candidate.role === "string" && typeof candidate.label === "string" && typeof candidate.status === "string") {
+      return { ...base, eventType: event.eventType as WorkerEventType, payload: { role: candidate.role, label: candidate.label, status: candidate.status } };
+    }
+  }
+  if (event.eventType === "evidence.added" || event.eventType === "evidence.revised") {
+    const candidate = payload as Partial<NodeEvidenceEventPayload>;
+    if (candidate.evidence && isEvidenceRef(candidate.evidence)) return { ...base, eventType: event.eventType, payload: { evidence: candidate.evidence } };
+  }
+  if (event.eventType === "verification.completed" || event.eventType === "verification.failed") {
+    const candidate = payload as Partial<NodeVerificationEventPayload>;
+    if (typeof candidate.summary === "string" && typeof candidate.passed === "boolean") return { ...base, eventType: event.eventType, payload: candidate as NodeVerificationEventPayload };
+  }
+  if (event.eventType === "approval.required" || event.eventType === "approval.recorded" || event.eventType === "approval.returned") {
+    const candidate = payload as Partial<NodeApprovalEventPayload>;
+    if (typeof candidate.reason === "string") return { ...base, eventType: event.eventType, payload: candidate as NodeApprovalEventPayload };
+  }
+  if (event.eventType === "artifact.ready" || event.eventType === "artifact.superseded") {
+    const candidate = payload as Partial<NodeArtifactEventPayload>;
+    if (typeof candidate.artifactId === "string") return { ...base, eventType: event.eventType, payload: candidate as NodeArtifactEventPayload };
+  }
+  if (SUMMARY_EVENT_TYPES.has(event.eventType)) {
+    const candidate = payload as Partial<NodeSummaryEventPayload>;
+    if (typeof candidate.summary === "string") return { ...base, eventType: event.eventType as SummaryEventType, payload: candidate as NodeSummaryEventPayload };
+  }
+  return { ...base, eventType: "unknown", payload: { originalType: event.eventType, raw: event.payload } };
+}
+
+export function normalizeTaskEventBatch(batch: NodeTaskEventBatch): TaskEventBatch {
+  assertCoreEnvelope(batch.schema_version, batch.compatibility_id);
+  return { ...batch, events: batch.events.map(normalizeTaskEvent) };
+}
+
+function assertCoreEnvelope(schemaVersion: string, compatibilityId: string): void {
+  if (schemaVersion !== CORE_CONTRACT_SCHEMA_VERSION || compatibilityId !== CORE_CONTRACT_COMPATIBILITY_ID) {
+    throw new Error("The Node event batch core contract is not compatible with this application.");
+  }
+}
+
+function assertNodeEnvelope(schemaVersion: string, compatibilityId: string): void {
+  if (schemaVersion !== FRONTEND_PROTOCOL_VERSION || compatibilityId !== FRONTEND_PROTOCOL_COMPATIBILITY_ID) {
+    throw new Error("The Node response protocol is not compatible with this application.");
+  }
+}
+
+function isTaskStatus(value: unknown): value is TaskStatus {
+  return typeof value === "string" && ["accepted", "planning", "running", "needs_review", "completed", "blocked", "failed", "stopped"].includes(value);
+}
+
+function isEvidenceRef(value: unknown): value is EvidenceRef {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<EvidenceRef>;
+  return candidate.schemaVersion === FRONTEND_PROTOCOL_VERSION && candidate.compatibilityId === FRONTEND_PROTOCOL_COMPATIBILITY_ID && typeof candidate.evidenceId === "string" && typeof candidate.contentHash === "string" && typeof candidate.confidence === "number" && candidate.confidence >= 0 && candidate.confidence <= 1 && typeof candidate.source === "object" && candidate.source !== null && (candidate.source as ProvenanceRef).schemaVersion === FRONTEND_PROTOCOL_VERSION && (candidate.source as ProvenanceRef).compatibilityId === FRONTEND_PROTOCOL_COMPATIBILITY_ID && typeof candidate.clearance === "string" && typeof candidate.taint === "string";
+}
+
+const LIFECYCLE_EVENT_TYPES = new Set(["task.accepted", "plan.created", "plan.revised", "plan.approved", "task.paused", "task.resumed", "task.blocked", "task.failed", "task.stopped", "task.completed"]);
+const WORKER_EVENT_TYPES = new Set(["worker.started", "worker.completed", "tool.started", "tool.completed"]);
+const SUMMARY_EVENT_TYPES = new Set(["ledger.written", "ledger.verification_changed", "node.connection_changed", "node.sovereignty_changed"]);
 
 export function applyEvent(projection: TaskProjection, event: TaskEvent): ProjectionResult {
   if (event.taskId !== projection.taskId) {
