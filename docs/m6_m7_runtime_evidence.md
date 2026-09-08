@@ -42,7 +42,9 @@ Implemented in `airbench/sandbox.py`.
   local store, and uses `--pull=never` for execution. It applies explicit
   `network=none`, read-only root, non-root UID/GID, dropped capabilities,
   no-new-privileges, bind mounts only for approved scopes, CPU, memory, disk,
-  process, and wall-time controls.
+  process, and wall-time controls. The current `--storage-opt size=...`
+  control covers the container writable layer; total disk enforcement for
+  bind-mounted scratch and output scopes is intentionally not claimed yet.
 - `SandboxExecutionRequest` carries the command, working directory, read and
   write scopes, and resource limits explicitly to the OS/container provider. A
   provider that cannot enforce a configured CPU, memory, disk, or process
@@ -69,7 +71,11 @@ including no route or TCP sockets in the container namespace, no DNS or direct
 TCP access, read-only root, zero effective capabilities, non-root execution,
 resource cgroups, absent host sockets, and clean removal. The integrated
 provider path still requires a Linux/POSIX target run and independent network
-observation before M6.1 or #113 can close.
+observation before M6.1 or #113 can close. The target run must also verify
+that the chosen disk-control mechanism covers every writable scratch and
+output path, not only the container layer. If it does not, the provider must
+stage those paths into a quota-controlled workspace or use an approved host
+filesystem quota before the issue can close.
 
 ## Verification
 
