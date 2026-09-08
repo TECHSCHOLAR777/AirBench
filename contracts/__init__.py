@@ -26,6 +26,10 @@ from .backend import (BackendAdapter, BackendCallError, BackendCapabilities, Bac
                       BackendReadiness, BackendRequest, BackendResponse, BackendTool, BackendToolCall,
                       BackendUsage, CancellationToken, FakeBackend, ResponseProvenance)
 from .router import ModelRouter, ResourceAdmission, RouteResult, RoutingError, RoutingRejected
+from .adapters import (
+    BaseToolParser, HermesToolParser, NoneToolParser, StandardJsonToolParser,
+    ToolCallParserRegistry, VllmAdapter, NimAdapter,
+)
 
 __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "stable_id",
            "TaskEnvelope", "TeamPlan", "TaskPlanReview", "WorkerAssignment", "WorkPacket", "WorkerResult",
@@ -50,3 +54,7 @@ __all__ += ["BackendAdapter", "BackendCallError", "BackendCapabilities", "Backen
             "BackendUsage", "CancellationToken", "FakeBackend", "ResponseProvenance"]
 __all__ += ["ModelRouter", "ResourceAdmission", "RouteResult", "RoutingError", "RoutingRejected"]
 __all__ += ["ModelCallExecution"]
+__all__ += [
+    "BaseToolParser", "HermesToolParser", "NoneToolParser", "StandardJsonToolParser",
+    "ToolCallParserRegistry", "VllmAdapter", "NimAdapter",
+]
