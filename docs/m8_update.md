@@ -48,3 +48,5 @@ On hosts with Microsoft Word installed, the artifact checker can use a bounded h
 The M9.4 run now emits typed `worker.handoff` ledger events between every adjacent worker stage. Each event carries a validated `HandoffSubmission` and `WorkPacket` with fact/evidence references, packet hash, clearance, taint, and immutable plan/policy identities.
 
 No-finding runs now fail closed with per-worker `worker.failed` events and a `team.execution.failed` event before raising the caller-visible error, preserving an auditable failure trace without changing the shared ledger terminal-state rules.
+
+The typed `M9RunResult.artifact` now includes the absolute generated DOCX path, and `artifact.checked` repeats that path with its hash and check metadata so callers can hand the verified file directly to a reviewer.
