@@ -212,6 +212,33 @@ describe("sequence-numbered task projection", () => {
     expect(result.state.lastLedgerEventRefs).toEqual(["ledger-8"]);
   });
 
+  it("blocks a resync snapshot that changes task authority or rewinds the cursor", async () => {
+    const replacements: TaskSnapshot[] = [
+      { ...snapshot, snapshotId: "snapshot-other-task", taskId: "task-other", asOfSequence: 8 },
+      { ...snapshot, snapshotId: "snapshot-other-node", nodeConnectionRef: "node-other", asOfSequence: 8 },
+      { ...snapshot, snapshotId: "snapshot-other-clearance", clearanceContext: "secret" as TaskSnapshot["clearanceContext"], asOfSequence: 8 },
+      { ...snapshot, snapshotId: "snapshot-rewound", asOfSequence: 3 },
+    ];
+
+    for (const replacement of replacements) {
+      const synchronizer = new TaskEventSynchronizer(
+        async () => batch([event(7, "task.completed", { phase: "complete", status: "completed" })], 7),
+        async () => replacement,
+      );
+      synchronizer.loadSnapshot(snapshot);
+
+      const result = await synchronizer.synchronizeOnce();
+
+      expect(result.kind).toBe("blocked");
+      expect(result.state.status).toBe("blocked");
+      expect(result.state.error?.code).toBe("event_protocol_invalid");
+      expect(result.projection.taskId).toBe("task-1");
+      expect(result.projection.lastAppliedSequence).toBe(4);
+      expect(result.projection.health).toBe("blocked");
+      expect(maySendConsequentialCommand(result.projection, result.state.status)).toBe(false);
+    }
+  });
+
   it("fails closed for a protocol batch from another task", async () => {
     const synchronizer = new TaskEventSynchronizer(async () => ({ ...batch([], 4), stream_id: "other-task" }));
     synchronizer.loadSnapshot(snapshot);
