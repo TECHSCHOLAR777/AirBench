@@ -67,6 +67,8 @@ The desktop receives connection profiles only from the native Tauri boundary. A 
 
 The webview receives only the stable `profile_id` when it invokes connection, event, intake, preview, or artifact-download commands. Rust resolves the full approved profile from the native catalog for each call. Endpoint URLs, certificate pins, credential references, and other transport policy material do not cross the IPC boundary.
 
+Trusted connection presentation requires defense in depth: the native transport validates the handshake against the approved profile, and the React connection controller separately rejects a malformed or mismatched native result before exposing identity, clearance, authenticated subject, domain-pack, sovereignty, or ledger proof.
+
 ## 4. Event envelope
 
 The minimum event envelope is:

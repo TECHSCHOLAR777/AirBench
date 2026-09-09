@@ -96,4 +96,30 @@ describe("NodeConnectionController", () => {
     expect(result.failure?.message).not.toContain("secret-token");
     expect(controller.canSendConsequential()).toBe(false);
   });
+
+  it("fails closed when the native result is mismatched or incomplete", async () => {
+    const invalidResults = [
+      { ...connected, profile_id: "other-profile" },
+      { ...connected, node_identity: "other-node" },
+      { ...connected, protocol_version: "0.2" },
+      { ...connected, clearance_context: "public" as const },
+      { ...connected, protocol_compatibility_id: "other-protocol" },
+      { ...connected, authenticated_subject: "" },
+    ];
+
+    for (const invalidResult of invalidResults) {
+      const controller = new NodeConnectionController(async () => invalidResult);
+      const result = await controller.connect(profile);
+
+      expect(result).toMatchObject({
+        state: "failed",
+        sovereignty: "blocked",
+        failure: {
+          code: "invalid_node_response",
+          message: "The approved Node returned an incomplete or mismatched trust result.",
+        },
+      });
+      expect(controller.canSendConsequential()).toBe(false);
+    }
+  });
 });
