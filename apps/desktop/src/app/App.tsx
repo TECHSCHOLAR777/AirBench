@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 import { invoke } from "@airbench/tauri-invoke";
 import { AppIcon, type AppIconName } from "../components/AppIcon";
 import type { AirBenchPresentationState, Screen } from "../contracts";
@@ -90,6 +90,7 @@ function App() {
   const outcomeInputRef = useRef<HTMLTextAreaElement | null>(null);
   const commandMenuReturnFocusRef = useRef<HTMLElement | null>(null);
   const commandMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const connectionHelpReturnFocusRef = useRef<HTMLElement | null>(null);
   const [creatingTask, setCreatingTask] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const controller = useMemo(() => new NodeConnectionController(), []);
@@ -121,6 +122,16 @@ function App() {
   const closeCommandPalette = useCallback(() => {
     setShowCommandPalette(false);
     window.requestAnimationFrame(() => commandMenuReturnFocusRef.current?.focus());
+  }, []);
+
+  const openConnectionHelp = useCallback(() => {
+    connectionHelpReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setShowConnectionHelp(true);
+  }, []);
+
+  const closeConnectionHelp = useCallback(() => {
+    setShowConnectionHelp(false);
+    window.requestAnimationFrame(() => connectionHelpReturnFocusRef.current?.focus());
   }, []);
 
   useEffect(() => {
@@ -523,7 +534,7 @@ function App() {
   const shellCommands = useMemo(() => buildShellCommands(taskProjection !== null), [taskProjection]);
 
   const runShellCommand = (commandId: ShellCommandId) => {
-    setShowCommandPalette(false);
+    closeCommandPalette();
     if (commandId === "new_task") {
       openNewTask();
       return;
@@ -554,13 +565,13 @@ function App() {
       <main className="main-area">
         <header className="topbar"><div className="breadcrumb"><span>AirBench</span><span className="breadcrumb-slash">/</span><strong>{screenTitle}</strong></div><div className="topbar-actions"><button ref={commandMenuTriggerRef} className="command-menu-button" type="button" onClick={(event) => openCommandPalette(event.currentTarget)} aria-haspopup="dialog" aria-expanded={showCommandPalette} aria-controls="workspace-command-palette"><AppIcon name="search" size={16} /><span>Command</span><kbd>Ctrl K</kbd></button><button className={`sovereignty-status ${nodeConnected ? "is-verified" : ""}`} onClick={() => selectScreen("node")} aria-label="Open Node and settings"><AppIcon name={nodeConnected ? "shield" : "node"} size={16} /><span><small>Node path</small><strong>{sovereigntyLabel}</strong></span></button><div className="appearance-control"><button className="appearance-button" type="button" onClick={() => setShowAppearanceMenu((open) => !open)} aria-expanded={showAppearanceMenu} aria-controls="appearance-preferences"><AppIcon name="display" size={16} /><span>Display</span><AppIcon name="chevron-down" size={14} /></button>{showAppearanceMenu && <AppearanceMenu preferences={presentation} onChange={setPresentation} onClose={() => setShowAppearanceMenu(false)} />}</div></div></header>
         <div className="content-wrap">
-          {state.screen === "home" && <HomeView outcomeInputRef={outcomeInputRef} currentTask={taskProjection} taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} planSynchronized={taskCommandReady} notice={notice} canStart={canStart} creatingTask={creatingTask} nodeConnected={nodeConnected} nodeLabel={nodeLabel} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onCancelTask={stopTask} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={() => setShowConnectionHelp(true)} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} />}
+          {state.screen === "home" && <HomeView outcomeInputRef={outcomeInputRef} currentTask={taskProjection} taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} planSynchronized={taskCommandReady} notice={notice} canStart={canStart} creatingTask={creatingTask} nodeConnected={nodeConnected} nodeLabel={nodeLabel} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onCancelTask={stopTask} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={openConnectionHelp} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} />}
           {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesState("idle"); }} onHome={() => selectScreen("home")} />}
           {state.screen === "tasks" && (taskProjection ? <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={openNewTask} onOpenNode={() => selectScreen("node")} /> : <TaskEmptyView nodeConnected={nodeConnected} onNewTask={openNewTask} onOpenNode={() => selectScreen("node")} />)}
           {isRecordGatewayDestination(state.screen) && <RecordGatewayView destination={state.screen} nodeConnected={nodeConnected} currentTask={taskProjection} onHome={() => selectScreen("home")} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} />}
         </div>
       </main>
-      {showConnectionHelp && <ConnectionHelp onClose={() => setShowConnectionHelp(false)} onOpenNode={() => { setShowConnectionHelp(false); selectScreen("node"); }} />}
+      {showConnectionHelp && <ConnectionHelp onClose={closeConnectionHelp} onOpenNode={() => { closeConnectionHelp(); selectScreen("node"); }} />}
       {showCommandPalette && <WorkspaceCommandDialog commands={shellCommands} onClose={closeCommandPalette} onSelect={runShellCommand} />}
     </div>
   );
@@ -793,7 +804,33 @@ function RecordGatewayView({ destination, nodeConnected, currentTask, onHome, on
 }
 
 function ConnectionHelp({ onClose, onOpenNode }: { onClose: () => void; onOpenNode: () => void }) {
-  return <div className="modal-backdrop" role="presentation"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="connection-help-title"><button className="modal-close" aria-label="Close" onClick={onClose}>X</button><p className="eyebrow">TRUSTED EXECUTION</p><h2 id="connection-help-title">AirBench works on an approved Node</h2><p>AirBench accepts work only after you select a trusted Node. The Node owns the files, task state, model calls, tools, and audit record for that work.</p><div className="modal-note"><span className="status-dot" aria-hidden="true" /><span><strong>No Node is connected</strong><small>Nothing has been submitted or sent anywhere.</small></span></div><div className="modal-actions"><button className="secondary-button" onClick={onClose}>Close</button><button className="primary-button" onClick={onOpenNode}>Open Node settings</button></div></section></div>;
+  const dialogRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    dialogRef.current?.querySelector<HTMLElement>(".modal-close")?.focus();
+  }, []);
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>("button:not([disabled])") ?? []);
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first && last) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  return <div className="modal-backdrop" role="presentation"><section ref={dialogRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="connection-help-title" aria-describedby="connection-help-copy" onKeyDown={handleKeyDown}><button type="button" className="modal-close" aria-label="Close" onClick={onClose}>X</button><p className="eyebrow">TRUSTED EXECUTION</p><h2 id="connection-help-title">AirBench works on an approved Node</h2><p id="connection-help-copy">AirBench accepts work only after you select a trusted Node. The Node owns the files, task state, model calls, tools, and audit record for that work.</p><div className="modal-note"><span className="status-dot" aria-hidden="true" /><span><strong>No Node is connected</strong><small>Nothing has been submitted or sent anywhere.</small></span></div><div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Close</button><button type="button" className="primary-button" onClick={onOpenNode}>Open Node settings</button></div></section></div>;
 }
 
 function formatBytes(bytes: number): string {
