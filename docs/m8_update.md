@@ -36,3 +36,5 @@ Remaining evidence is deployment-specific: measured-node model routes, operator-
 The emitted trace can be independently replayed offline with `python scripts/verify_m9_trace.py <trace-dir>`. The verifier rebuilds the append-only ledger from JSONL, checks event hashes and replay transitions, confirms both execution modes, and re-hashes every staged artifact referenced by `artifact.checked` events.
 
 The vertical slice now carries retrieved manual/SOP references into the approval-note source register and independent completion evidence, rejects unsupported hardware modes and non-local routes under a no-egress profile, and converts visual-renderer timeouts into a blocking artifact check rather than an uncaught failure.
+
+The detached pack signature covers all declarative component YAML and the manifest declarations (excluding only the self-referential signature field); component or manifest tampering is rejected before execution.
