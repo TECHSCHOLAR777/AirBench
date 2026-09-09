@@ -167,6 +167,7 @@ class ArtifactCheck:
     visual: str
     check_reason: str
     generator_version: str = "m9-docx-1"
+    visual_backend: str = "none"
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,32 +266,35 @@ class ApprovalNoteRenderer:
         content = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>'''
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as docx:
             docx.writestr("[Content_Types].xml", content); docx.writestr("_rels/.rels", rels); docx.writestr("word/document.xml", document); docx.writestr("word/styles.xml", styles)
-        structural, visual, reason = self.check(output, values, tuple(str(section) for section in template.get("required_sections", ())), template)
-        return ArtifactCheck(stable_id("artifact", output.name, _sha(output.read_bytes())), _sha(output.read_bytes()), structural, visual, reason, self.version)
+        structural, visual, reason, visual_backend = self.check(output, values, tuple(str(section) for section in template.get("required_sections", ())), template)
+        return ArtifactCheck(stable_id("artifact", output.name, _sha(output.read_bytes())), _sha(output.read_bytes()), structural, visual, reason, self.version, visual_backend)
 
-    def check(self, path: Path, values: Mapping[str, int], required_sections: tuple[str, ...], template: Mapping[str, Any]) -> tuple[str, str, str]:
+    def check(self, path: Path, values: Mapping[str, int], required_sections: tuple[str, ...], template: Mapping[str, Any]) -> tuple[str, str, str, str]:
         try:
             with zipfile.ZipFile(path) as archive:
                 xml = ET.fromstring(archive.read("word/document.xml"))
                 text = " ".join(xml.itertext())
-                if any(str(value) not in text for value in values.values()): return "failed", "not_run", "computed value missing from document"
+                if any(str(value) not in text for value in values.values()): return "failed", "not_run", "computed value missing from document", "none"
                 labels = {str(key): str(value) for key, value in template.get("section_labels", {}).items()}
                 required_titles = {labels.get(section, section.replace("_", " ").title()) for section in required_sections}
-                if any(title not in text for title in required_titles): return "failed", "not_run", "required template section missing from document"
+                if any(title not in text for title in required_titles): return "failed", "not_run", "required template section missing from document", "none"
         except (OSError, KeyError, zipfile.BadZipFile, ET.ParseError):
-            return "failed", "not_run", "DOCX structure is invalid"
+            return "failed", "not_run", "DOCX structure is invalid", "none"
         visual = "not_run"
+        visual_backend = "none"
         soffice = shutil.which("soffice") or shutil.which("libreoffice")
         if soffice:
+            visual_backend = "libreoffice"
             with tempfile.TemporaryDirectory() as temp:
                 try:
                     completed = subprocess.run([soffice, "--headless", "--convert-to", "pdf", "--outdir", temp, str(path)], capture_output=True, timeout=30)
                 except (OSError, subprocess.TimeoutExpired):
-                    return "passed", "failed", "structural checks passed; visual conversion failed or timed out"
+                    return "passed", "failed", "structural checks passed; visual conversion failed or timed out", visual_backend
                 visual = "passed" if completed.returncode == 0 and list(Path(temp).glob("*.pdf")) else "failed"
         else:
             visual = self._check_with_word(path)
-        return "passed", visual, "structural checks passed; visual conversion " + visual
+            visual_backend = "microsoft_word" if visual != "not_run" else "none"
+        return "passed", visual, "structural checks passed; visual conversion " + visual, visual_backend
 
 
 class RefineryVerticalSlice:
@@ -504,7 +508,7 @@ class RefineryVerticalSlice:
             values=values, review_status="verified draft for human review", template=template,
         )
         event("artifact.staged", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "path": str(artifact_path)})
-        event("artifact.checked", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "structural": artifact.structural, "visual": artifact.visual})
+        event("artifact.checked", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "structural": artifact.structural, "visual": artifact.visual, "visual_backend": artifact.visual_backend, "check_reason": artifact.check_reason})
         status = "verified draft for human review" if artifact.structural == "passed" and artifact.visual == "passed" else "needs_review"
         fact_values = tuple(fact.fact for fact in findings)
         verification = VerificationRunner(self.ledger, actor_id="worker.m9.independent_verification_worker").run(VerificationRequest(
