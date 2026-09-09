@@ -37,6 +37,16 @@ export function operatorQuestionPresentation(
     };
   }
 
+  if (taskStatus === "blocked") {
+    return {
+      eyebrow: "RECORDED NODE QUESTION",
+      title: "This task is blocked",
+      state: `The Node reports the task as blocked in ${phase}. The question is retained as evidence and cannot reopen or change the task locally.`,
+      continuation: "Whether the block can be resolved must come from a new Node projection and permitted command.",
+      action: "No response control is available for a blocked task until the Node supplies a typed, sequence-aware command.",
+    };
+  }
+
   if (taskStatus === "needs_review") {
     return {
       eyebrow: "DECISION NEEDED",
