@@ -8,6 +8,7 @@ import {
   confidenceSignal,
   formatFactValue,
   proofDetails,
+  reconcileProofSelection,
   proofSignals,
   sourcePreviewAvailability,
   taintSignal,
@@ -124,6 +125,15 @@ describe("proof inspector projections", () => {
     expect(taintSignal("clean").detail).toContain("no authority");
     expect(taintSignal("future-taint").tone).toBe("blocked");
     expect(proofSignals({ kind: "artifact", artifactId: "artifact-1" })).toEqual([]);
+  });
+
+  it("refreshes selected records from the current Node projection", () => {
+    const revisedEvidence = { ...evidence, confidence: 0.41, source: { ...evidence.source, sourceVersion: "revision-5" } };
+    const refreshed = reconcileProofSelection({ kind: "evidence", evidence }, [revisedEvidence], [], null);
+    expect(refreshed).toEqual({ kind: "evidence", evidence: revisedEvidence });
+    expect(reconcileProofSelection({ kind: "evidence", evidence }, [], [], null)).toBeNull();
+    expect(reconcileProofSelection({ kind: "source_preview", preview: sourcePreview }, [], [], null)).toBeNull();
+    expect(reconcileProofSelection({ kind: "source_preview", preview: sourcePreview }, [], [], { ...sourcePreview, text: "revised preview" })).toMatchObject({ preview: { text: "revised preview" } });
   });
 
   it("marks safe preview availability honestly instead of inventing a source link", () => {

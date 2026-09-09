@@ -25,7 +25,7 @@ import { OperatorQuestionCard } from "../components/OperatorQuestionCard";
 import { ProofInspectorPanel, type ArtifactLifecycleState, type ArtifactPreviewState } from "../components/ProofInspectorPanel";
 import { TaskEmptyView } from "../components/TaskEmptyView";
 import { NodeReadinessPanel } from "../components/NodeReadinessPanel";
-import { formatProvenanceLocation, type ProofSelection } from "../features/provenance/proofInspector";
+import { formatProvenanceLocation, reconcileProofSelection, type ProofSelection } from "../features/provenance/proofInspector";
 import type { TaskProjection } from "../platform/events/protocol";
 import { classifyIntakeFailure, intakeStateFromManifest, intakeStatusCopy, type IntakeUiState } from "../features/intake/intakeState";
 
@@ -762,6 +762,9 @@ function TaskWorkspaceView({ projection, syncState, plan, approval, approving, c
   const trace = buildWorkTrace(projection, plan);
   const [proofSelection, setProofSelection] = useState<ProofSelection | null>(null);
   useEffect(() => { setProofSelection(null); }, [projection.taskId]);
+  useEffect(() => {
+    setProofSelection((current) => reconcileProofSelection(current, projection.evidence, projection.facts, sourcePreview));
+  }, [projection.evidence, projection.facts, sourcePreview]);
   const inspectArtifact = (artifactId: string) => {
     setProofSelection({ kind: "artifact", artifactId });
     void onInspectArtifact(artifactId);
