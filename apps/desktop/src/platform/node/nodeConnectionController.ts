@@ -5,7 +5,7 @@ import {
   type NodeConnectionState,
   validateApprovedProfile,
 } from "./nodeConnection";
-import type { Clearance } from "../events/protocol";
+import { FRONTEND_PROTOCOL_COMPATIBILITY_ID, type Clearance } from "../events/protocol";
 
 export interface NodeConnectionView {
   state: NodeConnectionState;
@@ -38,6 +38,36 @@ const initialConnection: NodeConnectionView = {
   ledgerEventRef: null,
   failure: null,
 };
+
+class InvalidNodeConnectionResult extends Error {
+  readonly code = "invalid_node_response";
+}
+
+function nonEmpty(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * Defense in depth for the IPC boundary. Rust remains authoritative for the
+ * transport and handshake, but a malformed native result must never promote
+ * the React session to trusted state.
+ */
+function assertNodeConnectionResult(profile: ApprovedNodeProfileReference, result: NativeNodeConnectionResult): void {
+  const candidate = result as Partial<NativeNodeConnectionResult> | null;
+  if (!candidate
+    || candidate.state !== "connected"
+    || candidate.profile_id !== profile.profileId
+    || candidate.node_identity !== profile.nodeIdentity
+    || candidate.protocol_version !== profile.protocolVersion
+    || candidate.clearance_context !== profile.clearanceContext
+    || candidate.protocol_compatibility_id !== FRONTEND_PROTOCOL_COMPATIBILITY_ID
+    || candidate.sovereignty !== "verified"
+    || !nonEmpty(candidate.authenticated_subject)
+    || !nonEmpty(candidate.domain_pack_ref)
+    || !nonEmpty(candidate.ledger_event_ref)) {
+    throw new InvalidNodeConnectionResult("The approved Node returned an incomplete or mismatched trust result.");
+  }
+}
 
 /**
  * Owns only the desktop connection presentation state. Rust and the Node
@@ -77,6 +107,7 @@ export class NodeConnectionController {
 
     try {
       const result = await this.connector(profile);
+      assertNodeConnectionResult(profile, result);
       this.view = {
         state: "connected",
         profileId: result.profile_id,
@@ -90,14 +121,15 @@ export class NodeConnectionController {
         ledgerEventRef: result.ledger_event_ref,
         failure: null,
       };
-    } catch {
+    } catch (error) {
+      const invalidResult = error instanceof InvalidNodeConnectionResult;
       this.view = {
         ...this.view,
         state: "failed",
         sovereignty: "blocked",
         failure: {
-          code: "transport_failed",
-          message: "The approved Node connection failed. No consequential work is permitted.",
+          code: invalidResult ? error.code : "transport_failed",
+          message: invalidResult ? error.message : "The approved Node connection failed. No consequential work is permitted.",
         },
       };
     }
