@@ -45,6 +45,20 @@ def test_signed_pack_rejects_tampering(tmp_path: Path) -> None:
         RefineryPack.load(target, key)
 
 
+def test_signed_pack_rejects_manifest_tampering(tmp_path: Path) -> None:
+    key = b"test-only-m9-key"
+    target = tmp_path / "pack"
+    shutil.copytree(PACK, target)
+    manifest_path = target / "manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["signature"] = RefineryPack.sign(target, key)
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    manifest["pack_version"] = "9.9"
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    with pytest.raises(SignedPackError):
+        RefineryPack.load(target, key)
+
+
 def test_serial_run_extracts_provenance_computes_values_and_checks_docx(tmp_path: Path) -> None:
     ledger = EventLedger()
     run = RefineryVerticalSlice(signed_pack(tmp_path), ledger, artifact_dir=tmp_path / "artifacts").run(
