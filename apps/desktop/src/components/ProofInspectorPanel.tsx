@@ -16,12 +16,14 @@ import {
 } from "../features/provenance/proofInspector";
 
 export type ArtifactPreviewState = ArtifactPreviewRequestState;
+export type ArtifactLifecycleState = "ready" | "superseded" | "reference_only";
 
 interface ProofInspectorPanelProps {
   selection: ProofSelection | null;
   artifactPreview: ArtifactPreview | null;
   artifactPreviewState: ArtifactPreviewState;
   artifactPreviewError: string | null;
+  artifactLifecycleState: ArtifactLifecycleState | null;
   downloadState: "idle" | "downloading" | "downloaded" | "failed";
   downloadReceipt: DownloadReceipt | null;
   onDownloadArtifact: (artifactId: string) => void;
@@ -32,6 +34,7 @@ export function ProofInspectorPanel({
   artifactPreview,
   artifactPreviewState,
   artifactPreviewError,
+  artifactLifecycleState,
   downloadState,
   downloadReceipt,
   onDownloadArtifact,
@@ -50,6 +53,7 @@ export function ProofInspectorPanel({
       artifactPreview={artifactPreview}
       artifactPreviewState={artifactPreviewState}
       artifactPreviewError={artifactPreviewError}
+      artifactLifecycleState={artifactLifecycleState}
       downloadState={downloadState}
       downloadReceipt={downloadReceipt}
       onDownloadArtifact={onDownloadArtifact}
@@ -74,6 +78,7 @@ function InspectorSelection({
   artifactPreview,
   artifactPreviewState,
   artifactPreviewError,
+  artifactLifecycleState,
   downloadState,
   downloadReceipt,
   onDownloadArtifact,
@@ -96,14 +101,16 @@ function InspectorSelection({
       <small>Preview content remains data and is not executed by the desktop app.</small>
     </section>}
 
-    {selection.kind === "artifact" && <ArtifactPreviewPanel
-      preview={preview}
-      state={artifactPreviewState}
-      error={artifactPreviewError}
-      downloadState={downloadState}
-      downloadReceipt={downloadReceipt}
-      onDownload={() => onDownloadArtifact(selection.artifactId)}
-    />}
+    {selection.kind === "artifact" && (artifactLifecycleState === "ready"
+      ? <ArtifactPreviewPanel
+        preview={preview}
+        state={artifactPreviewState}
+        error={artifactPreviewError}
+        downloadState={downloadState}
+        downloadReceipt={downloadReceipt}
+        onDownload={() => onDownloadArtifact(selection.artifactId)}
+      />
+      : <ArtifactLifecycleBoundary state={artifactLifecycleState} />)}
 
     <ProofDetails details={details} />
 
@@ -153,6 +160,24 @@ function PreviewBoundary({ tone, label, detail, recovery }: BoundaryState) {
   return <div className={`proof-preview-boundary proof-preview-boundary-${tone}`}>
     <AppIcon name={tone === "blocked" ? "shield" : "document"} size={14} />
     <div><strong>{label}</strong><p>{detail}</p><dl className="proof-recovery-guidance" aria-label="Safe recovery guidance"><div><dt>Preserved</dt><dd>{recovery.preserved}</dd></div><div><dt>Retry</dt><dd>{recovery.retry}</dd></div><div><dt>Next</dt><dd>{recovery.nextAction}</dd></div></dl></div>
+  </div>;
+}
+
+function ArtifactLifecycleBoundary({ state }: { state: ArtifactLifecycleState | null }) {
+  const superseded = state === "superseded";
+  return <div className={`proof-preview-state proof-preview-state-${superseded ? "blocked" : "neutral"}`} role={superseded ? "alert" : "status"}>
+    <PreviewBoundary
+      tone={superseded ? "blocked" : "attention"}
+      label={superseded ? "Artifact superseded" : "Artifact reference only"}
+      detail={superseded
+        ? "The Node has recorded a newer artifact state. Preview and download are unavailable for this record."
+        : "The Node has supplied an artifact reference but not a ready lifecycle event. Preview and download remain unavailable."}
+      recovery={{
+        preserved: "The artifact identity and ordered Node record remain visible.",
+        retry: "No local retry is performed while the artifact is not Node-authorized for review.",
+        nextAction: superseded ? "Select the current Node artifact record." : "Wait for the Node to supply a ready artifact record.",
+      }}
+    />
   </div>;
 }
 
