@@ -87,7 +87,12 @@ class RefineryPack:
     @staticmethod
     def _payload(root: Path) -> dict[str, Any]:
         files = sorted(p for p in root.glob("*.yaml") if p.name != "manifest.yaml")
-        return {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in files}
+        manifest = yaml.safe_load((root / "manifest.yaml").read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict):
+            raise SignedPackError("pack manifest is not a mapping")
+        manifest = dict(manifest)
+        manifest.pop("signature", None)
+        return {"manifest.yaml": manifest, **{p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in files}}
 
     @classmethod
     def sign(cls, root: str | Path, key: bytes) -> str:
@@ -100,6 +105,8 @@ class RefineryPack:
         path = Path(root).resolve()
         try:
             manifest = yaml.safe_load((path / "manifest.yaml").read_text(encoding="utf-8"))
+            if not isinstance(manifest, dict):
+                raise SignedPackError("pack manifest is not a mapping")
             actual = signature or manifest.get("signature")
             expected = cls.sign(path, key)
         except (OSError, ValueError, TypeError, yaml.YAMLError) as exc:
