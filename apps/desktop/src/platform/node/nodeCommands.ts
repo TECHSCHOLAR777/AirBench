@@ -1,8 +1,8 @@
 import { invoke } from "@airbench/tauri-invoke";
-import { CORE_CONTRACT_COMPATIBILITY_ID, CORE_CONTRACT_SCHEMA_VERSION } from "../../generated/core_contracts";
+import { CORE_CONTRACT_COMPATIBILITY_ID, CORE_CONTRACT_SCHEMA_VERSION, NODE_PROTOCOL_COMPATIBILITY_ID, NODE_PROTOCOL_VERSION } from "../../generated/core_contracts";
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
-import type { Clearance, TaskSnapshot } from "../events/protocol";
-import type { NodeCommandEnvelope, NodeCommandResult, TaskEnvelope, TaskPlanReview } from "../../generated/core_contracts";
+import type { Clearance, TaskSnapshot, Taint } from "../events/protocol";
+import type { NodeCommandEnvelope, NodeCommandResult, NodeEvidenceRef, NodeFactRef, NodeProvenanceRef, TaskEnvelope, TaskPlanReview } from "../../generated/core_contracts";
 
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const COMMAND_ID = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
@@ -57,6 +57,16 @@ function requireStringList(value: unknown, label: string): string[] {
   return value.map((entry) => requireString(entry, label));
 }
 
+function requireNumberMap(value: unknown, label: string): Record<string, number> {
+  const source = requireRecord(value, label);
+  return Object.fromEntries(Object.entries(source).map(([key, entry]) => {
+    if (!/^[A-Za-z0-9_.:-]{1,128}$/.test(key) || typeof entry !== "number" || !Number.isSafeInteger(entry) || entry < 0) {
+      throw new InvalidNodeResponse(`The Node returned an invalid ${label}.`);
+    }
+    return [key, entry];
+  }));
+}
+
 function requireStringMap(value: unknown, label: string): Record<string, string> {
   const source = requireRecord(value, label);
   return Object.fromEntries(Object.entries(source).map(([key, entry]) => [requireString(key, label), requireString(entry, label)]));
@@ -69,6 +79,201 @@ function requireDependencyGraph(value: unknown): Record<string, string[]> {
 
 function optionalFailureField(value: unknown, label: string): string | null {
   return optionalString(value, label);
+}
+
+function requiredField(source: Record<string, unknown>, key: string, label: string): unknown {
+  if (!Object.prototype.hasOwnProperty.call(source, key)) throw new InvalidNodeResponse(`The Node returned an invalid ${label}.`);
+  return source[key];
+}
+
+function requiredNullableString(source: Record<string, unknown>, key: string, label: string): string | null {
+  return optionalString(requiredField(source, key, label), label);
+}
+
+function requiredNullableRecord(source: Record<string, unknown>, key: string, label: string): Record<string, unknown> | null {
+  const value = requiredField(source, key, label);
+  return value === null ? null : requireRecord(value, label);
+}
+
+function requireConfidence(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new InvalidNodeResponse(`The Node returned an invalid ${label}.`);
+  }
+  return value;
+}
+
+function requireTaint(value: unknown): Taint {
+  if (value !== "clean" && value !== "untrusted" && value !== "contaminated") {
+    throw new InvalidNodeResponse("The Node returned an invalid response taint.");
+  }
+  return value;
+}
+
+function requireTaskStatus(value: unknown): TaskSnapshot["status"] {
+  if (value !== "accepted" && value !== "planning" && value !== "running" && value !== "needs_review" && value !== "completed" && value !== "blocked" && value !== "failed" && value !== "stopped") {
+    throw new InvalidNodeResponse("The Node returned an invalid task status.");
+  }
+  return value;
+}
+
+function requireNodeEnvelope(source: Record<string, unknown>, label: string): { schemaVersion: string; compatibilityId: string } {
+  const schemaVersion = requireString(source.schemaVersion, `${label} schema version`);
+  const compatibilityId = requireString(source.compatibilityId, `${label} compatibility identity`);
+  if (schemaVersion !== NODE_PROTOCOL_VERSION || compatibilityId !== NODE_PROTOCOL_COMPATIBILITY_ID) {
+    throw new InvalidNodeResponse(`The Node returned an incompatible ${label}.`);
+  }
+  return { schemaVersion, compatibilityId };
+}
+
+function clearanceRank(value: Clearance): number {
+  return { public: 0, internal: 1, restricted: 2, secret: 3 }[value];
+}
+
+function requireClearanceWithin(value: unknown, maximum: Clearance, label: string): Clearance {
+  const clearance = requireClearance(value);
+  if (clearanceRank(clearance) > clearanceRank(maximum)) {
+    throw new InvalidNodeResponse(`The Node returned ${label} above the approved clearance.`);
+  }
+  return clearance;
+}
+
+function validateProvenanceRef(value: unknown): NodeProvenanceRef {
+  const source = requireRecord(value, "provenance reference");
+  const envelope = requireNodeEnvelope(source, "provenance reference");
+  return {
+    ...envelope,
+    sourceDocumentId: requireString(source.sourceDocumentId, "source document identity"),
+    sourceVersion: requireString(source.sourceVersion, "source document version"),
+    location: requiredNullableRecord(source, "location", "provenance location"),
+    extractionMethod: requireString(source.extractionMethod, "extraction method"),
+    observedAt: requiredNullableString(source, "observedAt", "observation timestamp"),
+    ingestedAt: requireString(source.ingestedAt, "ingestion timestamp"),
+    ledgerEventRef: requireString(source.ledgerEventRef, "provenance ledger reference"),
+  };
+}
+
+function validateEvidenceRef(value: unknown, maximumClearance: Clearance): NodeEvidenceRef {
+  const source = requireRecord(value, "evidence reference");
+  const envelope = requireNodeEnvelope(source, "evidence reference");
+  const contentHash = requireString(source.contentHash, "evidence content hash");
+  if (!/^[0-9a-fA-F]{64}$/.test(contentHash)) throw new InvalidNodeResponse("The Node returned an invalid evidence content hash.");
+  return {
+    ...envelope,
+    evidenceId: requireString(source.evidenceId, "evidence identity"),
+    contentHash: contentHash.toLowerCase(),
+    source: validateProvenanceRef(source.source),
+    confidence: requireConfidence(source.confidence, "evidence confidence"),
+    clearance: requireClearanceWithin(source.clearance, maximumClearance, "evidence"),
+    taint: requireTaint(source.taint),
+  };
+}
+
+function validateFactRef(value: unknown, maximumClearance: Clearance): NodeFactRef {
+  const source = requireRecord(value, "fact reference");
+  const envelope = requireNodeEnvelope(source, "fact reference");
+  const parentFactIds = requiredField(source, "parentFactIds", "parent fact references");
+  const unit = requiredNullableString(source, "unit", "fact unit");
+  const derivation = requiredNullableRecord(source, "derivation", "fact derivation");
+  const supersededBy = requiredNullableString(source, "supersededBy", "fact supersession reference");
+  return {
+    ...envelope,
+    factId: requireString(source.factId, "fact identity"),
+    value: requiredField(source, "value", "fact value"),
+    source: validateProvenanceRef(source.source),
+    confidence: requireConfidence(source.confidence, "fact confidence"),
+    clearance: requireClearanceWithin(source.clearance, maximumClearance, "fact"),
+    taint: requireTaint(source.taint),
+    parentFactIds: requireStringList(parentFactIds, "parent fact reference"),
+    unit,
+    derivation,
+    supersededBy,
+  };
+}
+
+/**
+ * Re-validates the Node snapshot before it can enter task projection state.
+ * Rust validates the remote response too; this webview check prevents a
+ * malformed or over-cleared snapshot from becoming visible authority.
+ */
+export function validateTaskSnapshot(value: unknown, profile: ApprovedNodeProfileReference, expectedTaskId?: string): TaskSnapshot {
+  const source = requireRecord(value, "task snapshot");
+  const envelope = requireNodeEnvelope(source, "task snapshot");
+  const taskId = requireString(source.taskId, "snapshot task identity");
+  const nodeConnectionRef = requireString(source.nodeConnectionRef, "snapshot Node identity");
+  const clearanceContext = requireClearance(source.clearanceContext);
+  if (taskId !== expectedTaskId && expectedTaskId !== undefined || nodeConnectionRef !== profile.nodeIdentity || clearanceContext !== profile.clearanceContext) {
+    throw new InvalidNodeResponse("The Node snapshot does not match the approved task or Node profile.");
+  }
+  const evidence = requiredField(source, "evidence", "snapshot evidence");
+  const facts = requiredField(source, "facts", "snapshot facts");
+  if (!Array.isArray(evidence) || !Array.isArray(facts)) throw new InvalidNodeResponse("The Node returned an invalid snapshot evidence or fact list.");
+  return {
+    ...envelope,
+    taskId,
+    snapshotId: requireString(source.snapshotId, "snapshot identity"),
+    asOfSequence: requireSequence(source.asOfSequence, "snapshot sequence"),
+    title: requireString(source.title, "snapshot title"),
+    requestSummary: requireString(source.requestSummary, "snapshot request summary"),
+    status: requireTaskStatus(source.status),
+    phase: requireString(source.phase, "snapshot phase"),
+    clearanceContext,
+    inputManifestRef: typeof source.inputManifestRef === "string" ? source.inputManifestRef : (() => { throw new InvalidNodeResponse("The Node returned an invalid input manifest reference."); })(),
+    evidence: evidence.map((item) => validateEvidenceRef(item, clearanceContext)),
+    facts: facts.map((item) => validateFactRef(item, clearanceContext)),
+    artifactRefs: requireStringList(source.artifactRefs, "snapshot artifact reference"),
+    unresolvedQuestions: requireStringList(source.unresolvedQuestions, "snapshot unresolved question"),
+    nodeConnectionRef,
+    ledgerHeadRef: requireString(source.ledgerHeadRef, "snapshot ledger head reference"),
+  };
+}
+
+function validateTaskEnvelope(value: unknown, maximumClearance: Clearance): TaskEnvelope {
+  const source = requireRecord(value, "task envelope");
+  const schemaVersion = requireString(source.schema_version, "task schema version");
+  const compatibilityId = requireString(source.compatibility_id, "task compatibility identity");
+  if (schemaVersion !== CORE_CONTRACT_SCHEMA_VERSION || compatibilityId !== CORE_CONTRACT_COMPATIBILITY_ID) throw new InvalidNodeResponse("The Node returned an incompatible task envelope.");
+  const result: TaskEnvelope = {
+    schema_version: schemaVersion,
+    compatibility_id: compatibilityId,
+    task_id: requireString(source.task_id, "task identity"),
+    principal_id: requireString(source.principal_id, "task principal identity"),
+    clearance: requireClearanceWithin(source.clearance, maximumClearance, "task"),
+    request: requireString(source.request, "task request"),
+    domain_pack_ref: requireString(source.domain_pack_ref, "task domain pack reference"),
+    risk_class: requireString(source.risk_class, "task risk class"),
+    autonomy_ceiling: requireString(source.autonomy_ceiling, "task autonomy ceiling"),
+    allowed_evidence_scope: requireStringList(source.allowed_evidence_scope, "allowed evidence scope"),
+    permitted_worker_capabilities: requireStringList(source.permitted_worker_capabilities, "permitted worker capability"),
+    permitted_tools: requireStringList(source.permitted_tools, "permitted tool"),
+    output_contract: requireString(source.output_contract, "task output contract"),
+    verification_criteria: requireStringList(source.verification_criteria, "verification criterion"),
+    resource_budget: requireNumberMap(source.resource_budget, "task resource budget"),
+  };
+  if (Object.prototype.hasOwnProperty.call(source, "title")) result.title = requireString(source.title, "task title");
+  if (Object.prototype.hasOwnProperty.call(source, "project_ref")) result.project_ref = requiredNullableString(source, "project_ref", "task project reference");
+  if (Object.prototype.hasOwnProperty.call(source, "priority")) result.priority = requireString(source.priority, "task priority");
+  if (Object.prototype.hasOwnProperty.call(source, "deadline")) result.deadline = requiredNullableString(source, "deadline", "task deadline");
+  if (Object.prototype.hasOwnProperty.call(source, "input_manifest_refs")) result.input_manifest_refs = requireStringList(source.input_manifest_refs, "task input manifest reference");
+  if (Object.prototype.hasOwnProperty.call(source, "state")) result.state = requireString(source.state, "task state");
+  if (Object.prototype.hasOwnProperty.call(source, "parent_task_id")) result.parent_task_id = requiredNullableString(source, "parent_task_id", "parent task reference");
+  if (Object.prototype.hasOwnProperty.call(source, "created_at")) result.created_at = requireString(source.created_at, "task creation timestamp");
+  return result;
+}
+
+/**
+ * Validates the complete creation receipt. The desktop only presents a task
+ * after the task envelope, initial snapshot, command receipt, and shared
+ * ledger reference agree with one another.
+ */
+export function validateCreateTaskResponse(value: unknown, profile: ApprovedNodeProfileReference, command: NodeCommandEnvelope): CreateTaskResponse {
+  const source = requireRecord(value, "task creation response");
+  const snapshot = validateTaskSnapshot(source.snapshot, profile);
+  const task = validateTaskEnvelope(source.task, profile.clearanceContext);
+  if (task.task_id !== snapshot.taskId) throw new InvalidNodeResponse("The Node task envelope and snapshot identify different tasks.");
+  const ledgerEventRef = requireString(source.ledger_event_ref, "task creation ledger reference");
+  const commandResult = validateNodeCommandResult(source.command, profile, command, snapshot.taskId);
+  if (commandResult.ledger_event_ref !== ledgerEventRef) throw new InvalidNodeResponse("The Node task creation receipt has mismatched ledger references.");
+  return { task, snapshot, ledger_event_ref: ledgerEventRef, command: commandResult };
 }
 
 /**
@@ -151,7 +356,7 @@ function optionalResponseString(value: unknown, label: string): string | null {
  * trusted unless it is bound to the submitted command and carries its ledger
  * record and current Node context.
  */
-export function validateNodeCommandResult(value: unknown, profile: ApprovedNodeProfileReference, command: NodeCommandEnvelope): NodeCommandResult {
+export function validateNodeCommandResult(value: unknown, profile: ApprovedNodeProfileReference, command: NodeCommandEnvelope, expectedTaskId: string | null = command.task_id): NodeCommandResult {
   const source = requireRecord(value, "Node command result");
   const schemaVersion = requireString(source.schema_version, "command result schema version");
   const compatibilityId = requireString(source.compatibility_id, "command result compatibility identity");
@@ -162,7 +367,7 @@ export function validateNodeCommandResult(value: unknown, profile: ApprovedNodeP
   const commandId = requireString(source.command_id, "command result command identity");
   const taskId = optionalResponseString(source.task_id, "command result task identity");
   const idempotencyKey = requireString(source.idempotency_key, "command result idempotency key");
-  if (commandId !== command.command_id || taskId !== command.task_id || idempotencyKey !== command.idempotency_key) {
+  if (commandId !== command.command_id || taskId !== expectedTaskId || idempotencyKey !== command.idempotency_key) {
     throw new InvalidNodeResponse("The Node command result does not match the submitted command.");
   }
   const nodeIdentity = requireString(source.node_identity, "command result Node identity");
@@ -224,10 +429,10 @@ function assertTaskCommand(command: NodeCommandEnvelope): asserts command is Nod
 export function fetchTaskSnapshot(profile: ApprovedNodeProfileReference, taskId: string): Promise<TaskSnapshot> {
   assertApprovedProfile(profile);
   if (!TASK_ID.test(taskId)) throw new Error("The task identifier is invalid.");
-  return invoke<TaskSnapshot>("fetch_task_snapshot", {
+  return invoke<unknown>("fetch_task_snapshot", {
     profileId: profile.profileId,
     taskId,
-  });
+  }).then((value) => validateTaskSnapshot(value, profile, taskId));
 }
 
 export function fetchTaskPlan(profile: ApprovedNodeProfileReference, taskId: string): Promise<TaskPlanReview> {
@@ -245,10 +450,10 @@ export function createTask(profile: ApprovedNodeProfileReference, command: NodeC
   if (command.command_type !== "task.create" || command.task_id !== null || command.expected_sequence !== null) {
     throw new Error("The task creation command envelope is invalid.");
   }
-  return invoke<CreateTaskResponse>("create_task", {
+  return invoke<unknown>("create_task", {
     profileId: profile.profileId,
     command,
-  });
+  }).then((value) => validateCreateTaskResponse(value, profile, command));
 }
 
 export function sendTaskCommand(profile: ApprovedNodeProfileReference, command: NodeCommandEnvelope): Promise<NodeCommandResult> {

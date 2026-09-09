@@ -61,6 +61,12 @@ TaskSnapshot
 
 The snapshot may omit content the user is not cleared to see, but it must include a structured reason for omission.
 
+The Node wire snapshot uses camel-case fields and the Node protocol envelope. Rust validates the response while the webview performs a second runtime validation before projection. The webview requires the snapshot task identity, Node identity, protocol envelope, and clearance context to match the approved profile and requested task. It validates the task status, cursor, title, phase, manifest reference, artifact references, unresolved questions, snapshot identity, and ledger head.
+
+Evidence and fact arrays are not trusted because TypeScript types are present. Each nested record is validated against its Node wire envelope. Provenance must include a source document identity and version, extraction method, ingestion time, and ledger event reference, with an explicit nullable location and observation time. Evidence content hashes must be SHA-256 hex digests. Confidence must be finite and between zero and one, and evidence or facts above the approved Node clearance are rejected. Fact values remain data, while parent fact IDs, derivation, and supersession fields are retained.
+
+The `task.create` receipt is accepted only when its typed task envelope and snapshot identify the same task, its command receipt matches the submitted command and approved Node profile, and the outer creation ledger reference equals the command ledger reference. A mismatch blocks the receipt before the Home or Live Task Workspace can present it as accepted.
+
 ## 3.1 Approved Node profile catalog
 
 The desktop receives connection profiles only from the native Tauri boundary. A profile carries a stable ID, display label, transport kind, expected Node identity, protocol version, clearance context, certificate policy reference, and operating-system credential reference. The React layer does not accept an arbitrary URL, secret, certificate, or profile JSON from a user. The native catalog rejects invalid or unapproved entries before returning them. The initial implementation uses an administrator-provisioned application configuration file; signed policy verification and host ACL evidence remain release gates.

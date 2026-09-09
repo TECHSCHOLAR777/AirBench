@@ -9,6 +9,7 @@ Status: implementation slice complete locally. Issue #76 remains open for the re
 - The UI does not parse, OCR, inspect, execute, or reinterpret file bytes.
 - A manifest is treated as ready only when both OCR and vision statuses are terminal success or explicitly not applicable. Pending or running work remains processing, and failed, unavailable, or unknown statuses remain partial; the UI does not request or display a preview as if those results were complete.
 - The webview re-validates the runtime payload returned by the native intake commands before it becomes React state. Intake identity, file bounds, hashes, statuses, clearance, taint, preview references, source regions, confidence, safe text limits, artifact blocks, and ledger references fail closed when malformed or over-cleared.
+- The webview re-validates Node task snapshots before projection. Snapshot identity and clearance must match the approved Node, and every evidence and fact record must retain its wire envelope, source provenance, confidence, clearance, taint, and ledger reference. Evidence content hashes must be SHA-256 digests. The creation receipt also cross-checks the task envelope, snapshot task identity, command receipt, and shared ledger reference.
 - The Node handshake supplies the domain-pack reference. The UI carries it in the command, while the Node rejects a value that differs from its configured pack.
 - `task.create` is sent through the Rust-owned typed command bridge. The Python Node validates the command, creates the task envelope, and preserves the bounded user metadata and manifest references.
 - The Home screen renders the Node acceptance receipt with task ID, task state, ledger reference, and sequence. It does not claim that the task has completed; later authoritative task state must arrive through the event stream.
@@ -25,7 +26,7 @@ Status: implementation slice complete locally. Issue #76 remains open for the re
 ## Verification
 
 - `python -m pytest -q tests/test_node_api.py tests/test_contracts.py`: 24 passed.
-- `npm test -- --run`: 110 passed across 22 test files.
+- `npm test -- --run`: 119 passed across 22 test files.
 - `npm run build`: passed.
 - `npm run check:contracts`: passed.
 - `npm run check:ui`: passed, including the authored-source accessibility contract.

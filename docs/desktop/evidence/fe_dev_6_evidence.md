@@ -17,12 +17,13 @@ Status: the first Live Task Workspace slice is implemented locally and remains o
 - Controlled artifact download is also disabled while the task projection is stale, reconnecting, or blocked. The desktop requires a current Node projection before requesting a Node-authorized release.
 - Stop uses the existing Node command contract as `task.cancel`, carries the last applied sequence and idempotency key, and waits for the authoritative stopped event. It does not optimistically change task state.
 - The command bridge re-validates approval and stop receipts against the submitted command identity, task, idempotency key, Node identity, protocol, clearance, and ledger reference before the workspace presents them as accepted.
+- The command bridge re-validates fetched snapshots and task-creation receipts before loading the live projection. Nested evidence and facts cannot enter the workspace with malformed provenance, invalid confidence or taint, an over-cleared record, or a missing ledger reference.
 - Plan review and approval remain reachable from the live workspace. Approval is still a Node-authorized action and the UI waits for the corresponding event.
 - Pause, resume, and answer-question controls are intentionally not fabricated. They remain disabled until their typed Node contracts and ledger behavior exist.
 
 ## Verification
 
-- Frontend tests: 117 passed, including event transport, command-result, and quiet-poll provenance tests.
+- Frontend tests: 119 passed, including event transport, command-result, snapshot provenance, creation-receipt, and quiet-poll provenance tests.
 - Frontend TypeScript and production Vite build: passed.
 - Static egress and Tauri policy checks: passed.
 - `git diff --check`: passed.
