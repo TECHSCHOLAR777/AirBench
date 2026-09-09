@@ -338,6 +338,22 @@ class Orchestrator:
             self._checkpoint(task_id, result)
         return result
 
+    def finalize_with_completion_gate(self, task_id: str, *, gate_outcome: str,
+                                      reason: str, criteria: dict[str, bool]) -> TransitionResult:
+        """Apply an M8 gate result through the orchestrator-owned state machine.
+
+        The gate can recommend readiness, but only this method may commit the
+        task's completion transition. Any non-passing result becomes an
+        explicit review state and cannot be treated as a successful run.
+        """
+        if gate_outcome == "passed":
+            if not criteria or any(value is not True for value in criteria.values()):
+                raise TransitionRejected("completion gate passed without all criteria explicitly true")
+            return self.transition(task_id, "completion.recorded", {"criteria": criteria, "reason": reason})
+        if gate_outcome == "needs_review":
+            return self.transition(task_id, "human.review.required", {"reason": reason, "criteria": criteria})
+        raise TransitionRejected("completion gate outcome must be passed or needs_review")
+
     def audit_event(self, task_id: str, event_type: str, payload: dict[str, Any], *,
                     contract: str, event_key: str,
                     command_metadata: dict[str, str] | None = None) -> TransitionResult:

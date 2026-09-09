@@ -88,6 +88,12 @@ events:
   - recovery.resumed
   - crash.recovered
 
+  # ── M8: Verification, authority, and consistency ─────────────────────────
+  - verification.evaluator.requested
+  - verification.evaluator.completed
+  - consistency.checked
+  - authority.decided
+
   # ── M5.1: Model registry, artifact integrity, qualification ───────────────
   - model.registry.loaded
   - model.registry.signature.verified
