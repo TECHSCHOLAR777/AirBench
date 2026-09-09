@@ -41,9 +41,10 @@ export function intakeStatusCopy(state: IntakeUiState): IntakeStatusCopy {
   return STATUS_COPY[state];
 }
 
-export function intakeStateFromManifest(manifest: Pick<IntakeManifest, "ocr_status" | "vision_status">): "processing" | "ready" {
+export function intakeStateFromManifest(manifest: Pick<IntakeManifest, "ocr_status" | "vision_status">): "processing" | "ready" | "partial" {
   const statuses = [manifest.ocr_status, manifest.vision_status];
-  return statuses.some((status) => status === "pending" || status === "running") ? "processing" : "ready";
+  if (statuses.some((status) => status === "pending" || status === "running")) return "processing";
+  return statuses.every((status) => status === "completed" || status === "not_applicable") ? "ready" : "partial";
 }
 
 function errorMessage(error: unknown): string {
