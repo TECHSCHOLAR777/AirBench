@@ -1,7 +1,7 @@
 import type { TaskProjection } from "../../platform/events/protocol";
 
 export type RecordGatewayDestination = "review" | "artifacts" | "history" | "audit";
-export type RecordGatewayState = "node_unavailable" | "query_not_supplied";
+export type RecordGatewayState = "node_unavailable" | "projection_not_current" | "query_not_supplied";
 
 export interface RecordGatewayContext {
   taskId: string;
@@ -70,6 +70,16 @@ export function buildRecordGateway(
       state: "node_unavailable",
       stateLabel: "Connect an approved Node",
       stateDescription: "No approved Node path is currently connected, so AirBench cannot request this record safely.",
+      currentTask: null,
+    };
+  }
+
+  if (currentTask && currentTask.health !== "current") {
+    return {
+      ...copy,
+      state: "projection_not_current",
+      stateLabel: "Task context is not current",
+      stateDescription: "The approved Node connection is active, but the current task projection is resynchronizing or blocked. AirBench will not show it as current context for this record view.",
       currentTask: null,
     };
   }

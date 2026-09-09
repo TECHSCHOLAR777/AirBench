@@ -60,4 +60,15 @@ describe("record gateway", () => {
     });
     expect(gateway.requiredProjection).toMatch(/Node-issued artifact library/);
   });
+
+  it("does not present a stale task projection as current record context", () => {
+    const gateway = buildRecordGateway("review", true, { ...task, health: "resynchronizing" });
+
+    expect(gateway).toMatchObject({
+      state: "projection_not_current",
+      stateLabel: "Task context is not current",
+      currentTask: null,
+    });
+    expect(gateway.stateDescription).toContain("will not show it as current context");
+  });
 });
