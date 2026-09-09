@@ -20,6 +20,15 @@ runtime evidence, and observed no-egress proof.
 - The recovery helper is presentation-only. The existing event synchronizer
   and Node command gates remain responsible for current-state and
   consequential-action authority.
+- Validated Node command receipts now keep `accepted`, `needs_review`, and
+  `rejected` outcomes distinct. Plan approval and stop-request surfaces show
+  what happened, what remains preserved, whether retry is safe, the next
+  permitted action, and the receipt ledger reference. A stop-request refresh
+  occurs only after an accepted receipt; a deferred or rejected command does
+  not cause the desktop to imply a state transition.
+- The plan surface no longer routes rejected or deferred command receipts
+  through the accepted-approval recovery copy. Node-provided reason text is
+  rendered as text only and cannot create local authority.
 
 ## Contracts and files
 
@@ -31,10 +40,14 @@ runtime evidence, and observed no-egress proof.
   status hierarchy as the intake, plan, Node, and proof recovery surfaces.
 - `apps/desktop/src/features/tasks/syncRecovery.test.ts` covers reconnect,
   replay, blocked, in-flight, current, and idle guidance.
+- `apps/desktop/src/features/tasks/commandOutcome.ts` maps validated command
+  receipts to the operator-facing outcome and recovery contract.
+- `apps/desktop/src/features/tasks/commandOutcome.test.ts` covers accepted,
+  review-required, rejected, and refresh-gating behavior.
 
 ## Verification
 
-- `npm test -- --run`: 123 passed across 23 test files.
+- `npm test -- --run`: 127 passed across 24 test files.
 - `npm run build`: passed.
 - `npm run check:contracts`: passed.
 - `npm run check:ui`: passed, including the authored-source accessibility
@@ -43,6 +56,9 @@ runtime evidence, and observed no-egress proof.
   resource URL was found.
 - `npm run check:tauri-config`: passed.
 - `git diff --check`: passed.
+- `npm run check:webdriver`: blocked before application launch because
+  `msedgedriver.exe` is not provisioned on this host. No packaged desktop
+  pass is claimed from the source-level checks.
 
 ## Remaining gates
 

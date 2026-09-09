@@ -11,6 +11,7 @@ import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand, type Cre
 import type { NodeCommandResult, TaskPlanReview } from "../generated/core_contracts";
 import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan, canCancelTask } from "../features/tasks/taskComposer";
 import { planRecoveryGuidance } from "../features/tasks/planRecovery";
+import { commandOutcomeGuidance, shouldRefreshTaskAfterCommand } from "../features/tasks/commandOutcome";
 import { fetchTaskEventBatch } from "../platform/events/eventTransport";
 import { maySendConsequentialCommand, TaskEventSynchronizer, type EventSyncResult, type EventSyncState } from "../platform/events/eventStore";
 import { TaskEventLoop } from "../features/tasks/taskEventLoop";
@@ -504,7 +505,7 @@ function App() {
       );
       const result = await sendTaskCommand(profile, command);
       setPlanApprovalResult(result);
-      setNotice("Plan approval was accepted by the Node. Execution state will change only after the authoritative event arrives.");
+      setNotice(commandOutcomeGuidance("Plan approval", result).detail);
     } catch {
       setNotice("The Node did not accept this plan approval. No local execution state was changed.");
     } finally {
@@ -532,8 +533,9 @@ function App() {
       );
       const result = await sendTaskCommand(profile, command);
       setTaskControlResult(result);
-      setNotice("The stop command was accepted by the Node. The task view will change only after the stopped event is received.");
-      await refreshTask();
+      const guidance = commandOutcomeGuidance("Stop request", result);
+      setNotice(guidance.detail);
+      if (shouldRefreshTaskAfterCommand(result)) await refreshTask();
     } catch {
       setNotice("The Node did not accept the stop command. No local task state was changed.");
     } finally {
@@ -745,12 +747,25 @@ function PlanReviewCard({ plan, loading, approval, approving, synchronized, curr
     <div className="plan-review-head"><div><p className="eyebrow">PLAN REVIEW</p><h2>{stateLabel[plan.plan_state] ?? plan.plan_state}</h2></div><span className={`intake-badge plan-state-${plan.plan_state}`}>{modeLabel[plan.execution_mode] ?? plan.execution_mode}</span></div>
     <p className="plan-muted">{plan.authority_reason}</p>
     {plan.failure_reason && <div className="plan-warning" role="status"><strong>{plan.failure_code ?? "Plan requires attention"}</strong><span>{plan.failure_reason}</span></div>}
-    {(plan.plan_state !== "ready" || !synchronized || Boolean(approval)) && <PlanRecoveryBlock guidance={planRecoveryGuidance(plan, synchronized, Boolean(approval))} />}
+    {!approval && (plan.plan_state !== "ready" || !synchronized) && <PlanRecoveryBlock guidance={planRecoveryGuidance(plan, synchronized, false)} />}
     <div className="plan-meta-grid"><div><span>Team</span><strong>{plan.team_id ?? "Not assigned"}</strong></div><div><span>Concurrency</span><strong>{plan.concurrency_ceiling || "Not selected"}</strong></div><div><span>Hardware</span><strong>{plan.hardware_profile_ref ?? "Admission pending"}</strong></div><div><span>Verification</span><strong>{plan.required_verification ? "Required" : "Missing"}</strong></div></div>
     <div className="plan-reason"><span>Why this mode</span><p>{plan.hardware_reason}</p></div>
     <div className="plan-workers"><span>Capability lanes</span><div>{Object.entries(plan.worker_capabilities).map(([worker, capability]) => <span className="plan-worker" key={worker}>{worker}: {capability}</span>)}</div></div>
     <div className="plan-stages"><span>Stage dependencies</span>{Object.entries(plan.dependency_graph).map(([stage, dependencies]) => <div className="plan-stage" key={stage}><strong>{stage}</strong><small>{dependencies.length ? `After ${dependencies.join(", ")}` : "Can begin first"}</small></div>)}</div>
-    <div className="plan-review-footer"><small>Plan {plan.plan_version_hash ?? "pending"} / ledger {plan.ledger_event_ref ?? "pending"} / sequence {plan.task_sequence}</small>{approval ? <span className="plan-approved" role="status">Approval accepted by Node. Awaiting task event.</span> : <div className="plan-review-actions"><button type="button" className="primary-button" data-testid="approve-plan" onClick={onApprove} disabled={!canApprove} aria-describedby="plan-approval-hint" title={canApprove ? "Approve this Node-validated plan" : approvalHint}>{approving ? "Sending..." : "Approve and run"}</button><button type="button" className="secondary-button bordered-button" data-testid="cancel-task" onClick={() => { void onCancel(); }} disabled={!canCancel} title={canCancel ? "Send a Node-authorized cancel command" : "Cancel is disabled until the Node is current"}>Cancel task</button></div>}{!approval && <span id="plan-approval-hint" className="plan-action-note">{approvalHint}</span>}</div>
+    <div className={`plan-review-footer${approval ? " plan-review-footer-outcome" : ""}`}><small>Plan {plan.plan_version_hash ?? "pending"} / ledger {plan.ledger_event_ref ?? "pending"} / sequence {plan.task_sequence}</small>{approval ? <CommandOutcomeBlock action="Plan approval" result={approval} /> : <div className="plan-review-actions"><button type="button" className="primary-button" data-testid="approve-plan" onClick={onApprove} disabled={!canApprove} aria-describedby="plan-approval-hint" title={canApprove ? "Approve this Node-validated plan" : approvalHint}>{approving ? "Sending..." : "Approve and run"}</button><button type="button" className="secondary-button bordered-button" data-testid="cancel-task" onClick={() => { void onCancel(); }} disabled={!canCancel} title={canCancel ? "Send a Node-authorized cancel command" : "Cancel is disabled until the Node is current"}>Cancel task</button></div>}{!approval && <span id="plan-approval-hint" className="plan-action-note">{approvalHint}</span>}</div>
+  </section>;
+}
+
+function CommandOutcomeBlock({ action, result }: { action: "Plan approval" | "Stop request"; result: NodeCommandResult }) {
+  const guidance = commandOutcomeGuidance(action, result);
+  return <section className={`command-outcome command-outcome-${guidance.tone}`} role={result.outcome === "rejected" ? "alert" : "status"} aria-label={`${action} result`}>
+    <div><strong>{guidance.label}</strong><span>{guidance.detail}</span></div>
+    <dl>
+      <div><dt>Preserved</dt><dd>{guidance.preserved}</dd></div>
+      <div><dt>Retry</dt><dd>{guidance.retry}</dd></div>
+      <div><dt>Next</dt><dd>{guidance.nextAction}</dd></div>
+      <div><dt>Ledger</dt><dd>{result.ledger_event_ref ?? "Not supplied by Node"}</dd></div>
+    </dl>
   </section>;
 }
 
@@ -805,7 +820,7 @@ function TaskWorkspaceView({ projection, syncState, plan, approval, approving, c
     <ProofInspectorPanel selection={proofSelection} artifactPreview={artifactPreview} artifactPreviewState={artifactPreviewState} artifactPreviewError={artifactPreviewError} artifactLifecycleState={selectedArtifactLifecycleState} downloadState={artifactDownloadState} downloadReceipt={artifactDownloadReceipt} onDownloadArtifact={(artifactId: string) => { void onDownloadArtifact(artifactId); }} />
     </div>
     {plan && <PlanReviewCard plan={plan} loading={false} approval={approval} approving={approving} synchronized={maySendConsequentialCommand(projection, syncStatus)} currentTaskSequence={projection.lastAppliedSequence} taskStatus={projection.status} onApprove={onApprovePlan} onCancel={onStop} />}
-    {controlResult && <div className="workspace-receipt" role="status">Stop command accepted by Node. Ledger {controlResult.ledger_event_ref ?? "pending"}; waiting for the authoritative event.</div>}
+    {controlResult && <CommandOutcomeBlock action="Stop request" result={controlResult} />}
     <section className="workspace-activity"><div className="section-heading"><div><h2>Activity</h2><p>Chronological Node records. Model reasoning traces are not exposed.</p></div><span className="workspace-count">{trace.activity.length} events</span></div>{trace.activity.length === 0 ? <div className="workspace-empty">The Node has not returned a new activity event yet.</div> : <ol className="activity-list">{trace.activity.map((event) => <TraceActivityRow key={`${event.eventId}-${event.sequence}`} item={event} />)}</ol>}</section>
     {projection.diagnostics.length > 0 && <section className="workspace-warning" role="alert"><strong>Task view needs attention</strong>{projection.diagnostics.map((diagnostic) => <span key={`${diagnostic.code}-${diagnostic.sequence}`}>{diagnostic.code}: {diagnostic.detail}</span>)}</section>}
     <details className="workspace-technical"><summary>Technical trace</summary><div className="technical-trace-content"><section><h2>Routing and hardware</h2><p>{trace.routing.state === "not_supplied" ? "No Node routing record is available. The desktop cannot infer a selected target, fallback, or policy reason." : "The Node supplied plan-level capability and hardware context. Exact routing records are not present in the current task event contract."}</p><dl className="technical-trace-grid"><div><dt>Execution mode</dt><dd>{trace.routing.executionMode ?? "Not supplied"}</dd></div><div><dt>Hardware profile</dt><dd>{trace.routing.hardwareProfileRef ?? "Not supplied"}</dd></div><div><dt>Hardware reason</dt><dd>{trace.routing.hardwareReason ?? "Not supplied"}</dd></div><div><dt>Selected target</dt><dd>{trace.routing.selectedTarget ?? "Not supplied"}</dd></div><div><dt>Fallback record</dt><dd>{trace.routing.fallbackReason ?? "Not supplied"}</dd></div><div><dt>Routing policy reason</dt><dd>{trace.routing.policyReason ?? "Not supplied"}</dd></div><div><dt>Plan ledger</dt><dd>{trace.routing.planLedgerEventRef ?? "Not supplied"}</dd></div><div><dt>Plan hash</dt><dd>{trace.routing.planVersionHash ?? "Not supplied"}</dd></div><div><dt>Policy hash</dt><dd>{trace.routing.policyVersionHash ?? "Not supplied"}</dd></div></dl><div className="technical-capability-lanes"><span>Capability lanes</span>{Object.keys(trace.routing.capabilityLanes).length === 0 ? <small>None supplied by the Node.</small> : Object.entries(trace.routing.capabilityLanes).map(([worker, capability]) => <span key={worker}>{worker}: {capability}</span>)}</div></section><section><h2>Event metadata</h2>{trace.activity.length === 0 ? <p>No ordered event metadata is available in this cursor.</p> : <ol className="technical-event-list">{trace.activity.map((event) => <li key={`technical-${event.eventId}`}><strong>{event.label}</strong><dl><div><dt>Event</dt><dd>{event.eventType}</dd></div><div><dt>Sequence</dt><dd>{event.sequence}</dd></div><div><dt>Node time</dt><dd>{event.occurredAt}</dd></div><div><dt>Actor</dt><dd>{event.actor}</dd></div><div><dt>Clearance</dt><dd>{event.clearance}</dd></div><div><dt>Payload hash</dt><dd>{event.payloadHash}</dd></div><div><dt>Ledger</dt><dd>{event.ledgerEventRef}</dd></div></dl></li>)}</ol>}</section></div></details>
