@@ -226,7 +226,10 @@ export class TaskEventSynchronizer {
   private async resynchronize(code: string): Promise<EventSyncResult> {
     if (!this.fetchSnapshot) return this.blocked(code, "The event replay did not converge and no snapshot resync is available.");
     try {
-      const snapshot = await this.fetchSnapshot(this.store.current().taskId);
+      const current = this.store.current();
+      const snapshot = await this.fetchSnapshot(current.taskId);
+      const candidate = projectionFromSnapshot(snapshot);
+      this.validateSnapshotReplacement(candidate, current);
       const projection = this.store.replaceSnapshot(snapshot);
       return this.currentResult("current", projection, {
         status: "connected",
@@ -235,7 +238,26 @@ export class TaskEventSynchronizer {
         error: null,
       });
     } catch (error) {
+      if (error instanceof EventSyncProtocolError) return this.blocked(error.code, error.message);
       return this.blocked("snapshot_resync_failed", safeSyncError(error));
+    }
+  }
+
+  private validateSnapshotReplacement(candidate: TaskProjection, current: TaskProjection): void {
+    if (candidate.taskId !== current.taskId) {
+      throw new EventSyncProtocolError("The Node snapshot replacement belongs to a different task.");
+    }
+    if (candidate.nodeConnectionRef !== current.nodeConnectionRef) {
+      throw new EventSyncProtocolError("The Node snapshot replacement belongs to a different Node identity.");
+    }
+    if (candidate.clearanceContext !== current.clearanceContext) {
+      throw new EventSyncProtocolError("The Node snapshot replacement changes the task clearance context.");
+    }
+    if (!Number.isSafeInteger(candidate.lastAppliedSequence) || candidate.lastAppliedSequence < current.lastAppliedSequence) {
+      throw new EventSyncProtocolError("The Node snapshot replacement rewinds the task event cursor.");
+    }
+    if (!candidate.snapshotId.trim() || !candidate.ledgerHeadRef.trim()) {
+      throw new EventSyncProtocolError("The Node snapshot replacement is missing its identity or ledger reference.");
     }
   }
 
