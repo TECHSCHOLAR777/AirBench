@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { maySendConsequentialCommand, CommandDeduplicator, TaskEventStore, TaskEventSynchronizer } from "./eventStore";
-import type { TaskEventBatch } from "./eventTransport";
+import { EventTransportProtocolError, type TaskEventBatch } from "./eventTransport";
 import { applyEvent, projectionFromSnapshot, type TaskEvent, type TaskSnapshot } from "./protocol";
 
 const snapshot: TaskSnapshot = {
@@ -249,6 +249,23 @@ describe("sequence-numbered task projection", () => {
     expect(result.state.status).toBe("blocked");
     expect(result.state.error?.code).toBe("event_protocol_invalid");
     expect(result.projection.health).toBe("blocked");
+    expect(maySendConsequentialCommand(result.projection, result.state.status)).toBe(false);
+  });
+
+  it("blocks an invalid transport response instead of misclassifying it as a reconnect", async () => {
+    const synchronizer = new TaskEventSynchronizer(async () => {
+      throw new EventTransportProtocolError("The Node returned an invalid event batch.");
+    });
+    synchronizer.loadSnapshot(snapshot);
+
+    const result = await synchronizer.synchronizeOnce();
+
+    expect(result.kind).toBe("blocked");
+    expect(result.state.status).toBe("blocked");
+    expect(result.state.error).toEqual({
+      code: "event_protocol_invalid",
+      message: "The Node returned an invalid event batch.",
+    });
     expect(maySendConsequentialCommand(result.projection, result.state.status)).toBe(false);
   });
 

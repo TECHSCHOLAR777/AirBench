@@ -80,4 +80,43 @@ describe("Rust-owned event transport", () => {
     expect(result.events[0]?.compatibilityId).toBe("airbench-node-protocol");
     expect(result.events[0]?.eventType).toBe("task.accepted");
   });
+
+  it("rejects malformed native batches before normalization", async () => {
+    const validBatch = {
+      schema_version: "1.0",
+      compatibility_id: "airbench-core-contracts",
+      stream_id: "task-1",
+      node_identity: "node-1",
+      protocol_version: "0.1",
+      clearance_context: "restricted",
+      events: [{
+        eventId: "event-1",
+        taskId: "task-1",
+        sequence: 1,
+        schemaVersion: "0.1",
+        compatibilityId: "airbench-node-protocol",
+        eventType: "task.accepted",
+        occurredAt: "2026-09-09T00:00:00Z",
+        actor: "node-1",
+        clearanceContext: "restricted",
+        payloadHash: "hash-1",
+        ledgerEventRef: "ledger-1",
+        payload: { phase: "accepted", status: "accepted" },
+      }],
+      next_sequence: 1,
+      has_more: false,
+      ledger_event_refs: ["ledger-1"],
+    };
+    const malformedBatches = [
+      null,
+      { ...validBatch, events: [{ ...validBatch.events[0], payload: [] }] },
+      { ...validBatch, ledger_event_refs: [] },
+      { ...validBatch, next_sequence: 0 },
+    ];
+
+    for (const malformed of malformedBatches) {
+      invokeMock.mockResolvedValueOnce(malformed);
+      await expect(fetchTaskEventBatch(profile, "task-1", 0)).rejects.toMatchObject({ code: "event_protocol_invalid" });
+    }
+  });
 });
