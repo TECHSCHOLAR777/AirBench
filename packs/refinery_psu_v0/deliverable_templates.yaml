@@ -2,6 +2,14 @@ templates:
   - id: refinery_psu_approval_note_v0
     format: docx
     status: verified_draft_for_human_review
+    title: Refinery PSU Inspection Approval Note
+    subject: Inspection report review
+    section_labels:
+      subject: Subject
+      findings: Findings
+      source_register: Source Register
+      deterministic_calculations: Deterministic Calculations
+      review_status: Review Status
     required_sections: [subject, findings, source_register, deterministic_calculations, review_status]
     numeric_values: verified_fact_or_deterministic_calculation_only
     structural_check: required

@@ -6,8 +6,11 @@ from pathlib import Path
 
 import pytest
 import yaml
+from PIL import Image
+from io import BytesIO
 
 from airbench.m9 import RefineryPack, RefineryVerticalSlice, SignedPackError
+from airbench.intake.vision import LocalVisionAdapter, VisionResult, static_text_extractor
 from contracts import Clearance, EventLedger
 
 
@@ -76,3 +79,47 @@ def test_missing_findings_fails_closed(tmp_path: Path) -> None:
         RefineryVerticalSlice(signed_pack(tmp_path), EventLedger(), artifact_dir=tmp_path / "artifacts").run(
             task_id="task.m9.empty", report_pages={"page-1": "not a finding"}, manuals={}
         )
+
+
+def test_run_from_local_image_uses_file_intake_and_typed_vision(tmp_path: Path) -> None:
+    pack = signed_pack(tmp_path)
+    report = tmp_path / "inspection.png"
+    image = Image.new("RGB", (8, 8), "white")
+    image.save(report, format="PNG")
+    manual = tmp_path / "sop.txt"
+    manual.write_text("seal leakage requires isolation", encoding="utf-8")
+    ledger = EventLedger()
+    vision = LocalVisionAdapter(
+        adapter_id="airbench.vision.fixture", adapter_version="1.0",
+        model_target_id="target.fixture.vision", qualification_reference="qualification.fixture.vision",
+        extractor=static_text_extractor(
+            {}, adapter_id="airbench.vision.fixture", adapter_version="1.0",
+            model_target_id="target.fixture.vision", qualification_reference="qualification.fixture.vision",
+        ),
+        ledger=ledger,
+    )
+    # The fixture extractor is keyed after intake creates the stable page ID.
+    def extract(request):
+        return VisionResult(
+            extraction_id=f"extraction-{request.page_id}", task_id=request.task_id,
+            intake_id=request.intake_id, revision_id=request.revision_id, page_id=request.page_id,
+            source_ref=request.source_ref, text="F-01: P-101: high: seal leakage observed",
+            confidence=0.91, extraction_method="fixture", adapter_id="airbench.vision.fixture",
+            adapter_version="1.0", model_target_id="target.fixture.vision",
+            qualification_reference="qualification.fixture.vision", clearance=request.clearance,
+            taint=request.taint, content_hash=request.content_hash,
+        )
+    vision._extractor = extract
+    result = RefineryVerticalSlice(pack, ledger, artifact_dir=tmp_path / "artifacts").run_from_file(
+        task_id="task.m9.file", report_path=report, manual_paths={"local:sop": manual},
+        vision_adapter=vision,
+    )
+    assert result.findings[0].fact.source_ref.startswith("local:")
+    assert result.findings[0].fact.confidence == 0.91
+    event_types = [event.event_type for event in ledger.events]
+    assert "evidence.created" in event_types
+    assert "vision.requested" in event_types and "vision.completed" in event_types
+    assert "index.completed" in event_types and "retrieval.completed" in event_types
+    assert "verification.completed" in event_types and "verification.evaluator.completed" in event_types
+    assert "routing.decided" in event_types
+    assert "fact.committed" in event_types and "tool.authorized" in event_types
