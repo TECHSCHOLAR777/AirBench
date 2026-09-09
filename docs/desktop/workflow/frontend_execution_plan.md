@@ -64,7 +64,7 @@ These are parallel only after the shared generated contracts are accepted. They 
 | #67 FE-VAL-4 | native picker, safe preview, hash and clearance tests | real File Intake and artifact service plus negative corpus and packaged evidence |
 | #68 FE-VAL-5 | CSP, capability, local-assets, and blocked-resource regression checks | OS-level network capture with the approved internal allowlist |
 | #69 FE-VAL-6 | isolate and fix the WebDriver bootstrap failure without changing product behavior | executable fixtures from #64 through #68 and packaged flow evidence |
-| #84 FE-DEV-12 and #111 FE-REF-06 | component failure, keyboard, contrast, reduced-motion, and static visual-baseline harness work | all first-release screens and packaged desktop evidence |
+| #84 FE-DEV-12 and #111 FE-REF-06 | component failure, explicit recovery guidance, keyboard, contrast, reduced-motion, and static visual-baseline harness work | all first-release screens and packaged desktop evidence |
 | #85 FE-DEV-13 | integration checklist and synthetic fixture preparation | the complete first-release path and all validation evidence |
 
 ## Shared contract queue
