@@ -5,6 +5,7 @@ export interface TaskEventLoopOptions {
   reconnectIntervalMs?: number;
   schedule?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
   cancel?: (handle: ReturnType<typeof setTimeout>) => void;
+  onTransportUncertain?: () => void;
   onError?: (error: unknown) => void;
 }
 
@@ -20,6 +21,7 @@ export class TaskEventLoop {
   private readonly reconnectIntervalMs: number;
   private readonly schedule: NonNullable<TaskEventLoopOptions["schedule"]>;
   private readonly cancel: NonNullable<TaskEventLoopOptions["cancel"]>;
+  private readonly onTransportUncertain: (() => void) | undefined;
   private readonly onError: ((error: unknown) => void) | undefined;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
@@ -34,6 +36,7 @@ export class TaskEventLoop {
     this.reconnectIntervalMs = Math.max(this.intervalMs, options.reconnectIntervalMs ?? 2_000);
     this.schedule = options.schedule ?? ((callback, delayMs) => setTimeout(callback, delayMs));
     this.cancel = options.cancel ?? ((handle) => clearTimeout(handle));
+    this.onTransportUncertain = options.onTransportUncertain;
     this.onError = options.onError;
   }
 
@@ -65,6 +68,7 @@ export class TaskEventLoop {
     try {
       const result = await this.synchronize();
       if (!this.running) return;
+      if (result.kind === "reconnecting") this.onTransportUncertain?.();
       this.onResult(result);
       if (result.kind === "blocked" || TERMINAL_STATUSES.has(result.projection.status)) {
         this.stop();
@@ -73,6 +77,7 @@ export class TaskEventLoop {
       this.scheduleNext(result.kind === "reconnecting" ? this.reconnectIntervalMs : this.intervalMs);
     } catch (error) {
       if (!this.running) return;
+      this.onTransportUncertain?.();
       this.onError?.(error);
       this.scheduleNext(this.reconnectIntervalMs);
     } finally {

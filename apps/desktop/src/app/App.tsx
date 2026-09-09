@@ -181,6 +181,17 @@ function App() {
     }));
   };
 
+  const markNodeTransportUncertain = () => {
+    applyConnection(controller.markDisconnected());
+  };
+
+  const applyTaskSyncResult = (result: EventSyncResult) => {
+    setTaskProjection(result.projection);
+    setEventSyncState(result.state);
+    if (result.kind === "reconnecting") markNodeTransportUncertain();
+    return result;
+  };
+
   const connectProfile = async (profile: ApprovedNodeProfileReference) => {
     setConnectingProfileId(profile.profileId);
     setConnection({ ...controller.snapshot(), state: "connecting", profileId: profile.profileId });
@@ -329,17 +340,14 @@ function App() {
     setTaskProjection(synchronizer.loadSnapshot(snapshot));
     setEventSyncState(synchronizer.state());
     const result = await synchronize(synchronizer);
-    setTaskProjection(result.projection);
-    setEventSyncState(result.state);
-    return result;
+    return applyTaskSyncResult(result);
   };
 
   const refreshTask = async () => {
     const synchronizer = synchronizerRef.current;
     if (!synchronizer) return;
     const result = await synchronize(synchronizer);
-    setTaskProjection(result.projection);
-    setEventSyncState(result.state);
+    applyTaskSyncResult(result);
   };
 
   useEffect(() => {
@@ -349,11 +357,9 @@ function App() {
 
     const loop = new TaskEventLoop(
       () => synchronize(synchronizer),
-      (result) => {
-        setTaskProjection(result.projection);
-        setEventSyncState(result.state);
-      },
+      applyTaskSyncResult,
       {
+        onTransportUncertain: markNodeTransportUncertain,
         onError: () => setEventSyncState((current) => current ? {
           ...current,
           status: "reconnecting",
@@ -486,8 +492,8 @@ function App() {
   };
 
   const canStart = nodeConnected && taskText.trim().length > 0 && (!selectedFile || intakeState === "ready") && !creatingTask;
-  const nodeLabel = nodeConnected ? (profiles.find((profile) => profile.profileId === connection.profileId)?.displayName ?? "Node connected") : connection.state === "connecting" ? "Connecting to Node" : "Node not connected";
-  const nodeDetail = nodeConnected ? "Verified and ready" : connection.state === "failed" ? "Connection blocked" : "Choose an approved Node";
+  const nodeLabel = nodeConnected ? (profiles.find((profile) => profile.profileId === connection.profileId)?.displayName ?? "Node connected") : connection.state === "connecting" ? "Connecting to Node" : connection.state === "reconnecting" ? "Reconnecting to Node" : "Node not connected";
+  const nodeDetail = nodeConnected ? "Verified and ready" : connection.state === "failed" || connection.state === "blocked" ? "Connection blocked" : connection.state === "reconnecting" ? "Reconnect to continue" : "Choose an approved Node";
   const sovereigntyLabel = nodeConnected && connection.sovereignty === "verified" ? "Verified internal path" : "No verified Node path";
   const shellCommands = useMemo(() => buildShellCommands(taskProjection !== null), [taskProjection]);
 

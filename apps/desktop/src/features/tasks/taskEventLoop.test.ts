@@ -59,6 +59,32 @@ describe("TaskEventLoop", () => {
     loop.stop();
   });
 
+  it("reports transport uncertainty when the Node returns a reconnecting result", async () => {
+    vi.useFakeTimers();
+    const onTransportUncertain = vi.fn();
+    const synchronize = vi.fn().mockResolvedValue(result("reconnecting"));
+    const loop = new TaskEventLoop(synchronize, vi.fn(), { onTransportUncertain });
+
+    loop.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onTransportUncertain).toHaveBeenCalledTimes(1);
+    loop.stop();
+  });
+
+  it("reports transport uncertainty when synchronization raises a transport error", async () => {
+    vi.useFakeTimers();
+    const onTransportUncertain = vi.fn();
+    const synchronize = vi.fn().mockRejectedValue(new Error("transport unavailable"));
+    const loop = new TaskEventLoop(synchronize, vi.fn(), { onTransportUncertain });
+
+    loop.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(onTransportUncertain).toHaveBeenCalledTimes(1);
+    loop.stop();
+  });
+
   it("does not publish a late result after stop", async () => {
     vi.useFakeTimers();
     let resolve: ((value: EventSyncResult) => void) | undefined;
