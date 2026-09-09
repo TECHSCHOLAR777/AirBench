@@ -26,6 +26,11 @@ The accessibility portion uses the installed TypeScript parser rather than a
 regular-expression scan. It checks the authored JSX structure without
 executing uploaded content, starting a browser, or making a network request.
 
+The Live Task Workspace also exposes a concise atomic status announcement for
+Node-authoritative task status, phase, and cursor changes. Packaged keyboard,
+screen-reader, and visual-baseline behavior still requires the desktop
+validation environment described below.
+
 The manifest is a semantic baseline. It deliberately does not pretend to be a
 pixel screenshot baseline or a packaged accessibility audit. Pixel baselines,
 keyboard-only packaged flow, WebDriver execution, and independent network
