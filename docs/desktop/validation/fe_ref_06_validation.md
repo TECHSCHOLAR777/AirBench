@@ -21,6 +21,9 @@ development build is the same as packaged desktop evidence.
   denied default connection path.
 - the authored TSX tree gives every button an explicit type, gives native form
   controls an accessible name, and gives dialogs a modal and naming contract.
+- the Live Task Workspace exposes explicit preserved, retry, and next-action
+  guidance for its Node synchronization states. This is a presentation
+  contract and does not replace packaged recovery or screen-reader evidence.
 
 The accessibility portion uses the installed TypeScript parser rather than a
 regular-expression scan. It checks the authored JSX structure without
