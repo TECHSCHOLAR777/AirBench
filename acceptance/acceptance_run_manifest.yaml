@@ -7,6 +7,9 @@ repository_evidence:
   contract_replay: contracts/examples/inspection_trace.jsonl
   ledger_catalog: src/contracts/schemas/ledger_event_catalog.yaml
   domain_pack: packs/refinery_psu_v0/manifest.yaml
+  m9_demo_generator: scripts/run_m9_demo.py
+  m9_trace_verifier: scripts/verify_m9_trace.py
+  m9_focused_tests: tests/test_m9_vertical_slice.py
 external_evidence_required:
   - id: target_hardware_measurements
     status: missing
