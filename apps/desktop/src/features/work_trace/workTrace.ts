@@ -18,6 +18,7 @@ export interface WorkTraceActivity {
   tone: WorkTraceTone;
   label: string;
   summary: string;
+  artifactId: string | null;
 }
 
 export interface WorkTraceStage {
@@ -55,6 +56,14 @@ export interface WorkTraceRouting {
   policyReason: null;
 }
 
+export type WorkTraceArtifactState = "ready" | "superseded" | "reference_only";
+
+export interface WorkTraceArtifactRecord {
+  artifactId: string;
+  state: WorkTraceArtifactState;
+  latestEvent: WorkTraceActivity | null;
+}
+
 export interface WorkTrace {
   activity: WorkTraceActivity[];
   latestActivity: WorkTraceActivity | null;
@@ -63,7 +72,7 @@ export interface WorkTrace {
   evidence: { records: WorkTraceEvidenceRecord[]; events: WorkTraceActivity[] };
   verification: { events: WorkTraceActivity[]; latest: WorkTraceActivity | null };
   review: { events: WorkTraceActivity[]; questions: string[] };
-  artifacts: { events: WorkTraceActivity[]; ids: string[] };
+  artifacts: { events: WorkTraceActivity[]; ids: string[]; records: WorkTraceArtifactRecord[] };
   routing: WorkTraceRouting;
 }
 
@@ -92,6 +101,7 @@ export function buildWorkTrace(projection: TaskProjection, plan: TaskPlanReview 
   const verificationEvents = activity.filter((item) => item.stage === "verification");
   const reviewEvents = activity.filter((item) => item.stage === "review");
   const artifactEvents = activity.filter((item) => item.stage === "artifacts");
+  const artifactRecords = buildArtifactRecords(projection.artifactRefs, artifactEvents);
   const records = projection.evidence.map(toEvidenceRecord);
   const routing = routingFromPlan(plan);
   const stages = stageOrder.map(({ id, label }) => {
@@ -113,9 +123,26 @@ export function buildWorkTrace(projection: TaskProjection, plan: TaskPlanReview 
     evidence: { records, events: evidenceEvents },
     verification: { events: verificationEvents, latest: verificationEvents.at(-1) ?? null },
     review: { events: reviewEvents, questions: [...projection.unresolvedQuestions] },
-    artifacts: { events: artifactEvents, ids: [...projection.artifactRefs] },
+    artifacts: { events: artifactEvents, ids: [...projection.artifactRefs], records: artifactRecords },
     routing,
   };
+}
+
+function buildArtifactRecords(artifactRefs: string[], artifactEvents: WorkTraceActivity[]): WorkTraceArtifactRecord[] {
+  const records = new Map<string, WorkTraceArtifactRecord>();
+  for (const event of artifactEvents) {
+    const artifactId = event.artifactId;
+    if (!artifactId) continue;
+    records.set(artifactId, {
+      artifactId,
+      state: event.eventType === "artifact.superseded" ? "superseded" : "ready",
+      latestEvent: event,
+    });
+  }
+  for (const artifactId of artifactRefs) {
+    if (!records.has(artifactId)) records.set(artifactId, { artifactId, state: "reference_only", latestEvent: null });
+  }
+  return [...records.values()];
 }
 
 export function formatTraceTime(occurredAt: string): string {
@@ -136,6 +163,7 @@ function toTraceActivity(event: TaskEvent): WorkTraceActivity {
     tone: toneForEvent(event),
     label: eventLabel(event),
     summary: eventSummary(event),
+    artifactId: event.eventType === "artifact.ready" || event.eventType === "artifact.superseded" ? event.payload.artifactId : null,
   };
 }
 

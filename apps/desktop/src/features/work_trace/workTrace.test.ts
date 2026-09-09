@@ -113,6 +113,7 @@ describe("audit-safe work trace", () => {
     expect(trace.verification.latest?.summary).toBe("Required checks passed.");
     expect(trace.review.questions).toEqual(["Confirm the inspection date before release."]);
     expect(trace.artifacts.ids).toEqual(["artifact-1"]);
+    expect(trace.artifacts.records).toMatchObject([{ artifactId: "artifact-1", state: "ready" }]);
     expect(trace.routing).toMatchObject({ state: "plan_context", executionMode: "serial_virtual_team", selectedTarget: null, fallbackReason: null, policyReason: null });
     expect(trace.latestActivity).toMatchObject({ eventType: "task.completed", ledgerEventRef: "ledger-12", clearance: "restricted" });
   });
@@ -159,5 +160,23 @@ describe("audit-safe work trace", () => {
 
     expect(trace.activity.map((item) => item.sequence)).toEqual([5, 7]);
     expect(trace.latestActivity?.eventId).toBe("event-7");
+  });
+
+  it("projects artifact lifecycle state from Node events without inventing review status", () => {
+    const trace = buildWorkTrace({
+      ...projection,
+      artifactRefs: [],
+      activity: [
+        event(13, "artifact.ready", { artifactId: "artifact-ready" }),
+        event(14, "artifact.superseded", { artifactId: "artifact-old" }),
+      ],
+    }, null);
+
+    expect(trace.artifacts.records).toMatchObject([
+      { artifactId: "artifact-ready", state: "ready", latestEvent: { sequence: 13 } },
+      { artifactId: "artifact-old", state: "superseded", latestEvent: { sequence: 14 } },
+    ]);
+    expect(trace.artifacts.records[0]).not.toHaveProperty("approval");
+    expect(trace.artifacts.records[0]).not.toHaveProperty("verification");
   });
 });
