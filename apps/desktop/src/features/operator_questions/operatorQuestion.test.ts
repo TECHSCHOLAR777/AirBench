@@ -18,6 +18,15 @@ describe("operator question presentation", () => {
     expect(presentation.action).toContain("terminal task state");
   });
 
+  it("keeps questions read-only when the Node has blocked the task", () => {
+    const presentation = operatorQuestionPresentation("blocked", "sandbox", true);
+
+    expect(presentation.title).toBe("This task is blocked");
+    expect(presentation.state).toContain("cannot reopen or change");
+    expect(presentation.continuation).toContain("new Node projection");
+    expect(presentation.action).toContain("No response control");
+  });
+
   it("blocks a response presentation while the event stream is not current", () => {
     const presentation = operatorQuestionPresentation("running", "verification", false);
 

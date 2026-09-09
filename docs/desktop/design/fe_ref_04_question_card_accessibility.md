@@ -11,6 +11,8 @@ This slice makes the current read-only Node question card understandable and cal
 - Question content is not placed in the live region, so a long or sensitive question is not repeatedly announced as a status update.
 - Questions remain text data from the Node. No local option, text answer, pause, resume, stop, or revision action is created.
 - Unsynchronized and terminal task states continue to show preserved context without reopening or mutating the task.
+- A blocked task has its own recorded state, so a question cannot be mistaken for a locally resolvable intervention.
+- The card is considered current only when both the transport is connected and the task projection health is current. A reconnecting or resynchronizing projection remains read-only.
 
 ## Authority and security
 
@@ -20,6 +22,6 @@ This slice makes the current read-only Node question card understandable and cal
 
 ## Verification
 
-- `apps/desktop/src/operatorQuestion.test.ts` covers the bounded announcement and existing unsynchronized, waiting, and terminal states.
+- `apps/desktop/src/features/operator_questions/operatorQuestion.test.ts` covers the bounded announcement and unsynchronized, waiting, blocked, and terminal states.
 - The change uses the existing React presentation component and creates no transport or backend path.
 - Full #108 closure still requires the versioned Node question projection, idempotent answer and intervention commands, clearance-safe text, and packaged keyboard and screen-reader evidence.
