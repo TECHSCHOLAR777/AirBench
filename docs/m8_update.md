@@ -46,3 +46,5 @@ On hosts with Microsoft Word installed, the artifact checker can use a bounded h
 `artifact.checked` now records `visual_backend` and `check_reason` alongside the content hash, structural result, visual result, and generator version.
 
 The M9.4 run now emits typed `worker.handoff` ledger events between every adjacent worker stage. Each event carries a validated `HandoffSubmission` and `WorkPacket` with fact/evidence references, packet hash, clearance, taint, and immutable plan/policy identities.
+
+No-finding runs now fail closed with per-worker `worker.failed` events and a `team.execution.failed` event before raising the caller-visible error, preserving an auditable failure trace without changing the shared ledger terminal-state rules.
