@@ -221,6 +221,7 @@ pub enum NodeTransportError {
     CredentialsInEndpoint(String),
     MissingCertificatePin(String),
     ProtocolNotAllowed(String),
+    AuthenticationFailed(String),
     RequestFailed(String),
     NonAirbenchResponse(String),
     IdentityMismatch(String),
@@ -245,6 +246,7 @@ impl std::fmt::Display for NodeTransportError {
             | Self::CredentialsInEndpoint(message)
             | Self::MissingCertificatePin(message)
             | Self::ProtocolNotAllowed(message)
+            | Self::AuthenticationFailed(message)
             | Self::RequestFailed(message)
             | Self::NonAirbenchResponse(message)
             | Self::IdentityMismatch(message)
@@ -794,11 +796,13 @@ pub async fn send_task_command_profile(
     Ok(result)
 }
 
-pub async fn connect_node_profile(profile: NodeProfile) -> Result<NodeConnectionResult, String> {
-    let handshake_url = validate_profile(&profile).map_err(String::from)?;
-    let token = credential_token(&profile).map_err(String::from)?;
+pub async fn connect_node_profile(
+    profile: NodeProfile,
+) -> Result<NodeConnectionResult, NodeTransportError> {
+    let handshake_url = validate_profile(&profile)?;
+    let token = credential_token(&profile)?;
 
-    let client = build_client(&profile).map_err(String::from)?;
+    let client = build_client(&profile)?;
 
     let response = client
         .get(handshake_url)
@@ -809,14 +813,10 @@ pub async fn connect_node_profile(profile: NodeProfile) -> Result<NodeConnection
         .map_err(|error| NodeTransportError::RequestFailed(redact_request_error(&error)))?;
 
     if !response.status().is_success() {
-        return Err(NodeTransportError::RequestFailed(format!(
-            "The approved Node handshake returned HTTP {}.",
-            response.status().as_u16()
-        ))
-        .into());
+        return Err(handshake_http_error(response.status().as_u16()));
     }
 
-    verify_certificate_pin(&profile, &response).map_err(String::from)?;
+    verify_certificate_pin(&profile, &response)?;
 
     let handshake: NodeHandshake = response.json().await.map_err(|_| {
         NodeTransportError::NonAirbenchResponse(
@@ -824,9 +824,8 @@ pub async fn connect_node_profile(profile: NodeProfile) -> Result<NodeConnection
         )
     })?;
 
-    validate_core_envelope(&handshake.schema_version, &handshake.compatibility_id)
-        .map_err(String::from)?;
-    validate_node_wire_compatibility(&handshake.protocol_compatibility_id).map_err(String::from)?;
+    validate_core_envelope(&handshake.schema_version, &handshake.compatibility_id)?;
+    validate_node_wire_compatibility(&handshake.protocol_compatibility_id)?;
 
     if handshake.node_identity != profile.node_identity {
         return Err(NodeTransportError::IdentityMismatch(
@@ -893,8 +892,9 @@ pub async fn connect_node_profile(profile: NodeProfile) -> Result<NodeConnection
 pub async fn connect_node(
     app: tauri::AppHandle,
     profile_id: String,
-) -> Result<NodeConnectionResult, String> {
-    let profile = approved_profile_by_id(&app, &profile_id)?;
+) -> Result<NodeConnectionResult, NodeTransportError> {
+    let profile =
+        approved_profile_by_id(&app, &profile_id).map_err(NodeTransportError::RequestFailed)?;
     connect_node_profile(profile).await
 }
 
@@ -1121,6 +1121,19 @@ fn redact_request_error(error: &reqwest::Error) -> String {
     }
 }
 
+fn handshake_http_error(status: u16) -> NodeTransportError {
+    if status == 401 || status == 403 {
+        NodeTransportError::AuthenticationFailed(
+            "The approved Node rejected the stored credential.".to_string(),
+        )
+    } else {
+        NodeTransportError::RequestFailed(format!(
+            "The approved Node handshake returned HTTP {}.",
+            status
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1340,5 +1353,39 @@ mod tests {
         let node = profile("http://127.0.0.1:9443", NodeTransport::Loopback, None);
         let result = validate_profile_catalog(&[node.clone(), node]);
         assert!(result.unwrap_err().contains("duplicate profile identity"));
+    }
+
+    #[test]
+    fn handshake_http_errors_preserve_authentication_boundary() {
+        let unauthorized = handshake_http_error(401);
+        let forbidden = handshake_http_error(403);
+        let unavailable = handshake_http_error(503);
+
+        assert!(matches!(
+            unauthorized,
+            NodeTransportError::AuthenticationFailed(message) if message == "The approved Node rejected the stored credential."
+        ));
+        assert!(matches!(
+            forbidden,
+            NodeTransportError::AuthenticationFailed(message) if message == "The approved Node rejected the stored credential."
+        ));
+        assert!(matches!(
+            unavailable,
+            NodeTransportError::RequestFailed(message) if message == "The approved Node handshake returned HTTP 503."
+        ));
+    }
+
+    #[test]
+    fn native_connection_errors_serialize_with_stable_codes() {
+        let error = serde_json::to_value(NodeTransportError::IdentityMismatch(
+            "The connected endpoint identity does not match the approved profile.".to_string(),
+        ))
+        .expect("serialize connection error");
+
+        assert_eq!(error["code"], "identity_mismatch");
+        assert_eq!(
+            error["message"],
+            "The connected endpoint identity does not match the approved profile."
+        );
     }
 }

@@ -1,6 +1,6 @@
 # FE-VAL-2 evidence record
 
-Status: Rust-owned handshake implementation in progress. No secure Node connection pass is claimed yet.
+Status: the approved-profile and native handshake implementation slice is complete locally. FE-VAL-2 remains open for production identity policy, target-host evidence, and packaged end-to-end validation.
 
 ## Current boundary
 
@@ -12,6 +12,7 @@ Status: Rust-owned handshake implementation in progress. No secure Node connecti
 - query strings and fragments are rejected;
 - unapproved profiles are blocked;
 - the result carries Node identity, protocol version, clearance, sovereignty state, and an explicit failure code.
+- native handshake failures cross IPC as a stable `{ code, message }` error object. The desktop classifies trust, authentication, protocol/clearance incompatibility, and transport failures separately, while redacting credential-shaped details before rendering.
 - the Rust command builds the handshake URL, performs the request outside the webview, verifies the remote leaf certificate SHA-256 pin, and compares the returned Node identity, protocol version, and clearance context with the approved profile.
 - the Rust command reads the bearer credential by reference from the OS credential store and checks that the Node returns an authenticated subject; the bearer value is never part of the webview contract or logs.
 - The handshake is not accepted as connected without a non-empty ledger event reference. The same native transport validates the approved task-event identity, protocol, clearance, cursor, event ordering, event identity fields, payload object, and ledger-reference cardinality.
@@ -26,7 +27,7 @@ The current command now has an authenticated transport contract. The determinist
 
 From `apps/desktop/`:
 
-- `npm run test`, 32 tests passed;
+- focused Node connection tests pass 21/21, including structured native failure classification and credential-shaped error redaction;
 - approved internal HTTPS profile accepted;
 - arbitrary external endpoint rejected;
 - credentials embedded in endpoint rejected;
@@ -36,7 +37,7 @@ From `apps/desktop/`:
 - `npm run check:egress`;
 - `npm run check:tauri-config`.
 - `npm run validate:node`, including wrong credential, wrong identity, wrong certificate pin, invalid AirBench endpoint, invalid task identifier, denied artifact download, and unsupported file cases. Latest run: `AirBenchNodeValidation-20260908-232157-fcf3a9dbaed44e8b961752e8e61fd7a1`.
-- `npm run test` passes 78 frontend tests, including controller coverage for unapproved profiles, verified connection metadata, disconnect and reconnect gating, secret-safe failure handling, and the native approved-profile bridge mapping.
+- the current frontend suite passes 136 tests across 25 files, including controller coverage for unapproved profiles, verified connection metadata, disconnect and reconnect gating, structured failure handling, secret-safe error rendering, and the native approved-profile bridge mapping.
 - The Node settings screen now loads administrator-provisioned profiles through `list_approved_node_profiles`, presents transport and clearance metadata without exposing an endpoint editor, and renders verified identity, protocol, clearance, and ledger reference after the handshake.
 - The connection and event-stream commands now cross IPC with only the stable `profile_id`; Rust resolves endpoint, certificate policy, and credential references from the native catalog. The webview does not receive those transport secrets or certificate materials.
 

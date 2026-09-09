@@ -97,6 +97,34 @@ describe("NodeConnectionController", () => {
     expect(controller.canSendConsequential()).toBe(false);
   });
 
+  it.each([
+    ["identity_mismatch", "trust_failed"],
+    ["authentication_failed", "unauthorized"],
+    ["protocol_mismatch", "incompatible"],
+    ["request_failed", "transport_failed"],
+  ] as const)("preserves the native connection failure class for %s", async (code, kind) => {
+    const controller = new NodeConnectionController(async () => {
+      throw { code, message: `safe ${code} detail` };
+    });
+
+    const result = await controller.connect(profile);
+
+    expect(result.failure).toEqual({ kind, code, message: `safe ${code} detail` });
+    expect(result.state).toBe("failed");
+    expect(controller.canSendConsequential()).toBe(false);
+  });
+
+  it("redacts credential-shaped native error details before rendering", async () => {
+    const controller = new NodeConnectionController(async () => {
+      throw { code: "authentication_failed", message: "token=do-not-render" };
+    });
+
+    const result = await controller.connect(profile);
+
+    expect(result.failure?.message).toBe("The approved Node connection failed. No credential details are shown.");
+    expect(result.failure?.message).not.toContain("do-not-render");
+  });
+
   it("fails closed when the native result is mismatched or incomplete", async () => {
     const invalidResults = [
       { ...connected, profile_id: "other-profile" },

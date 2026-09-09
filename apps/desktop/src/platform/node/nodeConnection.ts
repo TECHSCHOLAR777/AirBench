@@ -2,6 +2,13 @@ import type { Clearance } from "../events/protocol";
 
 export type NodeTransport = "loopback" | "internal_https";
 export type NodeConnectionState = "not_connected" | "connecting" | "connected" | "reconnecting" | "blocked" | "failed";
+export type NodeConnectionFailureKind = "trust_failed" | "unauthorized" | "incompatible" | "transport_failed";
+
+export interface NodeConnectionFailure {
+  kind: NodeConnectionFailureKind;
+  code: string;
+  message: string;
+}
 
 export interface ApprovedNodeProfileReference {
   profileId: string;
@@ -27,12 +34,33 @@ export interface NodeConnectionResult {
   protocolVersion: string | null;
   clearanceContext: Clearance | null;
   sovereignty: "unknown" | "verified" | "blocked";
-  failure: { code: string; message: string } | null;
+  failure: NodeConnectionFailure | null;
 }
 
 export type ProfileValidation =
   | { valid: true; normalizedEndpoint: string }
   | { valid: false; code: "not_approved" | "invalid_profile" | "invalid_endpoint" | "external_endpoint" | "credentials_in_endpoint" | "missing_certificate_pin" | "missing_credential_ref" | "protocol_not_allowed"; message: string };
+
+export function connectionFailureKind(code: string): NodeConnectionFailureKind {
+  if ([
+    "not_approved",
+    "invalid_profile",
+    "invalid_endpoint",
+    "external_endpoint",
+    "credentials_in_endpoint",
+    "missing_certificate_pin",
+    "missing_credential_ref",
+    "protocol_not_allowed",
+    "non_airbench_response",
+    "identity_mismatch",
+    "certificate_pin_mismatch",
+    "invalid_node_response",
+    "no_approved_profile",
+  ].includes(code)) return "trust_failed";
+  if (["credential_unavailable", "authentication_failed"].includes(code)) return "unauthorized";
+  if (["protocol_mismatch", "clearance_mismatch"].includes(code)) return "incompatible";
+  return "transport_failed";
+}
 
 export function validateApprovedProfile(profile: ApprovedNodeProfileReference | ApprovedNodeProfile): ProfileValidation {
   if (!profile.approvedByPolicy) return { valid: false, code: "not_approved", message: "This Node profile has not been approved by policy." };
@@ -83,6 +111,6 @@ export function blockedConnection(profile: ApprovedNodeProfileReference | Approv
     protocolVersion: null,
     clearanceContext: null,
     sovereignty: "blocked",
-    failure: { code: validation.code, message: validation.message },
+    failure: { kind: connectionFailureKind(validation.code), code: validation.code, message: validation.message },
   };
 }

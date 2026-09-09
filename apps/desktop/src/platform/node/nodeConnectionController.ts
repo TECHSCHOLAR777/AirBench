@@ -1,6 +1,8 @@
 import { connectApprovedNode, type NativeNodeConnectionResult } from "./nodeBridge";
 import {
   blockedConnection,
+  connectionFailureKind,
+  type NodeConnectionFailure,
   type ApprovedNodeProfileReference,
   type NodeConnectionState,
   validateApprovedProfile,
@@ -18,7 +20,7 @@ export interface NodeConnectionView {
   domainPackRef: string | null;
   sovereignty: "unknown" | "verified" | "blocked";
   ledgerEventRef: string | null;
-  failure: { code: string; message: string } | null;
+  failure: NodeConnectionFailure | null;
 }
 
 export interface NodeConnector {
@@ -41,6 +43,44 @@ const initialConnection: NodeConnectionView = {
 
 class InvalidNodeConnectionResult extends Error {
   readonly code = "invalid_node_response";
+}
+
+const knownNativeFailureCodes = new Set([
+  "not_approved",
+  "invalid_endpoint",
+  "external_endpoint",
+  "credentials_in_endpoint",
+  "missing_certificate_pin",
+  "protocol_not_allowed",
+  "authentication_failed",
+  "request_failed",
+  "non_airbench_response",
+  "identity_mismatch",
+  "protocol_mismatch",
+  "clearance_mismatch",
+  "certificate_pin_mismatch",
+  "credential_unavailable",
+]);
+
+function nativeFailure(error: unknown): NodeConnectionFailure {
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as { code?: unknown; message?: unknown };
+    if (typeof candidate.code === "string" && knownNativeFailureCodes.has(candidate.code)) {
+      const message = typeof candidate.message === "string" ? candidate.message.trim() : "";
+      return {
+        kind: connectionFailureKind(candidate.code),
+        code: candidate.code,
+        message: /(?:token|password|secret|authorization|bearer|private key|credential)\s*[:=]/i.test(message)
+          ? "The approved Node connection failed. No credential details are shown."
+          : message || "The approved Node connection failed. No consequential work is permitted.",
+      };
+    }
+  }
+  return {
+    kind: "transport_failed",
+    code: "transport_failed",
+    message: "The approved Node connection failed. No consequential work is permitted.",
+  };
 }
 
 function nonEmpty(value: unknown): value is string {
@@ -128,8 +168,9 @@ export class NodeConnectionController {
         state: "failed",
         sovereignty: "blocked",
         failure: {
-          code: invalidResult ? error.code : "transport_failed",
-          message: invalidResult ? error.message : "The approved Node connection failed. No consequential work is permitted.",
+          ...(invalidResult
+            ? { kind: connectionFailureKind(error.code), code: error.code, message: error.message }
+            : nativeFailure(error)),
         },
       };
     }
@@ -143,6 +184,7 @@ export class NodeConnectionController {
         ...this.view,
         state: "reconnecting",
         failure: {
+          kind: "transport_failed",
           code: "node_disconnected",
           message: "The approved Node connection was interrupted. Reconnect before continuing consequential work.",
         },
@@ -158,6 +200,7 @@ export class NodeConnectionController {
         state: "blocked",
         sovereignty: "blocked",
         failure: {
+          kind: "trust_failed",
           code: "no_approved_profile",
           message: "An approved Node profile is required before reconnecting.",
         },
