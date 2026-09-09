@@ -6,7 +6,7 @@ import { initialPresentationState } from "../contracts";
 import { NodeConnectionController, type NodeConnectionView } from "../platform/node/nodeConnectionController";
 import type { ApprovedNodeProfileReference } from "../platform/node/nodeConnection";
 import { listApprovedNodeProfiles } from "../platform/node/profileBridge";
-import { downloadArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, type ArtifactPreview, type DownloadReceipt, type IntakeManifest, type SafePreview } from "../features/intake/intakeBridge";
+import { downloadArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, validateDownloadReceipt, type ArtifactPreview, type DownloadReceipt, type IntakeManifest, type SafePreview } from "../features/intake/intakeBridge";
 import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand, type CreateTaskResponse } from "../platform/node/nodeCommands";
 import type { NodeCommandResult, TaskPlanReview } from "../generated/core_contracts";
 import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan } from "../features/tasks/taskComposer";
@@ -22,7 +22,7 @@ import { buildRecordGateway, type RecordGatewayDestination } from "../features/p
 import { buildShellCommands, shellShortcut, type ShellCommandId } from "../features/shell/commandPalette";
 import { WorkspaceCommandDialog } from "../components/WorkspaceCommandDialog";
 import { OperatorQuestionCard } from "../components/OperatorQuestionCard";
-import { ProofInspectorPanel, type ArtifactPreviewState } from "../components/ProofInspectorPanel";
+import { ProofInspectorPanel, type ArtifactLifecycleState, type ArtifactPreviewState } from "../components/ProofInspectorPanel";
 import { TaskEmptyView } from "../components/TaskEmptyView";
 import { NodeReadinessPanel } from "../components/NodeReadinessPanel";
 import { formatProvenanceLocation, type ProofSelection } from "../features/provenance/proofInspector";
@@ -343,7 +343,7 @@ function App() {
     setTaskArtifactDownloadState("downloading");
     setTaskArtifactDownloadReceipt(null);
     try {
-      const receipt = await downloadArtifact(profile, artifactId, `airbench-artifact-${artifactId}.bin`);
+      const receipt = validateDownloadReceipt(await downloadArtifact(profile, artifactId, `airbench-artifact-${artifactId}.bin`), artifactId);
       setTaskArtifactDownloadReceipt(receipt);
       setTaskArtifactDownloadState("downloaded");
     } catch {
@@ -766,6 +766,9 @@ function TaskWorkspaceView({ projection, syncState, plan, approval, approving, c
     setProofSelection({ kind: "artifact", artifactId });
     void onInspectArtifact(artifactId);
   };
+  const selectedArtifactLifecycleState: ArtifactLifecycleState | null = proofSelection?.kind === "artifact"
+    ? trace.artifacts.records.find((record) => record.artifactId === proofSelection.artifactId)?.state ?? null
+    : null;
   return <section className="workspace-view" data-testid="task-workspace" aria-label="Live task workspace">
     <div className="workspace-head"><div><p className="eyebrow">LIVE TASK</p><h1>{projection.title}</h1><p className="lead">{projection.requestSummary}</p></div><span className={`workspace-status workspace-status-${projection.status}`}>{statusLabel[projection.status] ?? projection.status}</span></div>
     <div className={`workspace-sync workspace-sync-${syncStatus}`} role="status" aria-live="polite"><span className="status-dot" aria-hidden="true" /><strong>{syncLabel[syncStatus] ?? syncStatus}</strong><span>{syncState?.error?.message ?? (syncStatus === "reconnecting" ? "The Node may continue work while this desktop reconnects." : "Task state comes from the approved Node event stream.")}</span><button type="button" className="text-button" onClick={onRefresh} disabled={syncStatus === "syncing" || syncStatus === "replaying"}>Refresh</button>{syncStatus === "reconnecting" && <button type="button" className="text-button" onClick={onOpenNode}>Reconnect Node</button>}</div>
@@ -780,7 +783,7 @@ function TaskWorkspaceView({ projection, syncState, plan, approval, approving, c
       <section className="worktrace-detail-card"><div className="worktrace-detail-head"><div><h2>Waiting for you</h2><p>Only Node-reported questions appear here.</p></div><span>{trace.review.questions.length} waiting</span></div>{trace.review.questions.length === 0 ? <div className="worktrace-empty">The Node has not reported a question requiring your response.</div> : <ul className="worktrace-question-list">{trace.review.questions.map((question, index) => <li key={`${question}-${index}`}><AppIcon name="review" size={16} /><span>{question}</span></li>)}</ul>}<p className="worktrace-contract-note">A response control will appear only after the Node provides a sequence-aware answer command and ledger transition.</p></section>
       <section className="worktrace-detail-card"><div className="worktrace-detail-head"><div><h2>Artifacts</h2><p>References returned by the Node, not locally generated files.</p></div><span>{trace.artifacts.records.length} records</span></div>{trace.artifacts.records.length === 0 ? <div className="worktrace-empty">No artifact reference has been supplied by the Node yet.</div> : <ul className="worktrace-artifact-list">{trace.artifacts.records.map((artifact) => <li key={artifact.artifactId}><button className="proof-record-button" type="button" onClick={() => { if (artifact.state !== "superseded") inspectArtifact(artifact.artifactId); }} disabled={artifact.state === "superseded"} aria-label={`${artifact.artifactId}, ${artifact.state === "superseded" ? "superseded" : artifact.state === "ready" ? "ready" : "reference only"}`}><AppIcon name="document" size={16} /><span className="artifact-record-name">{artifact.artifactId}</span><span className={`artifact-record-state artifact-record-state-${artifact.state}`}>{artifact.state === "reference_only" ? "Reference only" : artifact.state === "superseded" ? "Superseded" : "Ready"}</span><small>{artifact.latestEvent ? `Node recorded ${artifact.latestEvent.label} at sequence ${artifact.latestEvent.sequence}.` : "No lifecycle event is present in this task cursor."}{artifact.state === "superseded" ? " Preview and download are unavailable for superseded records." : " Inspect Node preview"}</small></button></li>)}</ul>}<p className="worktrace-contract-note">Status is derived from ordered Node events. Approval, verification, version comparison, and clarification remain unavailable until the Node supplies those contracts.</p></section>
     </div>
-    <ProofInspectorPanel selection={proofSelection} artifactPreview={artifactPreview} artifactPreviewState={artifactPreviewState} artifactPreviewError={artifactPreviewError} downloadState={artifactDownloadState} downloadReceipt={artifactDownloadReceipt} onDownloadArtifact={(artifactId: string) => { void onDownloadArtifact(artifactId); }} />
+    <ProofInspectorPanel selection={proofSelection} artifactPreview={artifactPreview} artifactPreviewState={artifactPreviewState} artifactPreviewError={artifactPreviewError} artifactLifecycleState={selectedArtifactLifecycleState} downloadState={artifactDownloadState} downloadReceipt={artifactDownloadReceipt} onDownloadArtifact={(artifactId: string) => { void onDownloadArtifact(artifactId); }} />
     </div>
     {plan && <PlanReviewCard plan={plan} loading={false} approval={approval} approving={approving} synchronized={maySendConsequentialCommand(projection, syncStatus)} onApprove={onApprovePlan} onCancel={onStop} />}
     {controlResult && <div className="workspace-receipt" role="status">Stop command accepted by Node. Ledger {controlResult.ledger_event_ref ?? "pending"}; waiting for the authoritative event.</div>}

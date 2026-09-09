@@ -39,6 +39,25 @@ export interface DownloadReceipt {
   byte_size: number;
 }
 
+/**
+ * Checks the typed receipt again at the webview boundary before success is
+ * shown. Rust verifies the hash and Node permission; this guard prevents a
+ * mismatched or incomplete response from being presented as this artifact's
+ * download receipt.
+ */
+export function validateDownloadReceipt(receipt: DownloadReceipt, expectedArtifactId: string): DownloadReceipt {
+  if (receipt.artifact_id !== expectedArtifactId) {
+    throw new Error("The download receipt does not match the requested artifact.");
+  }
+  if (!/^sha256:[0-9a-f]{64}$/i.test(receipt.content_hash)) {
+    throw new Error("The download receipt does not contain a valid content hash.");
+  }
+  if (!Number.isSafeInteger(receipt.byte_size) || receipt.byte_size < 0 || !receipt.destination.trim() || !receipt.ledger_event_ref.trim()) {
+    throw new Error("The download receipt is incomplete.");
+  }
+  return receipt;
+}
+
 export interface ArtifactPreviewBlock {
   kind: string;
   text: string;
