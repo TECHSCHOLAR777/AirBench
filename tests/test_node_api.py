@@ -334,7 +334,11 @@ class NodeApiTests(unittest.TestCase):
 
         route = self.request("GET", f"/api/v1/tasks/{task_id}/route-trace", headers=self.headers())
         self.assertEqual(route.status_code, 200, route.text)
-        self.assertEqual(route.json()["entries"][0]["selected_target"], "model.local.reasoner")
+        self.assertEqual(route.json()["taskId"], task_id)
+        self.assertEqual(route.json()["nodeIdentity"], "node.test.local")
+        self.assertEqual(route.json()["protocolVersion"], "0.1")
+        self.assertEqual(route.json()["clearanceContext"], "restricted")
+        self.assertEqual(route.json()["entries"][0]["selectedTarget"], "model.local.reasoner")
         self.assertNotIn("evidence.secret", evidence.text)
 
     def test_m4_execution_events_are_structured_without_forwarding_raw_payload(self):

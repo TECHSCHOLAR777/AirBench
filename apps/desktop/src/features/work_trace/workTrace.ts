@@ -1,4 +1,4 @@
-import type { NodeExecutionEventPayload, TaskPlanReview } from "../../generated/core_contracts";
+import type { NodeExecutionEventPayload, NodeRouteTrace, NodeRouteTraceEntry, TaskPlanReview } from "../../generated/core_contracts";
 import type { EvidenceRef, TaskEvent, TaskProjection } from "../../platform/events/protocol";
 
 export type WorkTraceStageId = "plan" | "execution" | "evidence" | "verification" | "review" | "artifacts" | "outcome";
@@ -43,7 +43,7 @@ export interface WorkTraceEvidenceRecord {
 }
 
 export interface WorkTraceRouting {
-  state: "plan_context" | "not_supplied";
+  state: "plan_context" | "route_context" | "not_supplied";
   executionMode: string | null;
   hardwareProfileRef: string | null;
   hardwareReason: string | null;
@@ -51,9 +51,10 @@ export interface WorkTraceRouting {
   planLedgerEventRef: string | null;
   planVersionHash: string | null;
   policyVersionHash: string | null;
-  selectedTarget: null;
-  fallbackReason: null;
-  policyReason: null;
+  selectedTarget: string | null;
+  fallbackReason: string | null;
+  policyReason: string | null;
+  routeEntries: NodeRouteTraceEntry[];
 }
 
 export type WorkTraceArtifactState = "ready" | "superseded" | "reference_only";
@@ -86,7 +87,7 @@ const stageOrder: Array<{ id: WorkTraceStageId; label: string }> = [
   { id: "outcome", label: "Outcome" },
 ];
 
-export function buildWorkTrace(projection: TaskProjection, plan: TaskPlanReview | null): WorkTrace {
+export function buildWorkTrace(projection: TaskProjection, plan: TaskPlanReview | null, routeTrace: NodeRouteTrace | null = null): WorkTrace {
   // Event delivery is normally ordered by TaskEventSynchronizer. Keep the trace
   // deterministic even when a fixture or a future transport adapter provides a
   // defensively valid but unsorted projection.
@@ -104,7 +105,7 @@ export function buildWorkTrace(projection: TaskProjection, plan: TaskPlanReview 
   const artifactEvents = activity.filter((item) => item.stage === "artifacts");
   const artifactRecords = buildArtifactRecords(projection.artifactRefs, artifactEvents);
   const records = projection.evidence.map(toEvidenceRecord);
-  const routing = routingFromPlan(plan);
+  const routing = routingFromPlan(plan, routeTrace);
   const stages = stageOrder.map(({ id, label }) => {
     const events = activity.filter((item) => item.stage === id);
     return {
@@ -183,8 +184,9 @@ function toEvidenceRecord(evidence: EvidenceRef): WorkTraceEvidenceRecord {
   };
 }
 
-function routingFromPlan(plan: TaskPlanReview | null): WorkTraceRouting {
-  if (!plan) {
+function routingFromPlan(plan: TaskPlanReview | null, routeTrace: NodeRouteTrace | null): WorkTraceRouting {
+  const routeEntries = routeTrace?.entries.map((entry) => ({ ...entry })) ?? [];
+  if (!plan && !routeTrace) {
     return {
       state: "not_supplied",
       executionMode: null,
@@ -197,20 +199,27 @@ function routingFromPlan(plan: TaskPlanReview | null): WorkTraceRouting {
       selectedTarget: null,
       fallbackReason: null,
       policyReason: null,
+      routeEntries,
     };
   }
+  const latestSelectedTarget = [...routeEntries].reverse().find((entry) => entry.selectedTarget)?.selectedTarget ?? null;
+  const fallbackEntry = [...routeEntries].reverse().find((entry) => entry.fallbackTarget || entry.eventType === "routing.fallback.selected" || entry.eventType === "fallback.selected");
+  const policyEntry = [...routeEntries].reverse().find((entry) => entry.decisionSource || entry.ruleOrThreshold || entry.reason);
+  const fallbackReason = fallbackEntry ? [fallbackEntry.fallbackTarget, fallbackEntry.reason].filter(Boolean).join(" / ") || "Fallback was recorded by the Node." : null;
+  const policyReason = policyEntry ? [policyEntry.decisionSource, policyEntry.ruleOrThreshold, policyEntry.reason].filter(Boolean).join(" / ") || "Routing policy context was recorded by the Node." : null;
   return {
-    state: "plan_context",
-    executionMode: plan.execution_mode,
-    hardwareProfileRef: plan.hardware_profile_ref,
-    hardwareReason: plan.hardware_reason,
-    capabilityLanes: { ...plan.worker_capabilities },
-    planLedgerEventRef: plan.ledger_event_ref,
-    planVersionHash: plan.plan_version_hash,
-    policyVersionHash: plan.policy_version_hash,
-    selectedTarget: null,
-    fallbackReason: null,
-    policyReason: null,
+    state: routeTrace ? "route_context" : "plan_context",
+    executionMode: plan?.execution_mode ?? null,
+    hardwareProfileRef: plan?.hardware_profile_ref ?? null,
+    hardwareReason: plan?.hardware_reason ?? null,
+    capabilityLanes: plan ? { ...plan.worker_capabilities } : {},
+    planLedgerEventRef: plan?.ledger_event_ref ?? null,
+    planVersionHash: plan?.plan_version_hash ?? null,
+    policyVersionHash: plan?.policy_version_hash ?? null,
+    selectedTarget: latestSelectedTarget,
+    fallbackReason,
+    policyReason,
+    routeEntries,
   };
 }
 

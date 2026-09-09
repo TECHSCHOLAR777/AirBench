@@ -134,6 +134,30 @@ being shown private worker content or model reasoning.
 
 Unknown event types are preserved in the diagnostic stream and do not mutate the projection until a compatible schema is available.
 
+## 4.1 Routing proof projection
+
+The Node exposes routing proof through `GET /api/v1/tasks/{task_id}/route-trace`.
+This is a separate read projection because the generic task-event payload is
+deliberately clearance-filtered and does not carry the router's selected-target
+fields. `NodeRouteTrace` carries the Node wire envelope, task and Node identity,
+protocol and clearance context, and an ordered bounded list of
+`NodeRouteTraceEntry` records.
+
+Each route entry retains its sequence, event type, time, actor, ledger event
+reference, payload hash, and only allowlisted routing metadata: request or
+worker identity, capability, selected or fallback target, decision source,
+rule or threshold, qualification certificate, status, reason, and eligible
+targets. The original router request, prompt, credentials, endpoint, and raw
+ledger payload never cross this projection.
+
+Rust validates the task and Node identities, protocol compatibility, exact
+clearance, non-empty integrity references, bounded eligible targets, and
+strict sequence order. The webview validates the same envelope again before
+display. A route read failure is non-authoritative and does not change task
+state; the workspace shows the last valid projection or states that routing
+proof is unavailable. A manual task refresh re-reads both the event stream and
+the route projection so decisions made after plan approval can be inspected.
+
 ## 5. Command envelope
 
 Every state-changing UI action becomes a typed command:

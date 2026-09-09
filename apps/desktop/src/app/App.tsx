@@ -7,8 +7,8 @@ import { NodeConnectionController, type NodeConnectionView } from "../platform/n
 import type { ApprovedNodeProfileReference } from "../platform/node/nodeConnection";
 import { listApprovedNodeProfiles } from "../platform/node/profileBridge";
 import { downloadVerifiedArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, type ArtifactPreview, type DownloadReceipt, type IntakeManifest, type SafePreview } from "../features/intake/intakeBridge";
-import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand, type CreateTaskResponse } from "../platform/node/nodeCommands";
-import type { NodeCommandResult, TaskPlanReview } from "../generated/core_contracts";
+import { createTask, fetchTaskPlan, fetchTaskRouteTrace, fetchTaskSnapshot, sendTaskCommand, type CreateTaskResponse } from "../platform/node/nodeCommands";
+import type { NodeCommandResult, NodeRouteTrace, TaskPlanReview } from "../generated/core_contracts";
 import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan, canCancelTask } from "../features/tasks/taskComposer";
 import { planRecoveryGuidance } from "../features/tasks/planRecovery";
 import { commandOutcomeGuidance, shouldRefreshTaskAfterCommand } from "../features/tasks/commandOutcome";
@@ -75,6 +75,7 @@ function App() {
   const [downloadState, setDownloadState] = useState<"idle" | "downloading" | "downloaded" | "failed">("idle");
   const [downloadReceipt, setDownloadReceipt] = useState<DownloadReceipt | null>(null);
   const [taskResult, setTaskResult] = useState<CreateTaskResponse | null>(null);
+  const [taskRouteTrace, setTaskRouteTrace] = useState<NodeRouteTrace | null>(null);
   const [planReview, setPlanReview] = useState<TaskPlanReview | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
   const [planApprovalResult, setPlanApprovalResult] = useState<NodeCommandResult | null>(null);
@@ -207,6 +208,16 @@ function App() {
     setEventSyncState(result.state);
     if (result.kind === "reconnecting") markNodeTransportUncertain();
     return result;
+  };
+
+  const refreshTaskRouteTrace = async (profile: ApprovedNodeProfileReference, taskId: string) => {
+    try {
+      setTaskRouteTrace(await fetchTaskRouteTrace(profile, taskId));
+    } catch {
+      // A transient route-read failure is non-authoritative. Keep the last
+      // valid projection visible rather than replacing proven Node data with
+      // an empty desktop guess.
+    }
   };
 
   const connectProfile = async (profile: ApprovedNodeProfileReference) => {
@@ -388,14 +399,19 @@ function App() {
     setTaskProjection(synchronizer.loadSnapshot(snapshot));
     setEventSyncState(synchronizer.state());
     const result = await synchronize(synchronizer);
-    return applyTaskSyncResult(result);
+    const applied = applyTaskSyncResult(result);
+    await refreshTaskRouteTrace(profile, applied.projection.taskId);
+    return applied;
   };
 
   const refreshTask = async () => {
     const synchronizer = synchronizerRef.current;
     if (!synchronizer) return;
+    const taskId = taskProjection?.taskId;
     const result = await synchronize(synchronizer);
     applyTaskSyncResult(result);
+    const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
+    if (profile && taskId) await refreshTaskRouteTrace(profile, taskId);
   };
 
   useEffect(() => {
@@ -434,6 +450,7 @@ function App() {
     synchronizationRef.current = null;
     synchronizationTokenRef.current = null;
     setTaskResult(null);
+    setTaskRouteTrace(null);
     setPlanReview(null);
     setPlanApprovalResult(null);
     setTaskArtifactPreview(null);
@@ -584,7 +601,7 @@ function App() {
         <div className="content-wrap">
           {state.screen === "home" && <HomeView outcomeInputRef={outcomeInputRef} currentTask={taskProjection} taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} planSynchronized={taskCommandReady} notice={notice} canStart={canStart} creatingTask={creatingTask} nodeConnected={nodeConnected} nodeLabel={nodeLabel} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onCancelTask={stopTask} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={openConnectionHelp} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} />}
           {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesState("idle"); }} onHome={() => selectScreen("home")} />}
-          {state.screen === "tasks" && (taskProjection ? <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={openNewTask} onOpenNode={() => selectScreen("node")} /> : <TaskEmptyView nodeConnected={nodeConnected} onNewTask={openNewTask} onOpenNode={() => selectScreen("node")} />)}
+          {state.screen === "tasks" && (taskProjection ? <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} routeTrace={taskRouteTrace} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={openNewTask} onOpenNode={() => selectScreen("node")} /> : <TaskEmptyView nodeConnected={nodeConnected} onNewTask={openNewTask} onOpenNode={() => selectScreen("node")} />)}
           {isRecordGatewayDestination(state.screen) && <RecordGatewayView destination={state.screen} nodeConnected={nodeConnected} currentTask={taskProjection} onHome={() => selectScreen("home")} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} />}
         </div>
       </main>
@@ -783,13 +800,13 @@ function ProfileCard({ profile, busy, onConnect }: { profile: ApprovedNodeProfil
   return <article className="profile-card"><div><div className="profile-name">{profile.displayName}</div><div className="profile-meta">{profile.transport === "loopback" ? "Local workstation" : "Internal network"} <span aria-hidden="true">•</span> {profile.clearanceContext} clearance</div><div className="profile-trust">Pinned identity: {profile.nodeIdentity}</div></div><button type="button" className="primary-button" onClick={onConnect} disabled={busy}>{busy ? "Checking..." : "Connect"}</button></article>;
 }
 
-function TaskWorkspaceView({ projection, syncState, plan, approval, approving, controlResult, controlling, sourcePreview, artifactPreview, artifactPreviewState, artifactPreviewError, artifactDownloadState, artifactDownloadReceipt, onStop, onRefresh, onApprovePlan, onInspectArtifact, onDownloadArtifact, onHome, onOpenNode }: { projection: TaskProjection; syncState: EventSyncState | null; plan: TaskPlanReview | null; approval: NodeCommandResult | null; approving: boolean; controlResult: NodeCommandResult | null; controlling: boolean; sourcePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; artifactPreviewState: ArtifactPreviewState; artifactPreviewError: string | null; artifactDownloadState: "idle" | "downloading" | "downloaded" | "failed"; artifactDownloadReceipt: DownloadReceipt | null; onStop: () => Promise<void>; onRefresh: () => Promise<void>; onApprovePlan: () => Promise<void>; onInspectArtifact: (artifactId: string) => Promise<void>; onDownloadArtifact: (artifactId: string) => Promise<void>; onHome: () => void; onOpenNode: () => void }) {
+function TaskWorkspaceView({ projection, syncState, plan, routeTrace, approval, approving, controlResult, controlling, sourcePreview, artifactPreview, artifactPreviewState, artifactPreviewError, artifactDownloadState, artifactDownloadReceipt, onStop, onRefresh, onApprovePlan, onInspectArtifact, onDownloadArtifact, onHome, onOpenNode }: { projection: TaskProjection; syncState: EventSyncState | null; plan: TaskPlanReview | null; routeTrace: NodeRouteTrace | null; approval: NodeCommandResult | null; approving: boolean; controlResult: NodeCommandResult | null; controlling: boolean; sourcePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; artifactPreviewState: ArtifactPreviewState; artifactPreviewError: string | null; artifactDownloadState: "idle" | "downloading" | "downloaded" | "failed"; artifactDownloadReceipt: DownloadReceipt | null; onStop: () => Promise<void>; onRefresh: () => Promise<void>; onApprovePlan: () => Promise<void>; onInspectArtifact: (artifactId: string) => Promise<void>; onDownloadArtifact: (artifactId: string) => Promise<void>; onHome: () => void; onOpenNode: () => void }) {
   const syncLabel: Record<string, string> = { idle: "Not synchronized", syncing: "Checking Node", connected: "Connected and current", reconnecting: "Reconnecting", replaying: "Replaying events", blocked: "Blocked by protocol or policy" };
   const statusLabel: Record<string, string> = { accepted: "Accepted", planning: "Planning", running: "Running", needs_review: "Needs review", completed: "Completed", blocked: "Blocked", failed: "Failed", stopped: "Stopped" };
   const syncStatus = syncState?.status ?? "idle";
   const syncRecovery = taskSyncRecovery(syncStatus, projection, syncState?.error ?? null);
   const canStop = maySendConsequentialCommand(projection, syncStatus) && !["completed", "failed", "stopped"].includes(projection.status) && !controlling;
-  const trace = buildWorkTrace(projection, plan);
+  const trace = buildWorkTrace(projection, plan, routeTrace);
   const [proofSelection, setProofSelection] = useState<ProofSelection | null>(null);
   const [activityLimit, setActivityLimit] = useState(DEFAULT_ACTIVITY_WINDOW);
   useEffect(() => { setProofSelection(null); }, [projection.taskId]);
@@ -830,7 +847,7 @@ function TaskWorkspaceView({ projection, syncState, plan, approval, approving, c
     {controlResult && <CommandOutcomeBlock action="Stop request" result={controlResult} />}
     <section className="workspace-activity"><div className="section-heading"><div><h2>Activity</h2><p>Chronological Node records. Model reasoning traces are not exposed.</p></div><span className="workspace-count">{trace.activity.length} events</span></div>{visibleActivity.hiddenCount > 0 && <div className="workspace-activity-window" role="status"><span>Showing the latest {visibleActivity.visible.length} of {visibleActivity.totalCount} Node records. Older records remain on the Node and are not discarded.</span><button type="button" className="text-button" onClick={() => setActivityLimit((current) => current + DEFAULT_ACTIVITY_WINDOW)}>Show older recorded activity</button></div>}{trace.activity.length === 0 ? <div className="workspace-empty">The Node has not returned a new activity event yet.</div> : <ol className="activity-list">{visibleActivity.visible.map((event) => <TraceActivityRow key={`${event.eventId}-${event.sequence}`} item={event} />)}</ol>}</section>
     {projection.diagnostics.length > 0 && <section className="workspace-warning" role="alert"><strong>Task view needs attention</strong>{projection.diagnostics.map((diagnostic) => <span key={`${diagnostic.code}-${diagnostic.sequence}`}>{diagnostic.code}: {diagnostic.detail}</span>)}</section>}
-    <details className="workspace-technical"><summary>Technical trace</summary><div className="technical-trace-content"><section><h2>Routing and hardware</h2><p>{trace.routing.state === "not_supplied" ? "No Node routing record is available. The desktop cannot infer a selected target, fallback, or policy reason." : "The Node supplied plan-level capability and hardware context. Exact routing records are not present in the current task event contract."}</p><dl className="technical-trace-grid"><div><dt>Execution mode</dt><dd>{trace.routing.executionMode ?? "Not supplied"}</dd></div><div><dt>Hardware profile</dt><dd>{trace.routing.hardwareProfileRef ?? "Not supplied"}</dd></div><div><dt>Hardware reason</dt><dd>{trace.routing.hardwareReason ?? "Not supplied"}</dd></div><div><dt>Selected target</dt><dd>{trace.routing.selectedTarget ?? "Not supplied"}</dd></div><div><dt>Fallback record</dt><dd>{trace.routing.fallbackReason ?? "Not supplied"}</dd></div><div><dt>Routing policy reason</dt><dd>{trace.routing.policyReason ?? "Not supplied"}</dd></div><div><dt>Plan ledger</dt><dd>{trace.routing.planLedgerEventRef ?? "Not supplied"}</dd></div><div><dt>Plan hash</dt><dd>{trace.routing.planVersionHash ?? "Not supplied"}</dd></div><div><dt>Policy hash</dt><dd>{trace.routing.policyVersionHash ?? "Not supplied"}</dd></div></dl><div className="technical-capability-lanes"><span>Capability lanes</span>{Object.keys(trace.routing.capabilityLanes).length === 0 ? <small>None supplied by the Node.</small> : Object.entries(trace.routing.capabilityLanes).map(([worker, capability]) => <span key={worker}>{worker}: {capability}</span>)}</div></section><section><h2>Event metadata</h2>{trace.activity.length === 0 ? <p>No ordered event metadata is available in this cursor.</p> : <ol className="technical-event-list">{trace.activity.map((event) => <li key={`technical-${event.eventId}`}><strong>{event.label}</strong><dl><div><dt>Event</dt><dd>{event.eventType}</dd></div><div><dt>Sequence</dt><dd>{event.sequence}</dd></div><div><dt>Node time</dt><dd>{event.occurredAt}</dd></div><div><dt>Actor</dt><dd>{event.actor}</dd></div><div><dt>Clearance</dt><dd>{event.clearance}</dd></div><div><dt>Payload hash</dt><dd>{event.payloadHash}</dd></div><div><dt>Ledger</dt><dd>{event.ledgerEventRef}</dd></div></dl></li>)}</ol>}</section></div></details>
+    <details className="workspace-technical"><summary>Technical trace</summary><div className="technical-trace-content"><section><h2>Routing and hardware</h2><p>{trace.routing.state === "not_supplied" ? "No Node routing record is available. The desktop cannot infer a selected target, fallback, or policy reason." : trace.routing.state === "route_context" ? "The approved Node supplied the route trace below. Targets, fallback, qualification, and policy metadata are recorded facts, not desktop guesses." : "The Node supplied plan-level capability and hardware context. Exact route decisions will appear after the Node provides its route trace."}</p><dl className="technical-trace-grid"><div><dt>Execution mode</dt><dd>{trace.routing.executionMode ?? "Not supplied"}</dd></div><div><dt>Hardware profile</dt><dd>{trace.routing.hardwareProfileRef ?? "Not supplied"}</dd></div><div><dt>Hardware reason</dt><dd>{trace.routing.hardwareReason ?? "Not supplied"}</dd></div><div><dt>Selected target</dt><dd>{trace.routing.selectedTarget ?? "Not supplied"}</dd></div><div><dt>Fallback record</dt><dd>{trace.routing.fallbackReason ?? "Not supplied"}</dd></div><div><dt>Routing policy reason</dt><dd>{trace.routing.policyReason ?? "Not supplied"}</dd></div><div><dt>Plan ledger</dt><dd>{trace.routing.planLedgerEventRef ?? "Not supplied"}</dd></div><div><dt>Plan hash</dt><dd>{trace.routing.planVersionHash ?? "Not supplied"}</dd></div><div><dt>Policy hash</dt><dd>{trace.routing.policyVersionHash ?? "Not supplied"}</dd></div></dl><div className="technical-capability-lanes"><span>Capability lanes</span>{Object.keys(trace.routing.capabilityLanes).length === 0 ? <small>None supplied by the Node.</small> : Object.entries(trace.routing.capabilityLanes).map(([worker, capability]) => <span key={worker}>{worker}: {capability}</span>)}</div>{trace.routing.routeEntries.length > 0 && <><h2>Routing events</h2><ol className="technical-event-list">{trace.routing.routeEntries.map((entry) => <li key={`route-${entry.sequence}-${entry.eventType}`}><strong>{entry.eventType}</strong><dl><div><dt>Sequence</dt><dd>{entry.sequence}</dd></div><div><dt>Target</dt><dd>{entry.selectedTarget ?? "Not supplied"}</dd></div><div><dt>Fallback</dt><dd>{entry.fallbackTarget ?? "Not supplied"}</dd></div><div><dt>Decision source</dt><dd>{entry.decisionSource ?? "Not supplied"}</dd></div><div><dt>Qualification</dt><dd>{entry.qualificationCertificate ?? "Not supplied"}</dd></div><div><dt>Ledger</dt><dd>{entry.ledgerEventRef}</dd></div></dl><small className="technical-route-reason">{entry.reason ?? entry.ruleOrThreshold ?? "No additional route reason supplied."}</small></li>)}</ol></>}</section><section><h2>Event metadata</h2>{trace.activity.length === 0 ? <p>No ordered event metadata is available in this cursor.</p> : <ol className="technical-event-list">{trace.activity.map((event) => <li key={`technical-${event.eventId}`}><strong>{event.label}</strong><dl><div><dt>Event</dt><dd>{event.eventType}</dd></div><div><dt>Sequence</dt><dd>{event.sequence}</dd></div><div><dt>Node time</dt><dd>{event.occurredAt}</dd></div><div><dt>Actor</dt><dd>{event.actor}</dd></div><div><dt>Clearance</dt><dd>{event.clearance}</dd></div><div><dt>Payload hash</dt><dd>{event.payloadHash}</dd></div><div><dt>Ledger</dt><dd>{event.ledgerEventRef}</dd></div></dl></li>)}</ol>}</section></div></details>
   </section>;
 }
 

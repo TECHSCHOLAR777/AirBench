@@ -46,6 +46,8 @@ CONTRACT_NAMES = (
     "NodeProvenanceRef",
     "NodeEvidenceRef",
     "NodeFactRef",
+    "NodeRouteTraceEntry",
+    "NodeRouteTrace",
     "NodeTaskSnapshot",
     "NodeTaskEvent",
     "NodeTaskEventBatch",
