@@ -144,11 +144,18 @@ try {
   $authorizedRetry = Invoke-Probe $profilePath @("command", $authorizePath)
   if ($authorized.code -ne 0 -or $authorizedRetry.code -ne 0 -or $authorized.payload.outcome -ne "accepted" -or $authorized.payload.ledger_event_ref -ne $authorizedRetry.payload.ledger_event_ref) { throw "The Python Node command retry did not preserve its ledger identity." }
 
+  $eventsAfterAuthorization = Invoke-Probe $profilePath @("events", $taskId, "0")
+  if ($eventsAfterAuthorization.code -ne 0 -or $eventsAfterAuthorization.payload.events.Count -lt 2) { throw "The Python Node did not expose the post-authorization event stream." }
+  $replayedAuthorization = Invoke-Probe $profilePath @("events", $taskId, [string]$snapshot.payload.asOfSequence)
+  if ($replayedAuthorization.code -ne 0 -or $replayedAuthorization.payload.events.Count -ne 1 -or $replayedAuthorization.payload.events[0].sequence -ne ([int]$snapshot.payload.asOfSequence + 1) -or $replayedAuthorization.payload.events[0].ledgerEventRef -ne $authorized.payload.ledger_event_ref) {
+    throw "The Python Node replay did not return the authoritative post-authorization event from the prior cursor."
+  }
+
   [ordered]@{
     status = "passed"
     node = "real Python NodeApiService"
     task_id = $taskId
-    checks = @("handshake-negotiation", "create-snapshot", "plan-projection-not-ready", "event-batch", "route-trace", "command-idempotency", "ledger-reference")
+    checks = @("handshake-negotiation", "create-snapshot", "plan-projection-not-ready", "event-batch", "route-trace", "command-idempotency", "ledger-reference", "event-replay")
     log = $serverLog
   } | ConvertTo-Json -Depth 8
 } finally {
