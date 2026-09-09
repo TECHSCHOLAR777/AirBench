@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@airbench/tauri-invoke", () => ({ invoke: invokeMock }));
 
-import { downloadArtifact, downloadVerifiedArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, validateDownloadReceipt } from "./intakeBridge";
+import { downloadArtifact, downloadVerifiedArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, validateArtifactPreview, validateDownloadReceipt, validateIntakeManifest, validateSafePreview } from "./intakeBridge";
 import type { ApprovedNodeProfile } from "../../platform/node/nodeConnection";
-import type { DownloadReceipt } from "./intakeBridge";
+import type { ArtifactPreview, DownloadReceipt, IntakeManifest, SafePreview } from "./intakeBridge";
 
 const profile: ApprovedNodeProfile = {
   profileId: "profile-1",
@@ -29,13 +29,52 @@ const receipt: DownloadReceipt = {
   byte_size: 128,
 };
 
+const manifest: IntakeManifest = {
+  intake_id: "intake-1",
+  file_name: "inspection-report.pdf",
+  byte_size: 2048,
+  source_hash: `sha256:${"a".repeat(64)}`,
+  revision_id: "revision-1",
+  media_type: "application/pdf",
+  page_count: 2,
+  ocr_status: "completed",
+  vision_status: "not_applicable",
+  clearance: "restricted",
+  taint: "untrusted",
+  preview_ref: "preview-1",
+  artifact_ref: "artifact-1",
+  ledger_event_ref: "ledger-intake-1",
+};
+
+const safePreview: SafePreview = {
+  preview_ref: "preview-1",
+  preview_kind: "pdf_page",
+  text: "Inspection report preview",
+  source_hash: manifest.source_hash,
+  source_region: "page:1",
+  confidence: 0.98,
+  clearance: "restricted",
+  taint: "untrusted",
+  ledger_event_ref: "ledger-preview-1",
+};
+
+const artifactPreview: ArtifactPreview = {
+  artifact_id: "artifact-1",
+  preview_kind: "structured_document",
+  title: "Approval note",
+  blocks: [{ kind: "paragraph", text: "Approval note preview" }],
+  clearance: "restricted",
+  taint: "untrusted",
+  ledger_event_ref: "ledger-artifact-preview-1",
+};
+
 describe("File Intake frontend bridge", () => {
   beforeEach(() => {
     invokeMock.mockReset();
   });
 
   it("submits only the selection token through the approved Rust command", async () => {
-    invokeMock.mockResolvedValueOnce({ intake_id: "intake-1" });
+    invokeMock.mockResolvedValueOnce(manifest);
 
     await uploadSelectedQueryFile(profile, "selection-1");
 
@@ -51,9 +90,9 @@ describe("File Intake frontend bridge", () => {
   });
 
   it("keeps preview and download as typed Node commands", async () => {
-    invokeMock.mockResolvedValueOnce({ preview_ref: "preview-1" });
-    invokeMock.mockResolvedValueOnce({ artifact_id: "artifact-1", blocks: [] });
-    invokeMock.mockResolvedValueOnce({ artifact_id: "artifact-1" });
+    invokeMock.mockResolvedValueOnce(safePreview);
+    invokeMock.mockResolvedValueOnce(artifactPreview);
+    invokeMock.mockResolvedValueOnce(receipt);
 
     await fetchSafePreview(profile, "preview-1", `sha256:${"a".repeat(64)}`);
     await fetchArtifactPreview(profile, "artifact-1");
@@ -67,6 +106,29 @@ describe("File Intake frontend bridge", () => {
   });
 });
 
+describe("webview intake response boundary", () => {
+  it("accepts complete Node responses and returns contract-shaped values", () => {
+    expect(validateIntakeManifest({ ...manifest, unexpected: "ignored" }, "restricted")).toEqual(manifest);
+    expect(validateSafePreview({ ...safePreview, unexpected: "ignored" }, "preview-1", manifest.source_hash, "restricted")).toEqual(safePreview);
+    expect(validateArtifactPreview({ ...artifactPreview, unexpected: "ignored" }, "artifact-1", "restricted")).toEqual(artifactPreview);
+  });
+
+  it("rejects malformed manifests before they become React state", () => {
+    expect(() => validateIntakeManifest({ ...manifest, source_hash: "not-a-hash" }, "restricted")).toThrow("source hash");
+    expect(() => validateIntakeManifest({ ...manifest, ocr_status: "finished" }, "restricted")).toThrow("OCR status");
+    expect(() => validateIntakeManifest({ ...manifest, clearance: "secret" }, "restricted")).toThrow("over-cleared");
+    expect(() => validateIntakeManifest({ ...manifest, ledger_event_ref: "../ledger" }, "restricted")).toThrow("ledger event reference");
+  });
+
+  it("rejects previews that lose source identity, provenance, or safe text limits", () => {
+    expect(() => validateSafePreview({ ...safePreview, source_hash: `sha256:${"b".repeat(64)}` }, "preview-1", manifest.source_hash, "restricted")).toThrow("does not match");
+    expect(() => validateSafePreview({ ...safePreview, confidence: 1.1 }, "preview-1", manifest.source_hash, "restricted")).toThrow("confidence");
+    expect(() => validateSafePreview({ ...safePreview, taint: "unknown" }, "preview-1", manifest.source_hash, "restricted")).toThrow("taint");
+    expect(() => validateArtifactPreview({ ...artifactPreview, blocks: [{ kind: "paragraph", text: "" + "x".repeat(10 * 1024 * 1024 + 1) }] }, "artifact-1", "restricted")).toThrow("artifact preview block text");
+    expect(() => validateArtifactPreview({ ...artifactPreview, artifact_id: "artifact-2" }, "artifact-1", "restricted")).toThrow("does not match");
+  });
+});
+
 describe("download receipt boundary", () => {
   beforeEach(() => invokeMock.mockReset());
 
@@ -76,13 +138,13 @@ describe("download receipt boundary", () => {
 
   it("rejects a receipt for a different artifact or with an invalid hash", () => {
     expect(() => validateDownloadReceipt({ ...receipt, artifact_id: "artifact-2" }, "artifact-1")).toThrow("does not match");
-    expect(() => validateDownloadReceipt({ ...receipt, content_hash: "sha256:not-a-digest" }, "artifact-1")).toThrow("valid content hash");
+    expect(() => validateDownloadReceipt({ ...receipt, content_hash: "sha256:not-a-digest" }, "artifact-1")).toThrow("content hash");
   });
 
   it("rejects incomplete local save or ledger information", () => {
-    expect(() => validateDownloadReceipt({ ...receipt, destination: "" }, "artifact-1")).toThrow("incomplete");
-    expect(() => validateDownloadReceipt({ ...receipt, byte_size: -1 }, "artifact-1")).toThrow("incomplete");
-    expect(() => validateDownloadReceipt({ ...receipt, ledger_event_ref: "" }, "artifact-1")).toThrow("incomplete");
+    expect(() => validateDownloadReceipt({ ...receipt, destination: "" }, "artifact-1")).toThrow("destination");
+    expect(() => validateDownloadReceipt({ ...receipt, byte_size: -1 }, "artifact-1")).toThrow("byte size");
+    expect(() => validateDownloadReceipt({ ...receipt, ledger_event_ref: "" }, "artifact-1")).toThrow("ledger event");
   });
 
   it("validates the native receipt before reporting a verified download", async () => {
