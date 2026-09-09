@@ -1,4 +1,4 @@
-import type { TaskPlanReview } from "../../generated/core_contracts";
+import type { NodeExecutionEventPayload, TaskPlanReview } from "../../generated/core_contracts";
 import type { EvidenceRef, TaskEvent, TaskProjection } from "../../platform/events/protocol";
 
 export type WorkTraceStageId = "plan" | "execution" | "evidence" | "verification" | "review" | "artifacts" | "outcome";
@@ -68,7 +68,7 @@ export interface WorkTrace {
   activity: WorkTraceActivity[];
   latestActivity: WorkTraceActivity | null;
   stages: WorkTraceStage[];
-  execution: { workers: WorkTraceActivity[]; tools: WorkTraceActivity[] };
+  execution: { workers: WorkTraceActivity[]; tools: WorkTraceActivity[]; coordination: WorkTraceActivity[] };
   evidence: { records: WorkTraceEvidenceRecord[]; events: WorkTraceActivity[] };
   verification: { events: WorkTraceActivity[]; latest: WorkTraceActivity | null };
   review: { events: WorkTraceActivity[]; questions: string[] };
@@ -96,6 +96,7 @@ export function buildWorkTrace(projection: TaskProjection, plan: TaskPlanReview 
   const execution = {
     workers: activity.filter((item) => item.eventType === "worker.started" || item.eventType === "worker.completed"),
     tools: activity.filter((item) => item.eventType === "tool.started" || item.eventType === "tool.completed"),
+    coordination: activity.filter((item) => item.stage === "execution" && item.eventType !== "worker.started" && item.eventType !== "worker.completed" && item.eventType !== "tool.started" && item.eventType !== "tool.completed"),
   };
   const evidenceEvents = activity.filter((item) => item.stage === "evidence");
   const verificationEvents = activity.filter((item) => item.stage === "verification");
@@ -224,6 +225,48 @@ function stageForEvent(event: TaskEvent): WorkTraceStageId | "system" {
     case "worker.completed":
     case "tool.started":
     case "tool.completed":
+    case "team.created":
+    case "team.execution.started":
+    case "team.execution.completed":
+    case "team.execution.failed":
+    case "team.execution.cancelled":
+    case "lifecycle.intercepted":
+    case "lifecycle.blocked":
+    case "worker.assigned":
+    case "worker.failed":
+    case "worker.handoff":
+    case "worker.handoff.rejected":
+    case "worker.handoff.late":
+    case "worker.resource_reserved":
+    case "worker.preempted":
+    case "worker.cancelled":
+    case "team.resource_plan.created":
+    case "team.resource_plan.admitted":
+    case "team.resource_plan.queued":
+    case "team.resource_plan.degraded_needs_review":
+    case "team.resource_plan.rejected":
+    case "team.resource_plan.released":
+    case "team.resource_plan.cancelled":
+    case "resource.plan.admitted":
+    case "resource.plan.queued":
+    case "execution.mode.selected":
+    case "execution.mode.changed":
+    case "join_barrier.waiting":
+    case "join_barrier.completed":
+    case "join_barrier.resolved":
+    case "barrier.waiting":
+    case "barrier.completed":
+    case "resource.exhaustion.detected":
+    case "resource.recovered":
+    case "resource.queue.updated":
+    case "resource.lease.granted":
+    case "resource.lease.activated":
+    case "resource.lease.released":
+    case "resource.lease.expired":
+    case "resource.lease.cancelled":
+    case "resource.lease.failed":
+    case "resource.admission.degraded":
+    case "background.work.yielded":
       return "execution";
     case "evidence.added":
     case "evidence.revised":
@@ -251,9 +294,9 @@ function stageForEvent(event: TaskEvent): WorkTraceStageId | "system" {
 }
 
 function toneForEvent(event: TaskEvent): WorkTraceTone {
-  if (event.eventType === "verification.failed" || event.eventType === "approval.returned" || event.eventType === "task.blocked" || event.eventType === "task.failed" || event.eventType === "task.stopped") return "attention";
-  if (event.eventType === "worker.started" || event.eventType === "tool.started" || event.eventType === "task.resumed") return "active";
-  if (event.eventType === "worker.completed" || event.eventType === "tool.completed" || event.eventType === "verification.completed" || event.eventType === "approval.recorded" || event.eventType === "artifact.ready" || event.eventType === "task.completed") return "success";
+  if (event.eventType === "verification.failed" || event.eventType === "approval.returned" || event.eventType === "task.blocked" || event.eventType === "task.failed" || event.eventType === "task.stopped" || event.eventType === "team.execution.failed" || event.eventType === "team.resource_plan.rejected" || event.eventType === "worker.failed" || event.eventType === "worker.handoff.rejected" || event.eventType === "worker.handoff.late" || event.eventType === "resource.exhaustion.detected" || event.eventType === "lifecycle.blocked" || event.eventType === "lifecycle.intercepted" || event.eventType === "resource.lease.failed") return "attention";
+  if (event.eventType === "worker.started" || event.eventType === "tool.started" || event.eventType === "task.resumed" || event.eventType === "team.execution.started" || event.eventType === "worker.assigned" || event.eventType === "join_barrier.waiting" || event.eventType === "barrier.waiting" || event.eventType === "team.resource_plan.queued" || event.eventType === "resource.plan.queued" || event.eventType === "resource.queue.updated" || event.eventType === "resource.lease.activated") return "active";
+  if (event.eventType === "worker.completed" || event.eventType === "tool.completed" || event.eventType === "verification.completed" || event.eventType === "approval.recorded" || event.eventType === "artifact.ready" || event.eventType === "task.completed" || event.eventType === "team.execution.completed" || event.eventType === "team.resource_plan.admitted" || event.eventType === "resource.plan.admitted" || event.eventType === "join_barrier.completed" || event.eventType === "barrier.completed" || event.eventType === "resource.recovered" || event.eventType === "resource.lease.released") return "success";
   return "neutral";
 }
 
@@ -286,6 +329,48 @@ function eventLabel(event: TaskEvent): string {
     "ledger.verification_changed": "Ledger verification changed",
     "node.connection_changed": "Node connection changed",
     "node.sovereignty_changed": "Node sovereignty changed",
+    "team.created": "Team created",
+    "team.execution.started": "Team execution started",
+    "team.execution.completed": "Team execution completed",
+    "team.execution.failed": "Team execution failed",
+    "team.execution.cancelled": "Team execution cancelled",
+    "lifecycle.intercepted": "Execution intercepted",
+    "lifecycle.blocked": "Execution blocked",
+    "worker.assigned": "Worker assigned",
+    "worker.failed": "Worker failed",
+    "worker.handoff": "Worker handoff recorded",
+    "worker.handoff.rejected": "Worker handoff rejected",
+    "worker.handoff.late": "Worker handoff late",
+    "worker.resource_reserved": "Worker resources reserved",
+    "worker.preempted": "Worker preempted",
+    "worker.cancelled": "Worker cancelled",
+    "team.resource_plan.created": "Resource plan created",
+    "team.resource_plan.admitted": "Resource plan admitted",
+    "team.resource_plan.queued": "Resource plan queued",
+    "team.resource_plan.degraded_needs_review": "Resource plan needs review",
+    "team.resource_plan.rejected": "Resource plan rejected",
+    "team.resource_plan.released": "Resource plan released",
+    "team.resource_plan.cancelled": "Resource plan cancelled",
+    "resource.plan.admitted": "Resource plan admitted",
+    "resource.plan.queued": "Resource plan queued",
+    "execution.mode.selected": "Execution mode selected",
+    "execution.mode.changed": "Execution mode changed",
+    "join_barrier.waiting": "Join barrier waiting",
+    "join_barrier.completed": "Join barrier completed",
+    "join_barrier.resolved": "Join barrier resolved",
+    "barrier.waiting": "Barrier waiting",
+    "barrier.completed": "Barrier completed",
+    "resource.exhaustion.detected": "Resource exhaustion detected",
+    "resource.recovered": "Resources recovered",
+    "resource.queue.updated": "Resource queue updated",
+    "resource.lease.granted": "Resource lease granted",
+    "resource.lease.activated": "Resource lease activated",
+    "resource.lease.released": "Resource lease released",
+    "resource.lease.expired": "Resource lease expired",
+    "resource.lease.cancelled": "Resource lease cancelled",
+    "resource.lease.failed": "Resource lease failed",
+    "resource.admission.degraded": "Resource admission degraded",
+    "background.work.yielded": "Background work yielded",
     unknown: "Unknown Node event",
   };
   return labels[event.eventType];
@@ -328,9 +413,57 @@ function eventSummary(event: TaskEvent): string {
     case "node.connection_changed":
     case "node.sovereignty_changed":
       return event.payload.summary;
+    case "team.created":
+    case "team.execution.started":
+    case "team.execution.completed":
+    case "team.execution.failed":
+    case "team.execution.cancelled":
+    case "lifecycle.intercepted":
+    case "lifecycle.blocked":
+    case "worker.assigned":
+    case "worker.failed":
+    case "worker.handoff":
+    case "worker.handoff.rejected":
+    case "worker.handoff.late":
+    case "worker.resource_reserved":
+    case "worker.preempted":
+    case "worker.cancelled":
+    case "team.resource_plan.created":
+    case "team.resource_plan.admitted":
+    case "team.resource_plan.queued":
+    case "team.resource_plan.degraded_needs_review":
+    case "team.resource_plan.rejected":
+    case "team.resource_plan.released":
+    case "team.resource_plan.cancelled":
+    case "resource.plan.admitted":
+    case "resource.plan.queued":
+    case "execution.mode.selected":
+    case "execution.mode.changed":
+    case "join_barrier.waiting":
+    case "join_barrier.completed":
+    case "join_barrier.resolved":
+    case "barrier.waiting":
+    case "barrier.completed":
+    case "resource.exhaustion.detected":
+    case "resource.recovered":
+    case "resource.queue.updated":
+    case "resource.lease.granted":
+    case "resource.lease.activated":
+    case "resource.lease.released":
+    case "resource.lease.expired":
+    case "resource.lease.cancelled":
+    case "resource.lease.failed":
+    case "resource.admission.degraded":
+    case "background.work.yielded":
+      return executionSummary(event.payload);
     case "unknown":
       return "The Node returned an event this desktop cannot safely interpret.";
   }
+}
+
+function executionSummary(payload: NodeExecutionEventPayload): string {
+  const details = [payload.teamId, payload.assignmentId, payload.workerId, payload.barrierId, payload.executionMode].filter(Boolean);
+  return details.length > 0 ? `${payload.summary} [${details.join(" · ")}]` : payload.summary;
 }
 
 function stageState(stage: WorkTraceStageId, events: WorkTraceActivity[], projection: TaskProjection, plan: TaskPlanReview | null): WorkTraceState {

@@ -674,9 +674,11 @@ class NodeApiService:
         if event.event_type == "task.plan.approved":
             return "plan.approved", {"phase": "planning", "status": "planning", "summary": _event_summary(event)}
         if event.event_type in {"model.requested", "worker.started"}:
-            return "worker.started", {"role": _role(p, "worker"), "label": _label(p, event.event_type), "status": "running"}
+            return "worker.started", _worker_projection(p, role=_role(p, "worker"), label=_label(p, event.event_type), status="running")
         if event.event_type in {"model.responded", "worker.completed"}:
-            return "worker.completed", {"role": _role(p, "worker"), "label": _label(p, event.event_type), "status": "completed"}
+            return "worker.completed", _worker_projection(p, role=_role(p, "worker"), label=_label(p, event.event_type), status="completed")
+        if event.event_type in _EXECUTION_NODE_EVENT_TYPES:
+            return event.event_type, _execution_projection(event)
         if event.event_type == "tool.requested":
             return "tool.started", {"role": _role(p, "tool"), "label": _label(p, event.event_type), "status": "running"}
         if event.event_type == "tool.result":
@@ -793,6 +795,18 @@ class NodeApiService:
 _ROUTE_EVENT_TYPES = {
     "routing.decision", "routing.fallback.selected", "routing.queued", "model.requested", "model.responded", "model.failed",
     "model.call.started", "model.call.completed", "model.call.failed", "fallback.selected",
+}
+
+_EXECUTION_NODE_EVENT_TYPES = {
+    "team.created", "team.execution.started", "team.execution.completed", "team.execution.failed", "team.execution.cancelled",
+    "lifecycle.intercepted", "lifecycle.blocked", "worker.context.compacted", "worker.assigned", "worker.failed",
+    "worker.handoff", "worker.handoff.rejected", "worker.handoff.late", "worker.resource_reserved", "worker.preempted", "worker.cancelled",
+    "team.resource_plan.created", "team.resource_plan.admitted", "team.resource_plan.queued", "team.resource_plan.degraded_needs_review",
+    "team.resource_plan.rejected", "team.resource_plan.released", "team.resource_plan.cancelled", "execution.mode.selected", "execution.mode.changed",
+    "join_barrier.waiting", "join_barrier.completed", "join_barrier.resolved", "resource.exhaustion.detected", "resource.recovered",
+    "resource.queue.updated", "resource.lease.granted", "resource.lease.activated", "resource.lease.released", "resource.lease.expired",
+    "resource.lease.cancelled", "resource.lease.failed", "resource.admission.degraded", "background.work.yielded",
+    "resource.plan.admitted", "resource.plan.queued", "barrier.waiting", "barrier.completed",
 }
 
 
@@ -1044,6 +1058,141 @@ def _label(payload: dict[str, Any], default: str) -> str:
         if isinstance(value, str) and value.strip():
             return _bounded_text(value.strip(), 256)
     return default
+
+
+def _execution_sources(payload: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    sources = [payload]
+    for name in ("team", "plan", "assignment", "reservation", "lease", "barrier", "handoff"):
+        nested = payload.get(name)
+        if isinstance(nested, dict):
+            sources.append(nested)
+    return tuple(sources)
+
+
+def _execution_text(payload: dict[str, Any], *keys: str) -> str | None:
+    for source in _execution_sources(payload):
+        for key in keys:
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return _bounded_text(value.strip(), 512)
+    return None
+
+
+def _worker_projection(payload: dict[str, Any], *, role: str, label: str, status: str) -> dict[str, Any]:
+    result: dict[str, Any] = {"role": role, "label": label, "status": status}
+    fields = (
+        ("team_id", "teamId"),
+        ("assignment_id", "assignmentId"),
+        ("worker_id", "workerId"),
+        ("resource_lease_id", "resourceLeaseId"),
+    )
+    for source_key, wire_key in fields:
+        value = _execution_text(payload, source_key)
+        if value is not None:
+            result[wire_key] = value
+    return result
+
+
+def _execution_projection(event: LedgerEventEnvelope) -> dict[str, Any]:
+    payload = event.payload
+    status_by_event = {
+        "team.created": "created",
+        "team.execution.started": "running",
+        "team.execution.completed": "completed",
+        "team.execution.failed": "failed",
+        "team.execution.cancelled": "cancelled",
+        "lifecycle.intercepted": "intercepted",
+        "lifecycle.blocked": "blocked",
+        "worker.assigned": "assigned",
+        "worker.failed": "failed",
+        "worker.handoff": "submitted",
+        "worker.handoff.rejected": "rejected",
+        "worker.handoff.late": "late",
+        "worker.resource_reserved": "reserved",
+        "worker.preempted": "preempted",
+        "worker.cancelled": "cancelled",
+        "team.resource_plan.created": "created",
+        "team.resource_plan.admitted": "admitted",
+        "team.resource_plan.queued": "queued",
+        "team.resource_plan.degraded_needs_review": "needs_review",
+        "team.resource_plan.rejected": "rejected",
+        "team.resource_plan.released": "released",
+        "team.resource_plan.cancelled": "cancelled",
+        "resource.plan.admitted": "admitted",
+        "resource.plan.queued": "queued",
+        "execution.mode.selected": "selected",
+        "execution.mode.changed": "changed",
+        "join_barrier.waiting": "waiting",
+        "join_barrier.completed": "completed",
+        "join_barrier.resolved": "resolved",
+        "barrier.waiting": "waiting",
+        "barrier.completed": "completed",
+        "resource.exhaustion.detected": "exhausted",
+        "resource.recovered": "recovered",
+        "resource.queue.updated": "queued",
+        "resource.lease.granted": "granted",
+        "resource.lease.activated": "active",
+        "resource.lease.released": "released",
+        "resource.lease.expired": "expired",
+        "resource.lease.cancelled": "cancelled",
+        "resource.lease.failed": "failed",
+        "resource.admission.degraded": "degraded",
+        "background.work.yielded": "yielded",
+    }
+    result: dict[str, Any] = {
+        "status": _execution_text(payload, "status") or status_by_event.get(event.event_type, "recorded"),
+        "summary": _execution_text(payload, "summary", "reason", "failure_code", "admission_reason", "outcome")
+        or f"Node recorded {event.event_type}.",
+    }
+    fields = (
+        ("execution_mode", "executionMode"),
+        ("team_id", "teamId"),
+        ("plan_id", "planId"),
+        ("assignment_id", "assignmentId"),
+        ("worker_id", "workerId"),
+        ("role", "role"),
+        ("label", "label"),
+        ("barrier_id", "barrierId"),
+        ("resource_lease_id", "resourceLeaseId"),
+        ("hardware_profile_ref", "hardwareProfileRef"),
+        ("model_target_id", "modelTargetId"),
+        ("qualification_id", "qualificationId"),
+    )
+    aliases = {
+        "execution_mode": ("execution_mode", "admitted_mode", "mode"),
+        "team_id": ("team_id",),
+        "plan_id": ("plan_id",),
+        "assignment_id": ("assignment_id", "destination_assignment_id"),
+        "worker_id": ("worker_id", "source_worker_id"),
+        "role": ("role",),
+        "label": ("label", "stage", "capability"),
+        "barrier_id": ("barrier_id",),
+        "resource_lease_id": ("resource_lease_id", "lease_id"),
+        "hardware_profile_ref": ("hardware_profile_ref", "hardware_profile_id"),
+        "model_target_id": ("model_target_id",),
+        "qualification_id": ("qualification_id",),
+    }
+    for source_key, wire_key in fields:
+        value = _execution_text(payload, *aliases[source_key])
+        if value is not None:
+            result[wire_key] = value
+
+    dependencies: list[str] = []
+    for source in _execution_sources(payload):
+        for key in ("dependency_ids", "required_predecessor_assignment_ids", "missing_assignment_ids", "assignment_ids"):
+            candidate = _string_list(source.get(key))
+            if candidate:
+                dependencies = candidate[:100]
+                break
+        if dependencies:
+            break
+    if dependencies:
+        result["dependencyIds"] = dependencies
+
+    queue_position = payload.get("queue_position")
+    if type(queue_position) is int and 0 <= queue_position <= 2**31 - 1:
+        result["queuePosition"] = queue_position
+    return result
 
 
 def _provenance_ref(provenance: dict[str, Any], event: LedgerEventEnvelope) -> dict[str, Any]:

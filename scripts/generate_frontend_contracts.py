@@ -54,6 +54,7 @@ CONTRACT_NAMES = (
 PLAIN_TYPE_NAMES = (
     "NodeLifecycleEventPayload",
     "NodeWorkerEventPayload",
+    "NodeExecutionEventPayload",
     "NodeEvidenceEventPayload",
     "NodeVerificationEventPayload",
     "NodeApprovalEventPayload",
