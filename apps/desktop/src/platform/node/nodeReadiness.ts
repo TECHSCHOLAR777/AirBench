@@ -51,6 +51,18 @@ function recovery(preserved: string, retry: string, nextAction: string) {
   return { preserved, retry, nextAction };
 }
 
+function matchesApprovedProfile(
+  connection: NodeConnectionView,
+  profile: ApprovedNodeProfileReference | null,
+): boolean {
+  return Boolean(
+    profile
+      && profile.approvedByPolicy
+      && profile.profileId === connection.profileId
+      && profile.nodeIdentity === connection.nodeIdentity,
+  );
+}
+
 function operationalReadiness(verified: boolean): NodeOperationalReadiness {
   if (!verified) {
     return {
@@ -78,7 +90,9 @@ export function buildNodeReadiness(
   connection: NodeConnectionView,
   profile: ApprovedNodeProfileReference | null,
 ): NodeReadiness {
-  const verified = connection.state === "connected" && connection.sovereignty === "verified";
+  const verified = connection.state === "connected"
+    && connection.sovereignty === "verified"
+    && matchesApprovedProfile(connection, profile);
   const routing: NodeRoutingReadiness = {
     title: "Routing authority stays with the Node",
     detail: "AirBench requests a qualified capability for each task. A model preference remains unavailable until the Node supplies a clearance-filtered qualified catalog.",

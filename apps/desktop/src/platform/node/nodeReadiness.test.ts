@@ -87,4 +87,22 @@ describe("Node readiness summary", () => {
     });
     expect(summary.connection.detail).not.toMatch(/verified|ready/i);
   });
+
+  it("does not show trusted proof when the approved profile is missing or mismatched", () => {
+    const withoutProfile = buildNodeReadiness(verifiedConnection, null);
+    const mismatchedProfile = buildNodeReadiness(verifiedConnection, {
+      ...profile,
+      nodeIdentity: "different-node",
+    });
+
+    for (const summary of [withoutProfile, mismatchedProfile]) {
+      expect(summary.connection).toMatchObject({
+        tone: "attention",
+        title: "Connection proof needs attention",
+        proof: [],
+      });
+      expect(JSON.stringify(summary)).not.toContain("operator-17");
+      expect(JSON.stringify(summary)).not.toContain("ledger-connect-42");
+    }
+  });
 });
