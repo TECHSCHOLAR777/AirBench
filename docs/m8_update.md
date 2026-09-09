@@ -42,3 +42,5 @@ The detached pack signature covers all declarative component YAML and the manife
 Renderer-backed scanned PDFs are supported through the local intake store: rendered pages are staged, validated by intake identity, read back by page identity, and then passed to the typed local vision adapter without reopening the source file.
 
 On hosts with Microsoft Word installed, the artifact checker can use a bounded headless Word COM conversion as a visual backend when LibreOffice is unavailable. The verified local host run produced `visual: passed`, `completion.ready`, and `verified draft for human review`; the fallback remains fail-closed when the renderer cannot be launched.
+
+`artifact.checked` now records `visual_backend` and `check_reason` alongside the content hash, structural result, visual result, and generator version.

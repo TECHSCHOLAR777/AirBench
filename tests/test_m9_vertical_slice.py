@@ -87,6 +87,9 @@ def test_serial_run_extracts_provenance_computes_values_and_checks_docx(tmp_path
     assert "Manual/SOP: manual://vibration-sop" in document_text
     completion = next(event for event in ledger.events if event.event_type == "completion.blocked")
     assert set(completion.payload["evidence_refs"]) >= {"manual://pump-sop", "manual://vibration-sop"}
+    artifact_event = next(event for event in ledger.events if event.event_type == "artifact.checked")
+    assert artifact_event.payload["visual_backend"] in {"microsoft_word", "libreoffice", "none"}
+    assert artifact_event.payload["check_reason"]
     assert "artifact.checked" in [event.event_type for event in ledger.events]
     assert "verification.evaluator.completed" in [event.event_type for event in ledger.events]
     assert "completion.blocked" in [event.event_type for event in ledger.events]
