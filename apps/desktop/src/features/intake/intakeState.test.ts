@@ -17,6 +17,12 @@ describe("File Intake presentation state", () => {
   it("preserves accepted-manifest context when preview work is incomplete", () => {
     expect(classifyIntakeFailure(new Error("The approved Node preview request failed."), true)).toBe("partial");
     expect(intakeStatusCopy("partial").retryable).toBe(true);
+    expect(intakeStatusCopy("partial").recovery).toEqual({
+      preserved: "The accepted manifest and source provenance remain available; launch remains paused.",
+      retry: "Do not replace the accepted manifest with a local or unverified preview.",
+      nextAction: "Request a Node-authorized preview retry or remove the source.",
+    });
     expect(intakeStatusCopy("clearance_mismatch").retryable).toBe(false);
+    expect(intakeStatusCopy("clearance_mismatch").recovery.nextAction).toContain("required clearance");
   });
 });
