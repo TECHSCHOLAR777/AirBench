@@ -48,5 +48,6 @@ Endpoint URLs, certificate pins, credential references, and secrets never cross 
 - reconnect behavior that hides retained identity and ledger fields; and
 - incomplete trust behavior that does not claim readiness.
 - missing and mismatched approved-profile inputs that hide trusted identity and ledger fields.
+- malformed, unapproved, unsupported-transport, invalid-identity, and duplicate native profile-catalog entries are rejected before they reach the connection UI.
 
 Full frontend build, generated-contract, no-egress, Tauri configuration, and Rust-shell tests remain required before integration evidence is recorded.

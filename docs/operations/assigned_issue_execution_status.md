@@ -43,7 +43,7 @@ The first-release frontend assignment snapshot covered #64 to #69 and #73 to #85
 | #77 | FE-DEV-05 Task Plan Review and authorization | Implementation slice complete locally, production gate open | Typed server plan projection and idempotent plan approval are implemented. The desktop rejects approval when the plan sequence is older than the current Node projection and hides cancel on terminal task states. Real plan generation, hardware admission, revision flow, and packaged evidence remain. |
 | #78 | FE-DEV-06 live task workspace | First server-authoritative workspace slice implemented locally; production gate open | Uses cursor replay, guarded snapshot replacement, visible reconnect states, plan review, and Node-authorized stop. Production event integration, pause/resume/question contracts, packaged evidence, and UI-level tests remain. |
 | #79 to #80 | FE-DEV-07 through FE-DEV-08 evidence and artifact path | Serial critical path | Requires authoritative event stream, evidence, artifact, and approval contracts in order. |
-| #81 to #83 | FE-DEV-09 through FE-DEV-11 records and administration | Parallel after core Node contracts | Must not invent authoritative task or audit data. |
+| #81 to #83 | FE-DEV-09 through FE-DEV-11 records and administration | Parallel after core Node contracts | Must not invent authoritative task or audit data. The Node settings slice also rejects malformed or ambiguous native approved-profile catalog entries before connection. |
 | #84 | FE-DEV-12 recovery and hardening | Release gate | Depends on the preceding frontend and transport paths. |
 | #85 | FE-DEV-13 packaged desktop integration | Final serial gate | Depends on the complete first-release path and validation evidence. |
 

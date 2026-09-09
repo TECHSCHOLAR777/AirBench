@@ -31,5 +31,20 @@ describe("administrator-provisioned Node profile bridge", () => {
     })]);
     expect(invokeMock).toHaveBeenCalledWith("list_approved_node_profiles");
   });
+
+  it.each([
+    ["non-list response", null],
+    ["unapproved profile", [{ profile_id: "profile-1", display_name: "Plant Node", transport: "loopback", node_identity: "node-1", protocol_version: "0.1", clearance_context: "internal", approved_by_policy: false }]],
+    ["unsupported transport", [{ profile_id: "profile-1", display_name: "Plant Node", transport: "public_https", node_identity: "node-1", protocol_version: "0.1", clearance_context: "internal", approved_by_policy: true }]],
+    ["invalid identity", [{ profile_id: "", display_name: "Plant Node", transport: "loopback", node_identity: "node-1", protocol_version: "0.1", clearance_context: "internal", approved_by_policy: true }]],
+    ["duplicate profile identity", [
+      { profile_id: "profile-1", display_name: "Plant Node", transport: "loopback", node_identity: "node-1", protocol_version: "0.1", clearance_context: "internal", approved_by_policy: true },
+      { profile_id: "profile-1", display_name: "Second Node", transport: "loopback", node_identity: "node-2", protocol_version: "0.1", clearance_context: "internal", approved_by_policy: true },
+    ]],
+  ])("fails closed for %s", async (_label, response) => {
+    invokeMock.mockResolvedValue(response);
+
+    await expect(listApprovedNodeProfiles()).rejects.toThrow();
+  });
 });
 
