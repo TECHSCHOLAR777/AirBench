@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@airbench/tauri-invoke", () => ({ invoke: invokeMock }));
 
-import { downloadArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, validateDownloadReceipt } from "./intakeBridge";
+import { downloadArtifact, downloadVerifiedArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, validateDownloadReceipt } from "./intakeBridge";
 import type { ApprovedNodeProfile } from "../../platform/node/nodeConnection";
 import type { DownloadReceipt } from "./intakeBridge";
 
@@ -68,6 +68,8 @@ describe("File Intake frontend bridge", () => {
 });
 
 describe("download receipt boundary", () => {
+  beforeEach(() => invokeMock.mockReset());
+
   it("accepts a complete receipt for the requested artifact", () => {
     expect(validateDownloadReceipt(receipt, "artifact-1")).toBe(receipt);
   });
@@ -81,5 +83,13 @@ describe("download receipt boundary", () => {
     expect(() => validateDownloadReceipt({ ...receipt, destination: "" }, "artifact-1")).toThrow("incomplete");
     expect(() => validateDownloadReceipt({ ...receipt, byte_size: -1 }, "artifact-1")).toThrow("incomplete");
     expect(() => validateDownloadReceipt({ ...receipt, ledger_event_ref: "" }, "artifact-1")).toThrow("incomplete");
+  });
+
+  it("validates the native receipt before reporting a verified download", async () => {
+    invokeMock.mockResolvedValueOnce(receipt);
+    await expect(downloadVerifiedArtifact(profile, "artifact-1", "approval-note.pdf")).resolves.toEqual(receipt);
+
+    invokeMock.mockResolvedValueOnce({ ...receipt, artifact_id: "artifact-other" });
+    await expect(downloadVerifiedArtifact(profile, "artifact-1", "approval-note.pdf")).rejects.toThrow("does not match");
   });
 });

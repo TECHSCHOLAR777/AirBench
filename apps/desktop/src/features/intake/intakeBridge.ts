@@ -136,3 +136,16 @@ export function downloadArtifact(
     suggested_name: suggestedName,
   });
 }
+
+/**
+ * Shared download boundary for every desktop surface. A native save result
+ * is not presented as successful until its artifact identity, content hash,
+ * size, destination, and ledger reference have been checked.
+ */
+export async function downloadVerifiedArtifact(
+  profile: ApprovedNodeProfileReference | ApprovedNodeProfile,
+  artifactId: string,
+  suggestedName: string,
+): Promise<DownloadReceipt> {
+  return validateDownloadReceipt(await downloadArtifact(profile, artifactId, suggestedName), artifactId);
+}
