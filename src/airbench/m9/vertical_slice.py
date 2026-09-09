@@ -23,7 +23,11 @@ from xml.etree import ElementTree as ET
 
 import yaml
 
-from contracts import Clearance, EventLedger, FactEnvelope, HardwareProfile, LedgerEventEnvelope, Taint, build_event, idempotency_key, stable_id
+from contracts import (
+    Clearance, EventLedger, FactEnvelope, HardwareProfile, HandoffSubmission,
+    LedgerEventEnvelope, Taint, WorkPacket, build_event, idempotency_key,
+    stable_id, work_packet_hash,
+)
 from airbench.intake.layer import FileIntakeLayer, IntakeManifest, IntakeMode, IntakeRequest, LocalIntakeStore, PageRenderer
 from airbench.intake.vision import LocalVisionAdapter, VisionRequest
 from airbench.knowledge.retrieval import (
@@ -498,6 +502,58 @@ class RefineryVerticalSlice:
         event("tool.result", {"tool": "deterministic.computation", "values": values, "source_ref": "computed:m9", "taint": Taint.clean.value, "clearance": clearance.value})
         for route in routes:
             event("worker.completed", {"worker_id": route.worker_id, "role": route.role, "stage": route.capability, "status": "proposed_result"})
+        team_id = stable_id("team", task_id)
+        for source, destination in zip(routes, routes[1:]):
+            packet = WorkPacket(
+                packet_id=stable_id("packet", task_id, source.worker_id, destination.worker_id),
+                task_id=task_id,
+                team_id=team_id,
+                source_worker_id=source.worker_id,
+                destination_stage=destination.capability,
+                fact_refs=tuple(f.fact.fact_id for f in findings),
+                evidence_refs=tuple(f.fact.source_ref for f in findings),
+                artifact_refs=(),
+                checks={"source_bound": True, "confidence_bound": True},
+                unresolved_questions=("human review remains required",),
+                proposed_next_result=f"handoff from {source.role} to {destination.role}",
+                clearance=clearance,
+                taint=Taint.untrusted,
+                packet_hash="",
+            )
+            packet = WorkPacket.from_dict({**packet.to_dict(), "packet_hash": work_packet_hash(packet)})
+            handoff = HandoffSubmission(
+                handoff_id=stable_id("handoff", task_id, source.worker_id, destination.worker_id),
+                task_id=task_id,
+                team_id=team_id,
+                source_assignment_id=stable_id("assignment", task_id, source.worker_id),
+                source_worker_id=source.worker_id,
+                destination_assignment_id=stable_id("assignment", task_id, destination.worker_id),
+                destination_stage=destination.capability,
+                packet=packet,
+                packet_hash=packet.packet_hash,
+                barrier_id=stable_id("barrier", task_id, destination.worker_id),
+                barrier_version=1,
+                source_lease_id=stable_id("lease", task_id, source.worker_id),
+                plan_version=self.pack.manifest.get("pack_version", "1.0"),
+                policy_version_hash=_sha(_canonical(self.pack.manifest)),
+                clearance=clearance,
+                taint=Taint.untrusted,
+                submitted_at="2026-01-01T00:00:00Z",
+                deadline="2026-01-01T00:10:00Z",
+                idempotency_key=idempotency_key("m9-handoff", task_id, source.worker_id, destination.worker_id),
+            )
+            event("worker.handoff", {
+                "handoff": handoff.to_dict(),
+                "packet_hash": handoff.packet_hash,
+                "source_assignment_id": handoff.source_assignment_id,
+                "destination_assignment_id": handoff.destination_assignment_id,
+                "provenance": {
+                    "source_ref": f"work-packet:{packet.packet_id}",
+                    "confidence": 1.0,
+                    "clearance": clearance.value,
+                    "taint": Taint.untrusted.value,
+                },
+            })
         event("team.execution.completed", {"team_id": stable_id("team", task_id), "worker_count": len(routes), "finding_count": len(findings)})
         artifact_path = self.artifact_dir / f"{task_id}-approval-note.docx"
         template = next((item for item in self.pack.templates.get("templates", ()) if item.get("id") == "refinery_psu_approval_note_v0"), None)

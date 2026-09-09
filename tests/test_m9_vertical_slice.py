@@ -16,7 +16,7 @@ from airbench.m9 import RefineryPack, RefineryVerticalSlice, SignedPackError
 import airbench.m9.vertical_slice as vertical_slice
 from airbench.intake.vision import LocalVisionAdapter, VisionResult, static_text_extractor
 from airbench.intake.layer import RenderedPage
-from contracts import Clearance, EventLedger, HardwareProfile
+from contracts import Clearance, EventLedger, HardwareProfile, HandoffSubmission
 from pypdf import PdfWriter
 
 
@@ -90,6 +90,9 @@ def test_serial_run_extracts_provenance_computes_values_and_checks_docx(tmp_path
     artifact_event = next(event for event in ledger.events if event.event_type == "artifact.checked")
     assert artifact_event.payload["visual_backend"] in {"microsoft_word", "libreoffice", "none"}
     assert artifact_event.payload["check_reason"]
+    handoffs = [event for event in ledger.events if event.event_type == "worker.handoff"]
+    assert len(handoffs) == len(run.routes) - 1
+    assert all(HandoffSubmission.from_dict(event.payload["handoff"]).packet_hash for event in handoffs)
     assert "artifact.checked" in [event.event_type for event in ledger.events]
     assert "verification.evaluator.completed" in [event.event_type for event in ledger.events]
     assert "completion.blocked" in [event.event_type for event in ledger.events]
