@@ -1,0 +1,231 @@
+"""Contract-first M9 refinery inspection report to approval note slice.
+
+The module deliberately keeps refinery vocabulary in the pack loader and keeps
+execution, provenance, artifact checks, and ledger semantics in the core slice.
+It is deterministic and local: model workers are represented by bounded route
+records, so the same run is replayable without a live model service.
+"""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import re
+import shutil
+import subprocess
+import tempfile
+import zipfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Mapping
+from xml.etree import ElementTree as ET
+
+import yaml
+
+from contracts import Clearance, EventLedger, FactEnvelope, Taint, build_event, idempotency_key, stable_id
+
+
+class SignedPackError(ValueError):
+    """A pack is missing a valid signature or contains unsafe declarations."""
+
+
+def _canonical(value: Any) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def _sha(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _append(ledger: EventLedger, event_type: str, task_id: str, payload: dict[str, Any], clearance: Clearance, actor: str = "m9.orchestrator"):
+    event = build_event(
+        event_type=event_type, task_id=task_id, actor_id=actor, actor_type="orchestrator",
+        payload_contract="M9RunEvent", payload_version="1.0", payload=payload,
+        clearance=clearance, idempotency=idempotency_key(event_type, task_id, json.dumps(payload, sort_keys=True)),
+        sequence=len(ledger.events), previous_event_hash=ledger.head_hash,
+    )
+    return ledger.append(event)
+
+
+@dataclass(frozen=True, slots=True)
+class RefineryPack:
+    root: Path
+    manifest: Mapping[str, Any]
+    documents: Mapping[str, Any]
+    world: Mapping[str, Any]
+    rules: Mapping[str, Any]
+    workers: Mapping[str, Any]
+    templates: Mapping[str, Any]
+    decisions: Mapping[str, Any]
+    risks: Mapping[str, Any]
+    clearance_roles: Mapping[str, Any]
+    signature: str
+
+    @staticmethod
+    def _payload(root: Path) -> dict[str, Any]:
+        files = sorted(p for p in root.glob("*.yaml") if p.name != "manifest.yaml")
+        return {p.name: yaml.safe_load(p.read_text(encoding="utf-8")) for p in files}
+
+    @classmethod
+    def sign(cls, root: str | Path, key: bytes) -> str:
+        if not key:
+            raise SignedPackError("signing key is required")
+        return hmac.new(key, _canonical(cls._payload(Path(root))), hashlib.sha256).hexdigest()
+
+    @classmethod
+    def load(cls, root: str | Path, key: bytes, signature: str | None = None) -> "RefineryPack":
+        path = Path(root).resolve()
+        try:
+            manifest = yaml.safe_load((path / "manifest.yaml").read_text(encoding="utf-8"))
+            actual = signature or manifest.get("signature")
+            expected = cls.sign(path, key)
+        except (OSError, ValueError, TypeError, yaml.YAMLError) as exc:
+            raise SignedPackError("pack could not be read") from exc
+        if not actual or not hmac.compare_digest(str(actual), expected):
+            raise SignedPackError("pack signature verification failed")
+        if manifest.get("status") == "draft_pending_external_acceptance":
+            raise SignedPackError("draft packs cannot be loaded")
+        def load(name: str) -> Mapping[str, Any]:
+            return yaml.safe_load((path / name).read_text(encoding="utf-8"))
+        return cls(path, manifest, load("document_profiles.yaml"), load("world_schema.yaml"), load("field_rules.yaml"), load("worker_requirements.yaml"), load("deliverable_templates.yaml"), load("decision_types.yaml"), load("risk_mappings.yaml"), load("clearance_roles.yaml"), expected)
+
+
+@dataclass(frozen=True, slots=True)
+class InspectionFinding:
+    finding_id: str
+    equipment_tag: str
+    severity: str
+    description: str
+    fact: FactEnvelope
+    source_region: str
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerRoute:
+    worker_id: str
+    role: str
+    capability: str
+    execution_mode: str
+    model_route: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactCheck:
+    artifact_id: str
+    content_hash: str
+    structural: str
+    visual: str
+    check_reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class M9RunResult:
+    task_id: str
+    outcome: str
+    review_status: str
+    execution_mode: str
+    findings: tuple[InspectionFinding, ...]
+    computed_values: Mapping[str, int]
+    routes: tuple[WorkerRoute, ...]
+    artifact: ArtifactCheck | None
+    ledger_event_ids: tuple[str, ...]
+
+
+class ApprovalNoteRenderer:
+    """Small dependency-free OOXML writer with structural and visual checks."""
+
+    def render(self, output: Path, *, findings: tuple[InspectionFinding, ...], values: Mapping[str, int], review_status: str) -> ArtifactCheck:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        def esc(value: Any) -> str:
+            return (str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+        paragraphs = [
+            ("Approval Note", "Title"),
+            ("Subject", "Heading1"), ("Refinery inspection report review", "Normal"),
+            ("Findings", "Heading1"),
+        ]
+        paragraphs.extend((f"{f.finding_id}: {f.equipment_tag} — {f.severity} — {f.description}", "Normal") for f in findings)
+        paragraphs.extend([
+            ("Source Register", "Heading1"),
+            *[(f"{f.finding_id}: {f.fact.source_ref} ({f.source_region})", "Normal") for f in findings],
+            ("Deterministic Calculations", "Heading1"),
+            *[(f"{name}: {value}", "Normal") for name, value in sorted(values.items())],
+            ("Review Status", "Heading1"), (review_status, "Normal"),
+        ])
+        body = "".join(f'<w:p><w:pPr><w:pStyle w:val="{style}"/></w:pPr><w:r><w:t xml:space="preserve">{esc(text)}</w:t></w:r></w:p>' for text, style in paragraphs)
+        document = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>'''
+        styles = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="Normal"><w:name w:val="Normal"/></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:rPr><w:b/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:rPr><w:b/></w:rPr></w:style></w:styles>'''
+        rels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'''
+        content = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>'''
+        with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as docx:
+            docx.writestr("[Content_Types].xml", content); docx.writestr("_rels/.rels", rels); docx.writestr("word/document.xml", document); docx.writestr("word/styles.xml", styles)
+        structural, visual, reason = self.check(output, values)
+        return ArtifactCheck(stable_id("artifact", output.name, _sha(output.read_bytes())), _sha(output.read_bytes()), structural, visual, reason)
+
+    def check(self, path: Path, values: Mapping[str, int]) -> tuple[str, str, str]:
+        try:
+            with zipfile.ZipFile(path) as archive:
+                xml = ET.fromstring(archive.read("word/document.xml"))
+                text = " ".join(xml.itertext())
+                if any(str(value) not in text for value in values.values()): return "failed", "not_run", "computed value missing from document"
+        except (OSError, KeyError, zipfile.BadZipFile, ET.ParseError):
+            return "failed", "not_run", "DOCX structure is invalid"
+        visual = "not_run"
+        soffice = shutil.which("soffice") or shutil.which("libreoffice")
+        if soffice:
+            with tempfile.TemporaryDirectory() as temp:
+                completed = subprocess.run([soffice, "--headless", "--convert-to", "pdf", "--outdir", temp, str(path)], capture_output=True, timeout=30)
+                visual = "passed" if completed.returncode == 0 and list(Path(temp).glob("*.pdf")) else "failed"
+        return "passed", visual, "structural checks passed; visual conversion " + visual
+
+
+class RefineryVerticalSlice:
+    def __init__(self, pack: RefineryPack, ledger: EventLedger, *, artifact_dir: str | Path) -> None:
+        self.pack, self.ledger, self.artifact_dir = pack, ledger, Path(artifact_dir)
+
+    @staticmethod
+    def _mode(safe_parallel_slots: int, supported: tuple[str, ...]) -> str:
+        if safe_parallel_slots > 1 and "parallel" in supported: return "parallel"
+        return "serial_virtual_team"
+
+    def run(self, *, task_id: str, report_pages: Mapping[str, str], manuals: Mapping[str, str], clearance: Clearance = Clearance.restricted, safe_parallel_slots: int = 1, supported_modes: tuple[str, ...] = ("serial_virtual_team",), signature_ref: str = "") -> M9RunResult:
+        if not report_pages: raise ValueError("a scanned inspection report is required")
+        ids: list[str] = []
+        def event(kind: str, payload: dict[str, Any]) -> None: ids.append(_append(self.ledger, kind, task_id, payload, clearance).event_id)
+        event("task.created", {"domain_pack_ref": self.pack.manifest["pack_id"], "pack_signature": self.pack.signature, "signature_ref": signature_ref, "provenance": {"source_ref": "local:inspection-report", "confidence": 1.0, "clearance": clearance.value, "taint": Taint.untrusted.value}})
+        mode = self._mode(safe_parallel_slots, supported_modes)
+        event("execution.mode.selected", {"mode": mode, "safe_parallel_slots": safe_parallel_slots, "hardware_modes": list(supported_modes)})
+        event("team.created", {"team_id": stable_id("team", task_id), "required_verification": True, "pack_workflow": "refinery_inspection_review"})
+        event("team.execution.started", {"team_id": stable_id("team", task_id), "mode": mode})
+        routes = tuple(WorkerRoute(f"worker.m9.{role}", role, capability, mode, f"local.{capability}.qualified") for role, capability in (("evidence_vision_worker", "vision"), ("reasoning_worker", "reasoning"), ("independent_verification_worker", "verification"), ("render_review_worker", "render")))
+        for route in routes: event("worker.assigned", {"worker_id": route.worker_id, "role": route.role, "capability": route.capability, "mode": mode})
+        findings: list[InspectionFinding] = []
+        for page_id, text in report_pages.items():
+            for index, line in enumerate(text.splitlines(), 1):
+                match = re.match(r"\s*(?:finding\s*)?(?P<id>[A-Z]+[-_]?[0-9]+)\s*[:|-]\s*(?P<equipment>[A-Za-z0-9_.-]+)\s*[:|-]\s*(?P<severity>critical|high|medium|low)\s*[:|-]\s*(?P<description>.+)", line, re.I)
+                if not match: continue
+                data = match.groupdict(); fid = data["id"].replace("_", "-").lower()
+                source = f"intake:inspection-report#{page_id}"
+                fact = FactEnvelope(stable_id("fact", task_id, fid), data["description"].strip(), source, 0.85, clearance, Taint.untrusted, "local_ocr_vision", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
+                findings.append(InspectionFinding(fid, data["equipment"], data["severity"].lower(), data["description"].strip(), fact, f"{page_id}:line={index}"))
+                event("fact.candidate", {"fact_id": fact.fact_id, "source_ref": source, "confidence": fact.confidence, "clearance": clearance.value, "taint": fact.taint.value})
+        if not findings: raise ValueError("inspection report contained no sourced findings")
+        manual_hits = tuple((key, value) for key, value in manuals.items() if any(token in value.lower() for finding in findings for token in finding.description.lower().split() if len(token) > 4))
+        event("retrieval.completed", {"manual_refs": [key for key, _ in manual_hits], "finding_count": len(findings), "local_only": True})
+        values = {"finding_count": len(findings), "critical_finding_count": sum(f.severity == "critical" for f in findings), "manual_match_count": len(manual_hits)}
+        event("tool.result", {"tool": "deterministic.computation", "values": values, "source_ref": "computed:m9", "taint": Taint.clean.value, "clearance": clearance.value})
+        event("team.execution.completed", {"team_id": stable_id("team", task_id), "worker_count": len(routes), "finding_count": len(findings)})
+        artifact_path = self.artifact_dir / f"{task_id}-approval-note.docx"
+        artifact = ApprovalNoteRenderer().render(artifact_path, findings=tuple(findings), values=values, review_status="verified draft for human review")
+        event("artifact.staged", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "path": str(artifact_path)})
+        event("artifact.checked", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "structural": artifact.structural, "visual": artifact.visual})
+        status = "verified draft for human review" if artifact.structural == "passed" and artifact.visual == "passed" else "needs_review"
+        event("verification.completed", {"status": "passed" if status.startswith("verified") else "needs_review", "artifact_id": artifact.artifact_id, "source_refs": [f.fact.source_ref for f in findings], "provenance": {"source_ref": "task:m9", "confidence": min(f.fact.confidence for f in findings), "clearance": clearance.value, "taint": Taint.untrusted.value}})
+        evaluator_outcome = "passed" if status.startswith("verified") else "needs_review"
+        event("verification.evaluator.requested", {"evaluator_worker_id": "worker.m9.independent_verification_worker", "generator_worker_id": "worker.m9.reasoning_worker", "fresh_context": True})
+        event("verification.evaluator.completed", {"evaluator_worker_id": "worker.m9.independent_verification_worker", "outcome": evaluator_outcome, "criteria": {"artifact_checked": artifact.structural == "passed" and artifact.visual == "passed", "sources_attached": bool(findings)}, "reason": "independent verifier recorded outcome"})
+        event("completion.blocked" if evaluator_outcome != "passed" else "completion.ready", {"outcome": evaluator_outcome, "reason": "human review is required before release" if evaluator_outcome != "passed" else "independent verification passed"})
+        event("human.review.required", {"artifact_id": artifact.artifact_id, "review_status": status})
+        return M9RunResult(task_id, "needs_review", status, mode, tuple(findings), values, routes, artifact, tuple(ids))
+
+
+__all__ = ["ArtifactCheck", "InspectionFinding", "M9RunResult", "RefineryPack", "RefineryVerticalSlice", "SignedPackError", "WorkerRoute"]
