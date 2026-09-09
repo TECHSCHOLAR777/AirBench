@@ -19,6 +19,12 @@ development build is the same as packaged desktop evidence.
   resource references;
 - the Tauri local-resource policy still includes self-only defaults and a
   denied default connection path.
+- the authored TSX tree gives every button an explicit type, gives native form
+  controls an accessible name, and gives dialogs a modal and naming contract.
+
+The accessibility portion uses the installed TypeScript parser rather than a
+regular-expression scan. It checks the authored JSX structure without
+executing uploaded content, starting a browser, or making a network request.
 
 The manifest is a semantic baseline. It deliberately does not pretend to be a
 pixel screenshot baseline or a packaged accessibility audit. Pixel baselines,
@@ -31,6 +37,7 @@ From `apps/desktop/`:
 
 ```text
 npm run check:ui
+npm run check:accessibility
 npm run check:egress
 npm run check:tauri-config
 npm test -- --run
