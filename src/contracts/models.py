@@ -33,6 +33,9 @@ LEDGER_EVENT_TYPES = {
     "projection.rebuilt", "projection.exported", "checkpoint.committed", "retry.completed",
     "retry.failed", "side_effect.reserved", "side_effect.committed", "side_effect.uncertain",
     "recovery.resumed", "crash.recovered",
+    # M8 verification, authority, and consistency decisions
+    "verification.evaluator.requested", "verification.evaluator.completed",
+    "consistency.checked", "authority.decided", "completion.blocked", "completion.ready",
     # ── M5.1: Model registry, artifact integrity, qualification ───────────────
     "model.registry.loaded",          # registry manifest loaded and signature verified
     "model.registry.signature.verified",  # manifest HMAC confirmed

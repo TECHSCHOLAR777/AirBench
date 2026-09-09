@@ -60,6 +60,9 @@ from .verification.runner import (
     VerificationRule,
     VerificationRunner,
 )
+from .verification.autonomy import ActionProposal, AuthorityDecision, AutonomyGovernor, RiskRule
+from .verification.gate import CrossFrameworkGate, CrossFrameworkResult
+from .verification.independent import CompletionDecision, CompletionGate, EvaluatorInput, EvaluatorResult, EvaluatorUnavailable, IndependentEvaluator
 from .orchestration.team_runtime import (
     ContextCompaction,
     LifecycleEvent,
@@ -106,6 +109,7 @@ from .knowledge.world_model import (
     WorldModelStore,
     candidate_id,
 )
+from .knowledge.consistency import ConsistencyEngine, ConsistencyResult, DecisionRecord
 
 __all__ = [
     "FileIntakeLayer",
@@ -156,6 +160,9 @@ __all__ = [
     "VerificationResult",
     "VerificationRule",
     "VerificationRunner",
+    "ActionProposal", "AuthorityDecision", "AutonomyGovernor", "RiskRule",
+    "CrossFrameworkGate", "CrossFrameworkResult", "CompletionDecision", "CompletionGate",
+    "EvaluatorInput", "EvaluatorResult", "EvaluatorUnavailable", "IndependentEvaluator",
     "ContextCompaction",
     "LifecycleEvent",
     "LifecycleInterceptor",
@@ -194,4 +201,5 @@ __all__ = [
     "WorldModelRelation",
     "WorldModelStore",
     "candidate_id",
+    "ConsistencyEngine", "ConsistencyResult", "DecisionRecord",
 ]
