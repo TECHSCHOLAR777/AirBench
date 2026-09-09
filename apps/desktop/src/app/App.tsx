@@ -10,6 +10,7 @@ import { downloadArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelecte
 import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand, type CreateTaskResponse } from "../platform/node/nodeCommands";
 import type { NodeCommandResult, TaskPlanReview } from "../generated/core_contracts";
 import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan } from "../features/tasks/taskComposer";
+import { planRecoveryGuidance } from "../features/tasks/planRecovery";
 import { fetchTaskEventBatch } from "../platform/events/eventTransport";
 import { maySendConsequentialCommand, TaskEventSynchronizer, type EventSyncResult, type EventSyncState } from "../platform/events/eventStore";
 import { TaskEventLoop } from "../features/tasks/taskEventLoop";
@@ -709,6 +710,14 @@ function IntakeRecoveryGuidance({ recovery }: { recovery: RecoveryGuidance }) {
   </dl>;
 }
 
+function PlanRecoveryBlock({ guidance }: { guidance: RecoveryGuidance }) {
+  return <dl className="plan-recovery-guidance" aria-label="Safe plan recovery guidance">
+    <div><dt>Preserved</dt><dd>{guidance.preserved}</dd></div>
+    <div><dt>Retry</dt><dd>{guidance.retry}</dd></div>
+    <div><dt>Next</dt><dd>{guidance.nextAction}</dd></div>
+  </dl>;
+}
+
 function PlanReviewCard({ plan, loading, approval, approving, synchronized, onApprove, onCancel }: { plan: TaskPlanReview | null; loading: boolean; approval: NodeCommandResult | null; approving: boolean; synchronized: boolean; onApprove: () => void; onCancel: () => Promise<void> }) {
   if (loading) {
     return <section className="plan-review-card" data-testid="plan-review-loading" aria-label="Task plan review"><p className="eyebrow">PLAN REVIEW</p><h2>AirBench is preparing the plan</h2><p className="plan-muted">The Node is validating the work against policy and available hardware. No execution has started.</p></section>;
@@ -723,6 +732,7 @@ function PlanReviewCard({ plan, loading, approval, approving, synchronized, onAp
     <div className="plan-review-head"><div><p className="eyebrow">PLAN REVIEW</p><h2>{stateLabel[plan.plan_state] ?? plan.plan_state}</h2></div><span className={`intake-badge plan-state-${plan.plan_state}`}>{modeLabel[plan.execution_mode] ?? plan.execution_mode}</span></div>
     <p className="plan-muted">{plan.authority_reason}</p>
     {plan.failure_reason && <div className="plan-warning" role="status"><strong>{plan.failure_code ?? "Plan requires attention"}</strong><span>{plan.failure_reason}</span></div>}
+    {(plan.plan_state !== "ready" || !synchronized || Boolean(approval)) && <PlanRecoveryBlock guidance={planRecoveryGuidance(plan, synchronized, Boolean(approval))} />}
     <div className="plan-meta-grid"><div><span>Team</span><strong>{plan.team_id ?? "Not assigned"}</strong></div><div><span>Concurrency</span><strong>{plan.concurrency_ceiling || "Not selected"}</strong></div><div><span>Hardware</span><strong>{plan.hardware_profile_ref ?? "Admission pending"}</strong></div><div><span>Verification</span><strong>{plan.required_verification ? "Required" : "Missing"}</strong></div></div>
     <div className="plan-reason"><span>Why this mode</span><p>{plan.hardware_reason}</p></div>
     <div className="plan-workers"><span>Capability lanes</span><div>{Object.entries(plan.worker_capabilities).map(([worker, capability]) => <span className="plan-worker" key={worker}>{worker}: {capability}</span>)}</div></div>
