@@ -640,6 +640,7 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .worktrace-facts ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .worktrace-facts li { padding: 8px 9px; background: var(--surface-subtle); border-left: 3px solid color-mix(in srgb, var(--trust) 72%, transparent); }
 .worktrace-facts strong { color: var(--ink-soft); font-family: var(--font-mono); font-size: 9px; }
+.worktrace-facts span { color: var(--muted); font-size: 9px; line-height: 1.45; }
 .worktrace-facts small { color: var(--faint); font-family: var(--font-mono); font-size: 8px; overflow-wrap: anywhere; }
 .proof-input-preview-button { display: inline-flex; align-items: center; gap: 6px; width: fit-content; margin-top: 11px; padding: 7px 9px; color: var(--info); background: var(--info-soft); border: 1px solid color-mix(in srgb, var(--info) 26%, var(--line)); border-radius: var(--radius-sm); font-size: 10px; font-weight: 680; }
 .proof-input-preview-button:hover { border-color: color-mix(in srgb, var(--info) 56%, var(--line)); }
