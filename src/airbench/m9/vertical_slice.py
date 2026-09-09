@@ -22,7 +22,7 @@ from xml.etree import ElementTree as ET
 
 import yaml
 
-from contracts import Clearance, EventLedger, FactEnvelope, HardwareProfile, Taint, build_event, idempotency_key, stable_id
+from contracts import Clearance, EventLedger, FactEnvelope, HardwareProfile, LedgerEventEnvelope, Taint, build_event, idempotency_key, stable_id
 from airbench.intake.layer import FileIntakeLayer, IntakeManifest, IntakeMode, IntakeRequest, LocalIntakeStore, PageRenderer
 from airbench.intake.vision import LocalVisionAdapter, VisionRequest
 from airbench.knowledge.retrieval import (
@@ -60,7 +60,14 @@ def _sha(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def _append(ledger: EventLedger, event_type: str, task_id: str, payload: dict[str, Any], clearance: Clearance, actor: str = "m9.orchestrator"):
+def _append(
+    ledger: EventLedger,
+    event_type: str,
+    task_id: str,
+    payload: dict[str, Any],
+    clearance: Clearance,
+    actor: str = "m9.orchestrator",
+) -> LedgerEventEnvelope:
     event = build_event(
         event_type=event_type, task_id=task_id, actor_id=actor, actor_type="orchestrator",
         payload_contract="M9RunEvent", payload_version="1.0", payload=payload,
