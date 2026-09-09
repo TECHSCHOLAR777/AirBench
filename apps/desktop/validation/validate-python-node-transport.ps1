@@ -5,6 +5,10 @@ $tauriRoot = Join-Path $validationRoot "src-tauri"
 $repoRoot = Split-Path -Parent $validationRoot
 $runRoot = Join-Path ([IO.Path]::GetTempPath()) ("AirBenchPythonNodeValidation-" + (Get-Date -Format "yyyyMMdd-HHmmss") + "-" + [guid]::NewGuid().ToString("N"))
 $null = New-Item -ItemType Directory -Path $runRoot -Force
+# Use a disposable Cargo target so real Python Node validation cannot reuse
+# generated Tauri permissions or absolute dependency paths from the old
+# frontend/src-tauri location after the repository refactor.
+$env:CARGO_TARGET_DIR = Join-Path $runRoot "cargo-target"
 $python = (Get-Command python).Source
 $cargo = Join-Path $env:USERPROFILE ".cargo\bin\cargo.exe"
 if (-not (Test-Path -LiteralPath $cargo)) { throw "Rust cargo was not found at the expected installation path." }
@@ -111,6 +115,11 @@ try {
   $snapshot = Invoke-Probe $profilePath @("snapshot", $taskId)
   if ($snapshot.code -ne 0 -or $snapshot.payload.taskId -ne $taskId -or $snapshot.payload.compatibilityId -ne "airbench-node-protocol") { throw "The Rust transport could not re-fetch the Python Node snapshot." }
 
+  $plan = Invoke-Probe $profilePath @("plan", $taskId)
+  if ($plan.code -ne 0 -or $plan.payload.task_id -ne $taskId -or $plan.payload.plan_state -ne "not_ready" -or $plan.payload.task_sequence -ne $snapshot.payload.asOfSequence -or $plan.payload.execution_mode -ne "not_selected" -or $plan.payload.failure_code -ne "plan_not_ready" -or [string]::IsNullOrWhiteSpace($plan.payload.failure_reason) -or $plan.payload.required_verification -ne $true) {
+    throw "The Python Node plan projection did not preserve the safe not-ready state: $($plan.payload | ConvertTo-Json -Compress)"
+  }
+
   $events = Invoke-Probe $profilePath @("events", $taskId, "0")
   if ($events.code -ne 0 -or $events.payload.schema_version -ne "1.0" -or $events.payload.compatibility_id -ne "airbench-core-contracts" -or $events.payload.events.Count -lt 1) { throw "The Python Node event batch did not satisfy the typed batch contract." }
   if ($events.payload.events[0].compatibilityId -ne "airbench-node-protocol") { throw "The Python Node event did not preserve the Node wire envelope." }
@@ -139,7 +148,7 @@ try {
     status = "passed"
     node = "real Python NodeApiService"
     task_id = $taskId
-    checks = @("handshake-negotiation", "create-snapshot", "event-batch", "route-trace", "command-idempotency", "ledger-reference")
+    checks = @("handshake-negotiation", "create-snapshot", "plan-projection-not-ready", "event-batch", "route-trace", "command-idempotency", "ledger-reference")
     log = $serverLog
   } | ConvertTo-Json -Depth 8
 } finally {
