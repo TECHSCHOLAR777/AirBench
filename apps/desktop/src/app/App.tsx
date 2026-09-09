@@ -26,6 +26,7 @@ import { TaskEmptyView } from "../components/TaskEmptyView";
 import { NodeReadinessPanel } from "../components/NodeReadinessPanel";
 import { formatProvenanceLocation, type ProofSelection } from "../features/provenance/proofInspector";
 import type { TaskProjection } from "../platform/events/protocol";
+import { classifyIntakeFailure, intakeStateFromManifest, intakeStatusCopy, type IntakeUiState } from "../features/intake/intakeState";
 
 type SelectedFile = { selection_id: string; file_name: string; byte_size: number };
 
@@ -62,7 +63,7 @@ function App() {
   const [priority, setPriority] = useState("normal");
   const [deadline, setDeadline] = useState("");
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
-  const [intakeState, setIntakeState] = useState<"idle" | "uploading" | "ready" | "failed">("idle");
+  const [intakeState, setIntakeState] = useState<IntakeUiState>("idle");
   const [intakeManifest, setIntakeManifest] = useState<IntakeManifest | null>(null);
   const [safePreview, setSafePreview] = useState<SafePreview | null>(null);
   const [artifactPreview, setArtifactPreview] = useState<ArtifactPreview | null>(null);
@@ -214,6 +215,12 @@ function App() {
       const selection = await invoke<SelectedFile | null>("pick_query_file");
       if (selection) {
         setSelectedFile(selection);
+        setIntakeState("idle");
+        setIntakeManifest(null);
+        setSafePreview(null);
+        setArtifactPreview(null);
+        setDownloadState("idle");
+        setDownloadReceipt(null);
         setNotice("File selected. It will enter AirBench through the File Intake Layer when a Node is connected.");
       } else {
         setNotice("No file selected.");
@@ -239,16 +246,34 @@ function App() {
     setNotice(null);
     try {
       const manifest = await uploadSelectedQueryFile(profile, selectedFile.selection_id);
-      const preview = await fetchSafePreview(profile, manifest.preview_ref, manifest.source_hash);
-      const artifact = await fetchArtifactPreview(profile, manifest.artifact_ref);
       setIntakeManifest(manifest);
-      setSafePreview(preview);
-      setArtifactPreview(artifact);
-      setIntakeState("ready");
-      setNotice("AirBench accepted the file through the File Intake Layer. Both previews are Node-generated and remain untrusted data.");
-    } catch {
-      setIntakeState("failed");
-      setNotice("The Node could not complete intake. The original file was not parsed by the desktop app.");
+      setIntakeState(intakeStateFromManifest(manifest));
+      try {
+        const preview = await fetchSafePreview(profile, manifest.preview_ref, manifest.source_hash);
+        setSafePreview(preview);
+      } catch (error) {
+        const state = classifyIntakeFailure(error, true);
+        setIntakeState(state);
+        setNotice(intakeStatusCopy(state).detail);
+        return;
+      }
+      setIntakeState(intakeStateFromManifest(manifest));
+      try {
+        const artifact = await fetchArtifactPreview(profile, manifest.artifact_ref);
+        setArtifactPreview(artifact);
+      } catch {
+        setArtifactPreview(null);
+        setNotice("Source accepted by File Intake. The Node artifact preview is not available yet; task launch remains governed by the intake result.");
+        return;
+      }
+      setNotice("AirBench accepted the file through the File Intake Layer. Previews are Node-generated and remain untrusted data.");
+    } catch (error) {
+      const state = classifyIntakeFailure(error);
+      setIntakeState(state);
+      setIntakeManifest(null);
+      setSafePreview(null);
+      setArtifactPreview(null);
+      setNotice(intakeStatusCopy(state).detail);
     }
   };
 
@@ -594,10 +619,11 @@ const outputContractOptions = [
   { value: "code", label: "Code", detail: "A working, verifiable code artifact" },
 ] as const;
 
-function HomeView({ outcomeInputRef, currentTask, taskText, setTaskText, taskTitle, setTaskTitle, projectRef, setProjectRef, outputContract, setOutputContract, priority, setPriority, deadline, setDeadline, selectedFile, intakeState, intakeManifest, safePreview, artifactPreview, downloadState, downloadReceipt, taskResult, planReview, planLoading, planApprovalResult, approvingPlan, planSynchronized, notice, canStart, creatingTask, nodeConnected, nodeLabel, onAttach, onUpload, onDownload, onStart, onApprovePlan, onRemoveFile, onHelp, onOpenNode, onOpenCurrentTask }: { outcomeInputRef: RefObject<HTMLTextAreaElement | null>; currentTask: TaskProjection | null; taskText: string; setTaskText: (value: string) => void; taskTitle: string; setTaskTitle: (value: string) => void; projectRef: string; setProjectRef: (value: string) => void; outputContract: string; setOutputContract: (value: string) => void; priority: string; setPriority: (value: string) => void; deadline: string; setDeadline: (value: string) => void; selectedFile: SelectedFile | null; intakeState: "idle" | "uploading" | "ready" | "failed"; intakeManifest: IntakeManifest | null; safePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; downloadState: "idle" | "downloading" | "downloaded" | "failed"; downloadReceipt: DownloadReceipt | null; taskResult: CreateTaskResponse | null; planReview: TaskPlanReview | null; planLoading: boolean; planApprovalResult: NodeCommandResult | null; approvingPlan: boolean; planSynchronized: boolean; notice: string | null; canStart: boolean; creatingTask: boolean; nodeConnected: boolean; nodeLabel: string; onAttach: () => void; onUpload: () => void; onDownload: () => void; onStart: () => void; onApprovePlan: () => void; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void; onOpenCurrentTask: () => void }) {
+function HomeView({ outcomeInputRef, currentTask, taskText, setTaskText, taskTitle, setTaskTitle, projectRef, setProjectRef, outputContract, setOutputContract, priority, setPriority, deadline, setDeadline, selectedFile, intakeState, intakeManifest, safePreview, artifactPreview, downloadState, downloadReceipt, taskResult, planReview, planLoading, planApprovalResult, approvingPlan, planSynchronized, notice, canStart, creatingTask, nodeConnected, nodeLabel, onAttach, onUpload, onDownload, onStart, onApprovePlan, onRemoveFile, onHelp, onOpenNode, onOpenCurrentTask }: { outcomeInputRef: RefObject<HTMLTextAreaElement | null>; currentTask: TaskProjection | null; taskText: string; setTaskText: (value: string) => void; taskTitle: string; setTaskTitle: (value: string) => void; projectRef: string; setProjectRef: (value: string) => void; outputContract: string; setOutputContract: (value: string) => void; priority: string; setPriority: (value: string) => void; deadline: string; setDeadline: (value: string) => void; selectedFile: SelectedFile | null; intakeState: IntakeUiState; intakeManifest: IntakeManifest | null; safePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; downloadState: "idle" | "downloading" | "downloaded" | "failed"; downloadReceipt: DownloadReceipt | null; taskResult: CreateTaskResponse | null; planReview: TaskPlanReview | null; planLoading: boolean; planApprovalResult: NodeCommandResult | null; approvingPlan: boolean; planSynchronized: boolean; notice: string | null; canStart: boolean; creatingTask: boolean; nodeConnected: boolean; nodeLabel: string; onAttach: () => void; onUpload: () => void; onDownload: () => void; onStart: () => void; onApprovePlan: () => void; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void; onOpenCurrentTask: () => void }) {
   const [openPanel, setOpenPanel] = useState<LaunchpadPanel | null>(null);
   const outputLabel = outputContractOptions.find((option) => option.value === outputContract)?.label ?? "Deliverable";
   const selectedSourceStatus = sourceStatus(Boolean(selectedFile), intakeState);
+  const intakeCopy = intakeStatusCopy(intakeState);
   const routingPreference = unavailableRoutingPreference(nodeConnected);
   const currentWork = currentTask ? buildHomeWorkSummary(currentTask) : null;
   const launchTitle = canStart ? "Launch task" : "Connect an approved Node, describe the outcome, and finish file intake before launching";
@@ -621,7 +647,8 @@ function HomeView({ outcomeInputRef, currentTask, taskText, setTaskText, taskTit
       {openPanel === "sources" && <section className="launchpad-panel" id="launchpad-sources" aria-label="Sources">
         <div className="launchpad-panel-heading"><div><p className="eyebrow">SOURCES</p><h2>Bring in the material that matters</h2></div><button type="button" className="text-button" onClick={() => setOpenPanel(null)}>Done</button></div>
         {!selectedFile && <div className="launchpad-source-empty"><AppIcon name="attachment" size={19} /><div><strong>No source selected</strong><p>Every file is sent to the Node through File Intake before it can be used.</p></div><button type="button" className="secondary-button" onClick={openSourcePicker}>Choose file</button></div>}
-        {selectedFile && <div className="selected-file"><span className="file-badge">FILE</span><span><strong>{selectedFile.file_name}</strong><small>{formatBytes(selectedFile.byte_size)} / {intakeState === "ready" ? "accepted by File Intake" : intakeState === "uploading" ? "being sent to File Intake" : "ready for File Intake"}</small></span><div className="selected-file-actions">{intakeState !== "ready" && <button className="secondary-button compact-button" onClick={onUpload} disabled={intakeState === "uploading"}>{intakeState === "uploading" ? "Sending..." : "Send to Node"}</button>}<button className="remove-file" onClick={onRemoveFile} aria-label="Remove selected file">Remove</button></div></div>}
+        {selectedFile && <div className="selected-file"><span className="file-badge">FILE</span><span><strong>{selectedFile.file_name}</strong><small>{formatBytes(selectedFile.byte_size)} / {intakeCopy.label}</small></span><div className="selected-file-actions">{intakeState === "idle" && <button className="secondary-button compact-button" onClick={onUpload}>Send to Node</button>}{intakeState === "uploading" && <button className="secondary-button compact-button" disabled>Sending...</button>}{intakeState !== "idle" && intakeState !== "uploading" && intakeState !== "ready" && intakeCopy.retryable && <button className="secondary-button compact-button" onClick={openSourcePicker}>Choose again</button>}<button className="remove-file" onClick={onRemoveFile} aria-label="Remove selected file">Remove</button></div></div>}
+        {selectedFile && intakeState !== "idle" && intakeState !== "ready" && <div className={`intake-status intake-status-${intakeState}`} role={intakeState === "uploading" || intakeState === "processing" ? "status" : "alert"}><strong>{intakeCopy.title}</strong><span>{intakeCopy.detail}</span></div>}
         <div className="launchpad-policy-note"><AppIcon name="shield" size={15} /><span>Uploaded material is untrusted data. The desktop app does not parse it or treat it as instructions.</span></div>
       </section>}
       {openPanel === "deliverable" && <section className="launchpad-panel" id="launchpad-deliverable" aria-label="Deliverable intent">
@@ -651,7 +678,7 @@ function HomeView({ outcomeInputRef, currentTask, taskText, setTaskText, taskTit
       </section>}
       <div className="composer-footer launchpad-footer"><div className="composer-tools"><button className="secondary-button launchpad-attach-button" data-testid="attach-files" onClick={openSourcePicker}><AppIcon name="attachment" size={15} /> Attach files</button><span className="launchpad-footer-status"><AppIcon name="route" size={15} /><span><strong>Auto route</strong> Node validates the task before choosing qualified workers.</span></span></div><button className="primary-button" data-testid="start-task" onClick={onStart} disabled={!canStart} title={launchTitle}>{creatingTask ? "Launching..." : "Launch"} <kbd>Ctrl Enter</kbd></button></div>
     </section>
-    {intakeManifest && safePreview && <section className="intake-result" data-testid="intake-result" aria-label="File Intake result"><div className="intake-result-head"><div><p className="eyebrow">FILE INTAKE COMPLETE</p><h2>{intakeManifest.file_name}</h2></div><span className="intake-badge">{intakeManifest.ocr_status} OCR</span></div><div className="intake-meta-grid"><div><span>Source hash</span><strong>{intakeManifest.source_hash}</strong></div><div><span>Pages</span><strong>{intakeManifest.page_count}</strong></div><div><span>Clearance</span><strong>{intakeManifest.clearance}</strong></div><div><span>Taint</span><strong>{intakeManifest.taint}</strong></div></div><div className="safe-preview"><div className="safe-preview-label">Node-generated safe preview <span>Page region: {safePreview.source_region}</span></div><p>{safePreview.text}</p><small>Confidence {Math.round(safePreview.confidence * 100)}% / ledger {safePreview.ledger_event_ref}</small></div></section>}
+    {intakeManifest && <section className="intake-result" data-testid="intake-result" aria-label="File Intake result"><div className="intake-result-head"><div><p className="eyebrow">FILE INTAKE</p><h2>{intakeManifest.file_name}</h2></div><span className="intake-badge">{intakeCopy.label}</span></div><div className="intake-meta-grid"><div><span>Source hash</span><strong>{intakeManifest.source_hash}</strong></div><div><span>Pages</span><strong>{intakeManifest.page_count}</strong></div><div><span>Clearance</span><strong>{intakeManifest.clearance}</strong></div><div><span>Taint</span><strong>{intakeManifest.taint}</strong></div></div>{safePreview ? <div className="safe-preview"><div className="safe-preview-label">Node-generated safe preview <span>Page region: {safePreview.source_region}</span></div><p>{safePreview.text}</p><small>Confidence {Math.round(safePreview.confidence * 100)}% / ledger {safePreview.ledger_event_ref}</small></div> : <div className="intake-status intake-status-partial" role="status"><strong>{intakeCopy.title}</strong><span>{intakeCopy.detail}</span></div>}</section>}
     {artifactPreview && <section className="artifact-preview" data-testid="artifact-preview" aria-label="Artifact preview"><div className="intake-result-head"><div><p className="eyebrow">NODE ARTIFACT PREVIEW</p><h2>{artifactPreview.title}</h2></div><span className="intake-badge">{artifactPreview.preview_kind}</span></div><div className="artifact-preview-meta"><span>{artifactPreview.clearance} clearance</span><span>{artifactPreview.taint} data</span><span>Ledger {artifactPreview.ledger_event_ref}</span></div><div className="artifact-blocks">{artifactPreview.blocks.map((block, index) => <div className="artifact-block" key={`${block.kind}-${index}`}><span className="artifact-block-kind">{block.kind}</span><p>{block.text}</p></div>)}</div><div className="artifact-actions"><button className="primary-button" data-testid="download-artifact" onClick={onDownload} disabled={downloadState === "downloading"}>{downloadState === "downloading" ? "Verifying..." : downloadState === "downloaded" ? "Download again" : "Download artifact"}</button>{downloadReceipt && <small data-testid="download-receipt">Saved {downloadReceipt.byte_size} bytes / {downloadReceipt.content_hash} / ledger {downloadReceipt.ledger_event_ref}</small>}</div></section>}
     {taskResult && <section className="task-confirmation" data-testid="task-confirmation" aria-label="Task submission result"><p className="eyebrow">TASK ACCEPTED BY NODE</p><strong>{taskResult.task.task_id}</strong><span>State: {taskResult.command.state ?? taskResult.task.state ?? "created"}</span><small>Ledger {taskResult.command.ledger_event_ref ?? taskResult.ledger_event_ref} / sequence {taskResult.command.sequence ?? taskResult.snapshot.asOfSequence}</small></section>}
     {taskResult && <PlanReviewCard plan={planReview} loading={planLoading} approval={planApprovalResult} approving={approvingPlan} synchronized={planSynchronized} onApprove={onApprovePlan} />}
