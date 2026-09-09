@@ -495,6 +495,17 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .workspace-sync > span:not(.status-dot) { color: var(--muted); }
 .workspace-sync-reconnecting, .workspace-sync-replaying { color: var(--attention-ink); background: var(--attention-soft); border-color: color-mix(in srgb, var(--attention) 32%, var(--line)); }
 .workspace-sync-blocked { color: var(--danger-ink); background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 32%, var(--line)); }
+.workspace-sync-recovery { display: grid; gap: 9px; margin-top: -3px; padding: 11px 12px; color: var(--muted); background: color-mix(in srgb, var(--surface-subtle) 78%, transparent); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 10px; line-height: 1.45; }
+.workspace-sync-recovery-active { border-color: color-mix(in srgb, var(--attention) 28%, var(--line)); }
+.workspace-sync-recovery-attention { color: var(--attention-ink); border-color: color-mix(in srgb, var(--attention) 35%, var(--line)); background: var(--attention-soft); }
+.workspace-sync-recovery-blocked { color: var(--danger-ink); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); background: var(--danger-soft); }
+.workspace-sync-recovery > div { display: grid; gap: 2px; }
+.workspace-sync-recovery strong { color: inherit; font-size: 10px; }
+.workspace-sync-recovery span { color: var(--muted); }
+.workspace-sync-recovery dl { display: grid; gap: 5px; margin: 0; padding-top: 8px; border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
+.workspace-sync-recovery dl > div { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.workspace-sync-recovery dt { color: var(--faint); font-size: 8px; font-weight: 740; letter-spacing: .055em; text-transform: uppercase; }
+.workspace-sync-recovery dd { margin: 0; color: var(--muted); }
 .workspace-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .workspace-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .workspace-metrics > div { display: grid; min-width: 0; gap: 5px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
