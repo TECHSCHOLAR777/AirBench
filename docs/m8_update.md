@@ -38,3 +38,5 @@ The emitted trace can be independently replayed offline with `python scripts/ver
 The vertical slice now carries retrieved manual/SOP references into the approval-note source register and independent completion evidence, rejects unsupported hardware modes and non-local routes under a no-egress profile, and converts visual-renderer timeouts into a blocking artifact check rather than an uncaught failure.
 
 The detached pack signature covers all declarative component YAML and the manifest declarations (excluding only the self-referential signature field); component or manifest tampering is rejected before execution.
+
+Renderer-backed scanned PDFs are supported through the local intake store: rendered pages are staged, validated by intake identity, read back by page identity, and then passed to the typed local vision adapter without reopening the source file.

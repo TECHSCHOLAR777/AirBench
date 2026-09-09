@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 import subprocess
 import zipfile
@@ -14,7 +15,9 @@ from io import BytesIO
 from airbench.m9 import RefineryPack, RefineryVerticalSlice, SignedPackError
 import airbench.m9.vertical_slice as vertical_slice
 from airbench.intake.vision import LocalVisionAdapter, VisionResult, static_text_extractor
+from airbench.intake.layer import RenderedPage
 from contracts import Clearance, EventLedger, HardwareProfile
+from pypdf import PdfWriter
 
 
 ROOT = Path(__file__).parents[1]
@@ -161,6 +164,50 @@ def test_visual_converter_timeout_is_a_blocking_artifact_check(tmp_path: Path, m
     )
     assert result.artifact and result.artifact.structural == "passed" and result.artifact.visual == "failed"
     assert result.outcome == "needs_review"
+
+
+def test_renderer_backed_scanned_pdf_reaches_local_vision(tmp_path: Path) -> None:
+    report = tmp_path / "scanned.pdf"
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    with report.open("wb") as handle:
+        writer.write(handle)
+    manual = tmp_path / "sop.txt"
+    manual.write_text("seal leakage requires isolation", encoding="utf-8")
+    ledger = EventLedger()
+
+    class Renderer:
+        name = "fixture.pdf-renderer"
+        version = "1.0"
+
+        def render(self, _request, page):
+            return RenderedPage(page.page_number, b"rendered-scan-bytes", "image/png")
+
+    def extract(request):
+        return VisionResult(
+            extraction_id=f"extraction-{request.page_id}", task_id=request.task_id,
+            intake_id=request.intake_id, revision_id=request.revision_id, page_id=request.page_id,
+            source_ref=request.source_ref, text="F-01: P-101: high: seal leakage observed",
+            confidence=0.9, extraction_method="fixture.pdf-vision", adapter_id="fixture.vision",
+            adapter_version="1.0", model_target_id="target.fixture",
+            qualification_reference="qualification.fixture", clearance=request.clearance,
+            taint=request.taint, content_hash=request.content_hash,
+        )
+
+    vision = LocalVisionAdapter(
+        adapter_id="fixture.vision", adapter_version="1.0", model_target_id="target.fixture",
+        qualification_reference="qualification.fixture", extractor=extract, ledger=ledger,
+    )
+    result = RefineryVerticalSlice(signed_pack(tmp_path), ledger, artifact_dir=tmp_path / "artifacts").run_from_file(
+        task_id="task.m9.scanned-pdf", report_path=report, manual_paths={"local:sop": manual},
+        renderer=Renderer(), vision_adapter=vision,
+    )
+    assert result.findings[0].fact.confidence == 0.9
+    assert any(
+        event.event_type == "vision.requested"
+        and event.payload.get("content_hash") == hashlib.sha256(b"rendered-scan-bytes").hexdigest()
+        for event in ledger.events
+    )
 
 
 def test_run_from_local_image_uses_file_intake_and_typed_vision(tmp_path: Path) -> None:

@@ -23,7 +23,7 @@ from xml.etree import ElementTree as ET
 import yaml
 
 from contracts import Clearance, EventLedger, FactEnvelope, HardwareProfile, Taint, build_event, idempotency_key, stable_id
-from airbench.intake.layer import FileIntakeLayer, IntakeManifest, IntakeMode, IntakeRequest, PageRenderer
+from airbench.intake.layer import FileIntakeLayer, IntakeManifest, IntakeMode, IntakeRequest, LocalIntakeStore, PageRenderer
 from airbench.intake.vision import LocalVisionAdapter, VisionRequest
 from airbench.knowledge.retrieval import (
     DeterministicEmbeddingProvider,
@@ -287,7 +287,8 @@ class RefineryVerticalSlice:
             "provenance": {"source_ref": f"local:{report_file.name}", "confidence": 1.0,
                            "clearance": clearance.value, "taint": Taint.untrusted.value},
         }, clearance_value)
-        intake = FileIntakeLayer(self.ledger, renderer=renderer)
+        intake_store = LocalIntakeStore(self.artifact_dir / ".intake") if renderer is not None else None
+        intake = FileIntakeLayer(self.ledger, renderer=renderer, store=intake_store)
         report_manifest = intake.intake(IntakeRequest(
             task_id, f"local:{report_file.resolve()}", report_file.name,
             report_content, IntakeMode.query_upload, clearance,
@@ -298,7 +299,13 @@ class RefineryVerticalSlice:
                 IntakeMode.query_upload, clearance,
             )) for source_ref, path in (manual_paths or {}).items()
         }
-        pages = self._manifest_pages(report_manifest, vision_adapter, rendered_page_bytes or {}, report_content)
+        rendered = dict(rendered_page_bytes or {})
+        if intake_store is not None:
+            rendered.update({
+                page.page_id: intake_store.read_rendered_page(report_manifest.intake_id, page.page_id)
+                for page in report_manifest.pages if page.render_status == "ready"
+            })
+        pages = self._manifest_pages(report_manifest, vision_adapter, rendered, report_content)
         manuals = {
             source_ref: "\n".join(page.text for page in manifest.pages if page.text)
             for source_ref, manifest in manual_manifests.items()

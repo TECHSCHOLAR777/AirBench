@@ -328,6 +328,20 @@ class LocalIntakeStore:
     def manifest_artifact_ref(self, intake_id: str) -> str:
         return self._ref(intake_id, "manifest")
 
+    def read_rendered_page(self, intake_id: str, page_id: str) -> bytes:
+        """Read one staged rendered page after validating its intake identity."""
+        self._validate_intake_id(intake_id)
+        if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", page_id):
+            raise IntakeError("invalid_page_id", "page identity is invalid")
+        page_path = self._intakes_root / intake_id / "pages" / f"{page_id}.bin"
+        try:
+            content = page_path.read_bytes()
+        except OSError as exc:
+            raise IntakeError("rendered_page_missing", "stored rendered page is missing") from exc
+        if not content:
+            raise IntakeError("rendered_page_empty", "stored rendered page is empty")
+        return content
+
     def load(self, intake_id: str) -> IntakeManifest | None:
         self._validate_intake_id(intake_id)
         manifest_path = self._intakes_root / intake_id / "manifest.json"
