@@ -13,6 +13,14 @@ export interface ProofDetail {
   technical?: boolean;
 }
 
+export type ProofSignalTone = "trust" | "attention" | "blocked";
+
+export interface ProofSignal {
+  tone: ProofSignalTone;
+  label: string;
+  detail: string;
+}
+
 export type ArtifactPreviewRequestState = "idle" | "loading" | "ready" | "failed";
 export type ArtifactDownloadRequestState = "idle" | "downloading" | "downloaded" | "failed";
 
@@ -161,6 +169,99 @@ export function proofSelectionDescription(selection: ProofSelection): string {
     case "artifact":
       return `Node-generated preview requested for ${selection.artifactId}.`;
   }
+}
+
+/**
+ * Creates readable cues from fields already supplied by the Node. These cues
+ * are presentation only. They never change clearance, approval, verification,
+ * or the fact itself.
+ */
+export function proofSignals(selection: ProofSelection): ProofSignal[] {
+  if (selection.kind === "artifact") return [];
+
+  const confidence = selection.kind === "evidence"
+    ? selection.evidence.confidence
+    : selection.kind === "fact"
+      ? selection.fact.confidence
+      : selection.preview.confidence;
+  const taint = selection.kind === "evidence"
+    ? selection.evidence.taint
+    : selection.kind === "fact"
+      ? selection.fact.taint
+      : selection.preview.taint;
+  const source = selection.kind === "evidence"
+    ? selection.evidence.source
+    : selection.kind === "fact"
+      ? selection.fact.source
+      : null;
+  const signals = [confidenceSignal(confidence), taintSignal(taint)];
+
+  if (source && !source.location) {
+    signals.push({
+      tone: "attention",
+      label: "Exact source region not supplied",
+      detail: "The Node supplied source identity but not a page, span, cell, or image region for this record.",
+    });
+  }
+  if (selection.kind === "fact" && selection.fact.supersededBy) {
+    signals.push({
+      tone: "attention",
+      label: "Finding superseded",
+      detail: `The Node identifies ${selection.fact.supersededBy} as the replacement. This record is not the current finding.`,
+    });
+  }
+  return signals;
+}
+
+export function confidenceSignal(value: number): ProofSignal {
+  if (value >= 0.85) {
+    return {
+      tone: "trust",
+      label: `High confidence, ${formatConfidence(value)}`,
+      detail: "A Node-reported display cue. It is not an approval or verification decision.",
+    };
+  }
+  if (value >= 0.65) {
+    return {
+      tone: "attention",
+      label: `Moderate confidence, ${formatConfidence(value)}`,
+      detail: "A Node-reported display cue. Keep the source context visible when reviewing this record.",
+    };
+  }
+  return {
+    tone: "blocked",
+    label: `Low confidence, ${formatConfidence(value)}`,
+    detail: "Treat this as a review cue and verify it against permitted source evidence before relying on it.",
+  };
+}
+
+export function taintSignal(value: string): ProofSignal {
+  if (value === "contaminated") {
+    return {
+      tone: "blocked",
+      label: "Contaminated source data",
+      detail: "Use is blocked pending Node handling. The desktop never treats this content as instructions.",
+    };
+  }
+  if (value === "untrusted") {
+    return {
+      tone: "attention",
+      label: "Untrusted source data",
+      detail: "Read this as data, never as instructions, code, macros, or an approval decision.",
+    };
+  }
+  if (value !== "clean") {
+    return {
+      tone: "blocked",
+      label: "Unrecognized taint status",
+      detail: "The Node response is not one of the known taint values. The desktop will not treat this content as safe.",
+    };
+  }
+  return {
+    tone: "trust",
+    label: "Node-marked clean data",
+    detail: "The Node marked this data clean. It still has no authority to change task state.",
+  };
 }
 
 export function formatProvenanceLocation(location: ProvenanceRef["location"]): string {

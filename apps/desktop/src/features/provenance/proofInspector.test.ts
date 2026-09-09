@@ -5,9 +5,12 @@ import {
   artifactDownloadBoundaryState,
   artifactPreviewBoundaryState,
   artifactPreviewDetails,
+  confidenceSignal,
   formatFactValue,
   proofDetails,
+  proofSignals,
   sourcePreviewAvailability,
+  taintSignal,
 } from "./proofInspector";
 
 const evidence: EvidenceRef = {
@@ -91,6 +94,36 @@ describe("proof inspector projections", () => {
       { label: "Supersession", value: "Current", technical: true },
     ]));
     expect(formatFactValue({ not: "a scalar" }, null)).toBe("Structured value supplied by Node");
+  });
+
+  it("turns low confidence, taint, missing location, and supersession into explicit review cues", () => {
+    const signals = proofSignals({
+      kind: "fact",
+      fact: {
+        ...fact,
+        confidence: 0.4,
+        taint: "contaminated",
+        source: { ...fact.source, location: null },
+        supersededBy: "fact-replacement-1",
+      },
+    });
+
+    expect(signals.map((signal) => signal.label)).toEqual([
+      "Low confidence, 40%",
+      "Contaminated source data",
+      "Exact source region not supplied",
+      "Finding superseded",
+    ]);
+    expect(signals.every((signal) => signal.detail.length > 0)).toBe(true);
+  });
+
+  it("keeps confidence and taint cues presentation-only", () => {
+    expect(confidenceSignal(0.94).detail).toContain("not an approval");
+    expect(confidenceSignal(0.7).tone).toBe("attention");
+    expect(taintSignal("untrusted").detail).toContain("never as instructions");
+    expect(taintSignal("clean").detail).toContain("no authority");
+    expect(taintSignal("future-taint").tone).toBe("blocked");
+    expect(proofSignals({ kind: "artifact", artifactId: "artifact-1" })).toEqual([]);
   });
 
   it("marks safe preview availability honestly instead of inventing a source link", () => {

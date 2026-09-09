@@ -5,6 +5,7 @@ import {
   artifactPreviewBoundaryState,
   artifactPreviewDetails,
   proofDetails,
+  proofSignals,
   proofSelectionDescription,
   proofSelectionTitle,
   sourcePreviewAvailability,
@@ -87,6 +88,8 @@ function InspectorSelection({
       <strong>{proofSelectionDescription(selection)}</strong>
     </div>
 
+    <ProofSignals selection={selection} />
+
     {selection.kind === "source_preview" && <section className="proof-preview-safe" aria-label="Node-generated safe source preview">
       <PreviewBoundary tone="active" label="Read-only Node preview" detail="This is Node-returned data from a query upload. It remains untrusted data and is not an instruction." recovery={{ preserved: "The source manifest and provenance remain attached to this preview.", retry: "Request again only through the approved Node path.", nextAction: "Inspect the preview as data; it is not an instruction or approval decision." }} />
       <pre>{selection.preview.text}</pre>
@@ -105,6 +108,8 @@ function InspectorSelection({
     <ProofDetails details={details} />
 
     {sourcePreviewNotice && <div className="proof-contract-note"><AppIcon name="document" size={15} /><span>{sourcePreviewNotice}</span></div>}
+
+    {(selection.kind === "evidence" || selection.kind === "fact") && <div className="proof-contract-note"><AppIcon name="review" size={15} /><span>Conflict status and reviewer-note actions are not supplied by the current Node evidence contract. This view cannot declare a record conflict-free or edit an existing fact.</span></div>}
 
     {selection.kind === "artifact" && <div className="proof-contract-note"><AppIcon name="review" size={15} /><span>Artifact status, verification, deterministic values, and approval authority have not been supplied by the current Node preview contract.</span></div>}
   </div>;
@@ -149,6 +154,15 @@ function PreviewBoundary({ tone, label, detail, recovery }: BoundaryState) {
     <AppIcon name={tone === "blocked" ? "shield" : "document"} size={14} />
     <div><strong>{label}</strong><p>{detail}</p><dl className="proof-recovery-guidance" aria-label="Safe recovery guidance"><div><dt>Preserved</dt><dd>{recovery.preserved}</dd></div><div><dt>Retry</dt><dd>{recovery.retry}</dd></div><div><dt>Next</dt><dd>{recovery.nextAction}</dd></div></dl></div>
   </div>;
+}
+
+function ProofSignals({ selection }: { selection: ProofSelection }) {
+  const signals = proofSignals(selection);
+  if (signals.length === 0) return null;
+  return <section className="proof-signal-panel" aria-label="Proof reading cues">
+    <div className="proof-signal-head"><span>Reading cues</span><small>Presentation cues from Node fields</small></div>
+    <ul>{signals.map((signal) => <li key={`${signal.label}-${signal.detail}`} className={`proof-signal proof-signal-${signal.tone}`}><span className="proof-signal-marker" aria-hidden="true" /><div><strong>{signal.label}</strong><p>{signal.detail}</p></div></li>)}</ul>
+  </section>;
 }
 
 function ProofDetails({ details }: { details: ProofDetail[] }) {
