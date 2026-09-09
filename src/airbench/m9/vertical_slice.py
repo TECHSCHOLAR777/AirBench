@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -187,6 +188,48 @@ class ApprovalNoteRenderer:
 
     version = "m9-docx-1"
 
+    @staticmethod
+    def _word_executable() -> str | None:
+        candidates = (
+            Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Microsoft Office/root/Office16/WINWORD.EXE",
+            Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "Microsoft Office/root/Office16/WINWORD.EXE",
+        )
+        return next((str(path) for path in candidates if path.is_file()), None)
+
+    @classmethod
+    def _check_with_word(cls, path: Path) -> str:
+        word = cls._word_executable()
+        powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+        if word is None or powershell is None:
+            return "not_run"
+        with tempfile.TemporaryDirectory() as temp:
+            pdf_path = Path(temp) / "approval-note.pdf"
+            script_path = Path(temp) / "render-docx.ps1"
+            script_path.write_text(
+                "param([string]$InputPath,[string]$OutputPath)\n"
+                "$ErrorActionPreference='Stop'\n"
+                "$word=$null; $doc=$null\n"
+                "try {\n"
+                "  $word=New-Object -ComObject Word.Application\n"
+                "  $word.Visible=$false; $word.DisplayAlerts=0\n"
+                "  $doc=$word.Documents.Open($InputPath,$false,$true)\n"
+                "  $doc.ExportAsFixedFormat($OutputPath,17)\n"
+                "  if (-not (Test-Path -LiteralPath $OutputPath)) { exit 2 }\n"
+                "} finally {\n"
+                "  if ($doc) { $doc.Close($false) }\n"
+                "  if ($word) { $word.Quit() }\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            try:
+                completed = subprocess.run(
+                    [powershell, "-NoProfile", "-NonInteractive", "-File", str(script_path), str(path.resolve()), str(pdf_path)],
+                    capture_output=True, timeout=60,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return "failed"
+            return "passed" if completed.returncode == 0 and pdf_path.is_file() else "failed"
+
     def render(
         self,
         output: Path,
@@ -245,6 +288,8 @@ class ApprovalNoteRenderer:
                 except (OSError, subprocess.TimeoutExpired):
                     return "passed", "failed", "structural checks passed; visual conversion failed or timed out"
                 visual = "passed" if completed.returncode == 0 and list(Path(temp).glob("*.pdf")) else "failed"
+        else:
+            visual = self._check_with_word(path)
         return "passed", visual, "structural checks passed; visual conversion " + visual
 
 

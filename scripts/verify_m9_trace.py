@@ -21,7 +21,6 @@ REQUIRED_EVENT_TYPES = {
     "artifact.checked",
     "verification.completed",
     "verification.evaluator.completed",
-    "completion.blocked",
     "human.review.required",
 }
 
@@ -68,6 +67,8 @@ def verify_trace(trace_dir: Path) -> dict[str, object]:
     missing = sorted(REQUIRED_EVENT_TYPES - event_types)
     if missing:
         raise ValueError(f"trace is missing required event types: {', '.join(missing)}")
+    if not {"completion.ready", "completion.blocked"} & event_types:
+        raise ValueError("trace is missing a completion gate decision")
 
     runs = summary.get("runs")
     if not isinstance(runs, list) or not runs:
