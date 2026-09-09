@@ -1,5 +1,5 @@
 import { applyEvent, FRONTEND_PROTOCOL_COMPATIBILITY_ID, FRONTEND_PROTOCOL_VERSION, projectionFromSnapshot, type TaskEvent, type TaskProjection, type TaskSnapshot } from "./protocol";
-import type { TaskEventBatch } from "./eventTransport";
+import { EventTransportProtocolError, type TaskEventBatch } from "./eventTransport";
 import { CORE_CONTRACT_COMPATIBILITY_ID, CORE_CONTRACT_SCHEMA_VERSION } from "../../generated/core_contracts";
 
 export type EventStoreOutcome =
@@ -195,8 +195,8 @@ export class TaskEventSynchronizer {
 
       return this.resynchronize("event_replay_not_converging");
     } catch (error) {
-      if (error instanceof EventSyncProtocolError) {
-        return this.blocked(error.code, error.message);
+      if (error instanceof EventSyncProtocolError || error instanceof EventTransportProtocolError) {
+        return this.blocked("event_protocol_invalid", error.message);
       }
       return this.currentResult("reconnecting", this.store.current(), {
         status: "reconnecting",

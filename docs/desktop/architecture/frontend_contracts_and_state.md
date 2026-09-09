@@ -94,7 +94,9 @@ the core snake-case contract with `schema_version: 1.0` and
 `compatibility_id: airbench-core-contracts`. The Python Node contract classes
 are authoritative for both envelopes; TypeScript is generated from them and
 Rust rejects either envelope when its version or compatibility identity is not
-supported.
+supported. The webview transport also validates the runtime response before
+normalization, including approved Node identity, clearance, event shape, ledger
+alignment, monotonic sequences, and cursor consistency.
 
 The `sequence` is monotonic per task stream or per documented stream scope. The client stores the last applied sequence in memory and may persist only a safe cursor if the Node permits it.
 
