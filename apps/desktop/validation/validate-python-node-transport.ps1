@@ -115,6 +115,9 @@ try {
   if ($events.code -ne 0 -or $events.payload.schema_version -ne "1.0" -or $events.payload.compatibility_id -ne "airbench-core-contracts" -or $events.payload.events.Count -lt 1) { throw "The Python Node event batch did not satisfy the typed batch contract." }
   if ($events.payload.events[0].compatibilityId -ne "airbench-node-protocol") { throw "The Python Node event did not preserve the Node wire envelope." }
 
+  $routeTrace = Invoke-Probe $profilePath @("route-trace", $taskId)
+  if ($routeTrace.code -ne 0 -or $routeTrace.payload.taskId -ne $taskId -or $routeTrace.payload.nodeIdentity -ne "python-node-validation" -or $routeTrace.payload.protocolVersion -ne "0.1" -or $routeTrace.payload.clearanceContext -ne "restricted" -or $routeTrace.payload.compatibilityId -ne "airbench-node-protocol") { throw "The Rust transport could not validate the Python Node route-trace projection." }
+
   $authorizePath = Join-Path $runRoot "authorize.json"
   Write-Json $authorizePath ([ordered]@{
     schema_version = "1.0"
@@ -136,7 +139,7 @@ try {
     status = "passed"
     node = "real Python NodeApiService"
     task_id = $taskId
-    checks = @("handshake-negotiation", "create-snapshot", "event-batch", "command-idempotency", "ledger-reference")
+    checks = @("handshake-negotiation", "create-snapshot", "event-batch", "route-trace", "command-idempotency", "ledger-reference")
     log = $serverLog
   } | ConvertTo-Json -Depth 8
 } finally {

@@ -732,6 +732,7 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .technical-event-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .technical-event-list li { padding: 10px; background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .technical-event-list li > strong { display: block; color: var(--ink-soft); font-size: 10px; }
+.technical-route-reason { display: block; margin-top: 8px; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .technical-event-list dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin: 9px 0 0; }
 .technical-event-list dl > div { min-width: 0; }
 

@@ -381,6 +381,60 @@ class NodeFactRef(NodeWireContract):
 
 
 @dataclass(frozen=True)
+class NodeRouteTraceEntry(NodeWireContract):
+    sequence: int
+    event_type: str
+    occurred_at: str
+    actor: str
+    clearance_context: Clearance
+    ledger_event_ref: str
+    payload_hash: str
+    request_id: str | None = None
+    worker_id: str | None = None
+    role: str | None = None
+    task_kind: str | None = None
+    required_capability: str | None = None
+    selected_target: str | None = None
+    decision_source: str | None = None
+    rule_or_threshold: str | None = None
+    qualification_certificate: str | None = None
+    fallback_target: str | None = None
+    reason: str | None = None
+    status: str | None = None
+    eligible_targets: tuple[str, ...] = ()
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if type(self.sequence) is not int or self.sequence < 1:
+            issues.append(ValidationIssue("sequence", "range", "route sequence must be positive"))
+        for name in ("event_type", "occurred_at", "actor", "ledger_event_ref", "payload_hash"):
+            if not getattr(self, name).strip():
+                issues.append(ValidationIssue(name, "required", "route entry identity is required"))
+        return issues
+
+
+@dataclass(frozen=True)
+class NodeRouteTrace(NodeWireContract):
+    task_id: str
+    node_identity: str
+    protocol_version: str
+    clearance_context: Clearance
+    entries: tuple[NodeRouteTraceEntry, ...]
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        for name in ("task_id", "node_identity", "protocol_version"):
+            if not getattr(self, name).strip():
+                issues.append(ValidationIssue(name, "required", "route trace identity is required"))
+        previous = 0
+        for entry in self.entries:
+            if entry.sequence <= previous:
+                issues.append(ValidationIssue("entries", "order", "route entries must be ordered by sequence"))
+            previous = entry.sequence
+        return issues
+
+
+@dataclass(frozen=True)
 class NodeTaskSnapshot(NodeWireContract):
     task_id: str
     snapshot_id: str

@@ -168,6 +168,58 @@ pub struct TaskPlanReview {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeRouteTraceEntry {
+    pub schema_version: String,
+    pub compatibility_id: String,
+    pub sequence: u64,
+    pub event_type: String,
+    pub occurred_at: String,
+    pub actor: String,
+    pub clearance_context: String,
+    pub ledger_event_ref: String,
+    pub payload_hash: String,
+    #[serde(default)]
+    pub request_id: Option<String>,
+    #[serde(default)]
+    pub worker_id: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub task_kind: Option<String>,
+    #[serde(default)]
+    pub required_capability: Option<String>,
+    #[serde(default)]
+    pub selected_target: Option<String>,
+    #[serde(default)]
+    pub decision_source: Option<String>,
+    #[serde(default)]
+    pub rule_or_threshold: Option<String>,
+    #[serde(default)]
+    pub qualification_certificate: Option<String>,
+    #[serde(default)]
+    pub fallback_target: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub eligible_targets: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeRouteTrace {
+    pub schema_version: String,
+    pub compatibility_id: String,
+    pub task_id: String,
+    pub node_identity: String,
+    pub protocol_version: String,
+    pub clearance_context: String,
+    pub entries: Vec<NodeRouteTraceEntry>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct NodeCommandEnvelope {
     pub schema_version: String,
@@ -232,6 +284,7 @@ pub enum NodeTransportError {
     InvalidTaskId(String),
     EventStreamFailed(String),
     SnapshotFailed(String),
+    RouteTraceFailed(String),
     CommandFailed(String),
     EventSchemaInvalid(String),
     CommandSchemaInvalid(String),
@@ -257,6 +310,7 @@ impl std::fmt::Display for NodeTransportError {
             | Self::InvalidTaskId(message)
             | Self::EventStreamFailed(message)
             | Self::SnapshotFailed(message)
+            | Self::RouteTraceFailed(message)
             | Self::CommandFailed(message)
             | Self::EventSchemaInvalid(message)
             | Self::CommandSchemaInvalid(message) => formatter.write_str(message),
@@ -558,6 +612,10 @@ fn task_plan_path(task_id: &str) -> Result<String, NodeTransportError> {
     Ok(format!("{}/plan", task_snapshot_path(task_id)?))
 }
 
+fn task_route_trace_path(task_id: &str) -> Result<String, NodeTransportError> {
+    Ok(format!("{}/route-trace", task_snapshot_path(task_id)?))
+}
+
 fn command_path(command: &NodeCommandEnvelope) -> Result<String, NodeTransportError> {
     let task_id = command.task_id.as_deref().ok_or_else(|| {
         NodeTransportError::CommandSchemaInvalid(
@@ -697,6 +755,92 @@ pub async fn fetch_task_plan_profile(
         .into());
     }
     Ok(plan)
+}
+
+pub async fn fetch_task_route_trace_profile(
+    profile: NodeProfile,
+    task_id: String,
+) -> Result<NodeRouteTrace, String> {
+    let path = task_route_trace_path(&task_id).map_err(String::from)?;
+    let trace: NodeRouteTrace = request_json(&profile, Method::GET, &path, None)
+        .await
+        .map_err(|error| NodeTransportError::RouteTraceFailed(error.to_string()).to_string())?;
+    validate_route_trace(&profile, &task_id, &trace).map_err(String::from)?;
+    Ok(trace)
+}
+
+fn validate_route_trace(
+    profile: &NodeProfile,
+    task_id: &str,
+    trace: &NodeRouteTrace,
+) -> Result<(), NodeTransportError> {
+    if trace.task_id != task_id {
+        return Err(NodeTransportError::RouteTraceFailed(
+            "The Node routing trace task identity does not match the request.".to_string(),
+        ));
+    }
+    if trace.schema_version != profile.protocol_version {
+        return Err(NodeTransportError::ProtocolMismatch(
+            "The Node routing trace schema is not compatible with this application.".to_string(),
+        ));
+    }
+    validate_node_response_identity(
+        profile,
+        &trace.node_identity,
+        &trace.protocol_version,
+        &trace.clearance_context,
+    )?;
+    validate_node_wire_compatibility(&trace.compatibility_id)?;
+
+    let mut previous_sequence = 0;
+    for entry in &trace.entries {
+        if entry.schema_version != trace.schema_version
+            || entry.compatibility_id != trace.compatibility_id
+        {
+            return Err(NodeTransportError::ProtocolMismatch(
+                "A Node routing trace entry has an incompatible envelope.".to_string(),
+            ));
+        }
+        if entry.sequence == 0 || entry.sequence <= previous_sequence {
+            return Err(NodeTransportError::RouteTraceFailed(
+                "The Node routing trace entries are not strictly ordered.".to_string(),
+            ));
+        }
+        if entry.clearance_context != profile.clearance_context {
+            return Err(NodeTransportError::ClearanceMismatch(
+                "A routing trace entry exceeds the approved Node clearance context.".to_string(),
+            ));
+        }
+        for (label, value) in [
+            ("event type", &entry.event_type),
+            ("event time", &entry.occurred_at),
+            ("event actor", &entry.actor),
+            ("ledger reference", &entry.ledger_event_ref),
+            ("payload hash", &entry.payload_hash),
+        ] {
+            if value.trim().is_empty() {
+                return Err(NodeTransportError::RouteTraceFailed(format!(
+                    "The Node routing trace contains an empty {label}."
+                )));
+            }
+        }
+        if entry.eligible_targets.len() > 100 {
+            return Err(NodeTransportError::RouteTraceFailed(
+                "The Node routing trace contains too many eligible targets.".to_string(),
+            ));
+        }
+        if entry
+            .eligible_targets
+            .iter()
+            .any(|target| target.trim().is_empty())
+        {
+            return Err(NodeTransportError::RouteTraceFailed(
+                "The Node routing trace contains an empty eligible target.".to_string(),
+            ));
+        }
+        previous_sequence = entry.sequence;
+    }
+    Ok(())
 }
 
 pub async fn create_task_profile(
@@ -1092,6 +1236,16 @@ pub async fn fetch_task_plan(
 }
 
 #[tauri::command]
+pub async fn fetch_task_route_trace(
+    app: tauri::AppHandle,
+    profile_id: String,
+    task_id: String,
+) -> Result<NodeRouteTrace, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    fetch_task_route_trace_profile(profile, task_id).await
+}
+
+#[tauri::command]
 pub async fn create_task(
     app: tauri::AppHandle,
     profile_id: String,
@@ -1233,6 +1387,64 @@ mod tests {
         assert!(matches!(
             task_events_url(&node, &"a".repeat(MAX_TASK_ID_BYTES + 1), 0),
             Err(NodeTransportError::InvalidTaskId(_))
+        ));
+    }
+
+    #[test]
+    fn route_trace_path_and_projection_are_task_scoped() {
+        assert_eq!(
+            task_route_trace_path("task-1").unwrap(),
+            "/api/v1/tasks/task-1/route-trace"
+        );
+        assert!(matches!(
+            task_route_trace_path("../secret"),
+            Err(NodeTransportError::InvalidTaskId(_))
+        ));
+
+        let node = profile("http://127.0.0.1:9443", NodeTransport::Loopback, None);
+        let trace: NodeRouteTrace = serde_json::from_value(serde_json::json!({
+            "schemaVersion": "0.1",
+            "compatibilityId": "airbench-node-protocol",
+            "taskId": "task-1",
+            "nodeIdentity": "node-1",
+            "protocolVersion": "0.1",
+            "clearanceContext": "restricted",
+            "entries": [{
+                "schemaVersion": "0.1",
+                "compatibilityId": "airbench-node-protocol",
+                "sequence": 4,
+                "eventType": "routing.decision",
+                "occurredAt": "2026-09-06T00:00:04Z",
+                "actor": "orchestrator",
+                "clearanceContext": "restricted",
+                "ledgerEventRef": "ledger-route-4",
+                "payloadHash": "hash-route-4",
+                "selectedTarget": "model.local.reasoner",
+                "eligibleTargets": ["model.local.reasoner"]
+            }]
+        }))
+        .unwrap();
+        assert!(validate_route_trace(&node, "task-1", &trace).is_ok());
+
+        let mut incompatible_entry = trace.clone();
+        incompatible_entry.entries[0].compatibility_id = "foreign-route-contract".to_string();
+        assert!(matches!(
+            validate_route_trace(&node, "task-1", &incompatible_entry),
+            Err(NodeTransportError::ProtocolMismatch(_))
+        ));
+
+        let mut over_clearance = trace.clone();
+        over_clearance.entries[0].clearance_context = "secret".to_string();
+        assert!(matches!(
+            validate_route_trace(&node, "task-1", &over_clearance),
+            Err(NodeTransportError::ClearanceMismatch(_))
+        ));
+
+        let mut out_of_order = trace;
+        out_of_order.entries[0].sequence = 0;
+        assert!(matches!(
+            validate_route_trace(&node, "task-1", &out_of_order),
+            Err(NodeTransportError::RouteTraceFailed(_))
         ));
     }
 

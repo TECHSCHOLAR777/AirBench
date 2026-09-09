@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TaskPlanReview } from "../../generated/core_contracts";
+import type { NodeRouteTrace, TaskPlanReview } from "../../generated/core_contracts";
 import type { EvidenceRef, TaskEvent, TaskProjection } from "../../platform/events/protocol";
 import { buildWorkTrace } from "./workTrace";
 
@@ -134,6 +134,45 @@ describe("audit-safe work trace", () => {
     ]);
     expect(trace.execution.coordination[1]).toMatchObject({ label: "Worker assigned", summary: "Vision worker assigned. [team-1 · assignment-vision · worker-vision]" });
     expect(trace.stages.find((stage) => stage.id === "execution")?.events).toHaveLength(4);
+  });
+
+  it("shows Node routing proof without treating a desktop guess as a decision", () => {
+    const routeTrace: NodeRouteTrace = {
+      schemaVersion: "0.1",
+      compatibilityId: "airbench-node-protocol",
+      taskId: "task-1",
+      nodeIdentity: "node-1",
+      protocolVersion: "0.1",
+      clearanceContext: "restricted",
+      entries: [{
+        schemaVersion: "0.1",
+        compatibilityId: "airbench-node-protocol",
+        sequence: 7,
+        eventType: "routing.decision",
+        occurredAt: "2026-09-07T00:00:07Z",
+        actor: "orchestrator",
+        clearanceContext: "restricted",
+        ledgerEventRef: "ledger-route-7",
+        payloadHash: "route-hash-7",
+        selectedTarget: "model.local.reasoner",
+        decisionSource: "qualified-capability-policy",
+        ruleOrThreshold: "reasoning-required",
+        qualificationCertificate: "qualification-1",
+        fallbackTarget: null,
+        reason: null,
+        status: "selected",
+        eligibleTargets: ["model.local.reasoner"],
+      }],
+    };
+
+    const trace = buildWorkTrace(projection, plan, routeTrace);
+
+    expect(trace.routing).toMatchObject({
+      state: "route_context",
+      selectedTarget: "model.local.reasoner",
+      policyReason: "qualified-capability-policy / reasoning-required",
+    });
+    expect(trace.routing.routeEntries[0]).toMatchObject({ eventType: "routing.decision", ledgerEventRef: "ledger-route-7" });
   });
 
   it("shows an explicit attention state from a Node failure without inventing completion", () => {

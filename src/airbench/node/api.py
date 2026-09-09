@@ -31,6 +31,7 @@ from contracts import (
     NodeEvidenceRef,
     NodeFactRef,
     NodeHandshake,
+    NodeRouteTrace,
     NodeTaskEvent,
     NodeTaskEventBatch,
     NodeTaskSnapshot,
@@ -593,7 +594,17 @@ class NodeApiService:
                 entries.append(entry)
                 if len(entries) >= MAX_ROUTE_ITEMS:
                     break
-            return {"taskId": task.task_id, "schemaVersion": self.config.protocol_version, "entries": entries}
+            try:
+                trace = NodeRouteTrace.from_wire_dict({
+                    "taskId": task.task_id,
+                    "nodeIdentity": self.config.node_identity,
+                    "protocolVersion": self.config.protocol_version,
+                    "clearanceContext": self.config.clearance_context.value,
+                    "entries": entries,
+                })
+            except ContractValidationError as exc:
+                raise NodeApiError(503, "route_trace_contract_corrupt", "The routing trace could not be verified.") from exc
+            return trace.to_wire_dict()
 
     def review(self, task_id: str) -> dict[str, Any]:
         with self._lock:

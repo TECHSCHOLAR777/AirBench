@@ -2,7 +2,7 @@ import { invoke } from "@airbench/tauri-invoke";
 import { CORE_CONTRACT_COMPATIBILITY_ID, CORE_CONTRACT_SCHEMA_VERSION, NODE_PROTOCOL_COMPATIBILITY_ID, NODE_PROTOCOL_VERSION } from "../../generated/core_contracts";
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 import type { Clearance, TaskSnapshot, Taint } from "../events/protocol";
-import type { NodeCommandEnvelope, NodeCommandResult, NodeEvidenceRef, NodeFactRef, NodeProvenanceRef, TaskEnvelope, TaskPlanReview } from "../../generated/core_contracts";
+import type { NodeCommandEnvelope, NodeCommandResult, NodeEvidenceRef, NodeFactRef, NodeProvenanceRef, NodeRouteTrace, NodeRouteTraceEntry, TaskEnvelope, TaskPlanReview } from "../../generated/core_contracts";
 
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const COMMAND_ID = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
@@ -345,6 +345,70 @@ export function validateTaskPlanReview(value: unknown, profile: ApprovedNodeProf
   };
 }
 
+/**
+ * Re-validates the clearance-filtered route proof before it enters the task
+ * workspace. The desktop receives selected targets and decision metadata only;
+ * it never receives the router's private request or model prompt payload.
+ */
+export function validateTaskRouteTrace(value: unknown, profile: ApprovedNodeProfileReference, taskId: string): NodeRouteTrace {
+  const source = requireRecord(value, "task routing trace");
+  const envelope = requireNodeEnvelope(source, "task routing trace");
+  const responseTaskId = requireString(source.taskId, "routing trace task identity");
+  const nodeIdentity = requireString(source.nodeIdentity, "routing trace Node identity");
+  const protocolVersion = requireString(source.protocolVersion, "routing trace protocol version");
+  const clearanceContext = requireClearance(source.clearanceContext);
+  if (responseTaskId !== taskId || nodeIdentity !== profile.nodeIdentity || protocolVersion !== profile.protocolVersion || clearanceContext !== profile.clearanceContext) {
+    throw new InvalidNodeResponse("The Node routing trace does not match the approved task or Node profile.");
+  }
+  const rawEntries = requiredField(source, "entries", "routing trace entries");
+  if (!Array.isArray(rawEntries) || rawEntries.length > 1000) throw new InvalidNodeResponse("The Node returned an invalid routing trace entry list.");
+  let previousSequence = 0;
+  const entries: NodeRouteTraceEntry[] = rawEntries.map((value, index) => {
+    const entry = requireRecord(value, `routing trace entry ${index + 1}`);
+    const entryEnvelope = requireNodeEnvelope(entry, `routing trace entry ${index + 1}`);
+    if (entryEnvelope.schemaVersion !== envelope.schemaVersion || entryEnvelope.compatibilityId !== envelope.compatibilityId) {
+      throw new InvalidNodeResponse("The Node routing trace entry envelope does not match the trace envelope.");
+    }
+    const sequence = requireSequence(entry.sequence, "routing trace sequence");
+    if (sequence < 1 || sequence <= previousSequence) throw new InvalidNodeResponse("The Node routing trace entries are not strictly ordered.");
+    previousSequence = sequence;
+    const entryClearance = requireClearance(entry.clearanceContext);
+    if (entryClearance !== profile.clearanceContext) throw new InvalidNodeResponse("The Node returned a routing trace entry above the approved clearance.");
+    const eligibleTargets = requireStringList(entry.eligibleTargets, "eligible routing target");
+    return {
+      ...entryEnvelope,
+      sequence,
+      eventType: requireString(entry.eventType, "routing trace event type"),
+      occurredAt: requireString(entry.occurredAt, "routing trace event time"),
+      actor: requireString(entry.actor, "routing trace actor"),
+      clearanceContext: entryClearance,
+      ledgerEventRef: requireString(entry.ledgerEventRef, "routing trace ledger reference"),
+      payloadHash: requireString(entry.payloadHash, "routing trace payload hash"),
+      requestId: optionalString(entry.requestId, "routing request identity"),
+      workerId: optionalString(entry.workerId, "routing worker identity"),
+      role: optionalString(entry.role, "routing worker role"),
+      taskKind: optionalString(entry.taskKind, "routing task kind"),
+      requiredCapability: optionalString(entry.requiredCapability, "routing capability"),
+      selectedTarget: optionalString(entry.selectedTarget, "selected routing target"),
+      decisionSource: optionalString(entry.decisionSource, "routing decision source"),
+      ruleOrThreshold: optionalString(entry.ruleOrThreshold, "routing rule or threshold"),
+      qualificationCertificate: optionalString(entry.qualificationCertificate, "routing qualification certificate"),
+      fallbackTarget: optionalString(entry.fallbackTarget, "routing fallback target"),
+      reason: optionalString(entry.reason, "routing decision reason"),
+      status: optionalString(entry.status, "routing decision status"),
+      eligibleTargets,
+    };
+  });
+  return {
+    ...envelope,
+    taskId: responseTaskId,
+    nodeIdentity,
+    protocolVersion,
+    clearanceContext,
+    entries,
+  };
+}
+
 function optionalResponseString(value: unknown, label: string): string | null {
   if (value === null || value === undefined) return null;
   return requireString(value, label);
@@ -442,6 +506,15 @@ export function fetchTaskPlan(profile: ApprovedNodeProfileReference, taskId: str
     profileId: profile.profileId,
     taskId,
   }).then((value) => validateTaskPlanReview(value, profile, taskId));
+}
+
+export function fetchTaskRouteTrace(profile: ApprovedNodeProfileReference, taskId: string): Promise<NodeRouteTrace> {
+  assertApprovedProfile(profile);
+  if (!TASK_ID.test(taskId)) throw new Error("The task identifier is invalid.");
+  return invoke<unknown>("fetch_task_route_trace", {
+    profileId: profile.profileId,
+    taskId,
+  }).then((value) => validateTaskRouteTrace(value, profile, taskId));
 }
 
 export function createTask(profile: ApprovedNodeProfileReference, command: NodeCommandEnvelope): Promise<CreateTaskResponse> {

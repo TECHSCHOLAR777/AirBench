@@ -689,6 +689,37 @@ export interface NodeFactRef extends NodeWireContractEnvelope {
   supersededBy: string | null;
 }
 
+export interface NodeRouteTraceEntry extends NodeWireContractEnvelope {
+  sequence: number;
+  eventType: string;
+  occurredAt: string;
+  actor: string;
+  clearanceContext: Clearance;
+  ledgerEventRef: string;
+  payloadHash: string;
+  requestId?: string | null;
+  workerId?: string | null;
+  role?: string | null;
+  taskKind?: string | null;
+  requiredCapability?: string | null;
+  selectedTarget?: string | null;
+  decisionSource?: string | null;
+  ruleOrThreshold?: string | null;
+  qualificationCertificate?: string | null;
+  fallbackTarget?: string | null;
+  reason?: string | null;
+  status?: string | null;
+  eligibleTargets?: Array<string>;
+}
+
+export interface NodeRouteTrace extends NodeWireContractEnvelope {
+  taskId: string;
+  nodeIdentity: string;
+  protocolVersion: string;
+  clearanceContext: Clearance;
+  entries: Array<NodeRouteTraceEntry>;
+}
+
 export interface NodeTaskSnapshot extends NodeWireContractEnvelope {
   taskId: string;
   snapshotId: string;
