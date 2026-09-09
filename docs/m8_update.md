@@ -32,3 +32,5 @@ The M9 refinery vertical slice now has a signed detached-HMAC pack loader, typed
 The offline demonstration can be reproduced with `python scripts/run_m9_demo.py --pack-key <deployment-key> --output-dir <trace-dir>`. It runs both serial and parallel modes, writes two approval-note DOCX files, a JSONL ledger export, and a summary. `ledger.verify_chain()` is run before the export is written.
 
 Remaining evidence is deployment-specific: measured-node model routes, operator-supplied scanned PDF and manuals, successful LibreOffice visual conversion on that node, no-egress observation, and the human review record must be captured in the acceptance run before the parent issue can claim production acceptance. The implementation intentionally does not claim release approval or replace those external gates.
+
+The emitted trace can be independently replayed offline with `python scripts/verify_m9_trace.py <trace-dir>`. The verifier rebuilds the append-only ledger from JSONL, checks event hashes and replay transitions, confirms both execution modes, and re-hashes every staged artifact referenced by `artifact.checked` events.
