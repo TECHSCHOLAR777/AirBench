@@ -327,6 +327,10 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .intake-status { display: grid; gap: 4px; margin-top: 12px; padding: 10px 12px; color: var(--ink-soft); background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 10px; line-height: 1.45; }
 .intake-status strong { color: var(--ink); font-size: 10px; }
 .intake-status span { color: var(--muted); }
+.intake-recovery-guidance { display: grid; gap: 5px; margin: 7px 0 0; padding-top: 7px; border-top: 1px solid color-mix(in srgb, currentColor 17%, transparent); }
+.intake-recovery-guidance > div { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 7px; align-items: baseline; }
+.intake-recovery-guidance dt { color: var(--faint); font-size: 8px; font-weight: 740; letter-spacing: .055em; text-transform: uppercase; }
+.intake-recovery-guidance dd { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.4; }
 .intake-status-processing, .intake-status-uploading { border-color: color-mix(in srgb, var(--info) 35%, var(--line)); }
 .intake-status-processing strong, .intake-status-uploading strong { color: var(--info); }
 .intake-status-rejected, .intake-status-unsupported, .intake-status-oversized, .intake-status-clearance_mismatch, .intake-status-partial, .intake-status-failed { border-color: color-mix(in srgb, var(--attention) 35%, var(--line)); }
