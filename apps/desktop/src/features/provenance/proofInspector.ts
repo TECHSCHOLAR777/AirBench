@@ -172,6 +172,33 @@ export function proofSelectionDescription(selection: ProofSelection): string {
 }
 
 /**
+ * Refreshes a selected record from the latest authoritative projection. The
+ * inspector stores selection intent, but must not retain stale evidence or a
+ * source preview after the Node revises or removes it.
+ */
+export function reconcileProofSelection(
+  selection: ProofSelection | null,
+  evidence: EvidenceRef[],
+  facts: FactEnvelope[],
+  sourcePreview: SafePreview | null,
+): ProofSelection | null {
+  if (!selection) return null;
+  if (selection.kind === "evidence") {
+    const current = evidence.find((item) => item.evidenceId === selection.evidence.evidenceId);
+    return current ? { kind: "evidence", evidence: current } : null;
+  }
+  if (selection.kind === "fact") {
+    const current = facts.find((item) => item.factId === selection.fact.factId);
+    return current ? { kind: "fact", fact: current } : null;
+  }
+  if (selection.kind === "source_preview") {
+    if (!sourcePreview || sourcePreview.preview_ref !== selection.preview.preview_ref || sourcePreview.source_hash !== selection.preview.source_hash) return null;
+    return { kind: "source_preview", preview: sourcePreview };
+  }
+  return selection;
+}
+
+/**
  * Creates readable cues from fields already supplied by the Node. These cues
  * are presentation only. They never change clearance, approval, verification,
  * or the fact itself.

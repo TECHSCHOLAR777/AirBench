@@ -169,7 +169,7 @@ The prototype view switcher in the HTML mockup exists only to inspect representa
 
 **Current preview boundary**: a Node-returned source or artifact preview is labeled read-only before its content is shown. It remains untrusted data and is not the original document, a verification result, or an approval decision. A missing preview is shown as unavailable, never replaced with a client-side interpretation.
 
-The inspector also presents deterministic reading cues derived only from Node-provided confidence, taint, source location, and supersession fields. These cues are presentation guidance, not new facts, approval decisions, clearance decisions, or verification results. If the current evidence contract does not provide conflict status or reviewer-note commands, the inspector says so explicitly instead of implying that the record is conflict-free or editable.
+The inspector also presents deterministic reading cues derived only from Node-provided confidence, taint, source location, and supersession fields. These cues are presentation guidance, not new facts, approval decisions, clearance decisions, or verification results. If the current evidence contract does not provide conflict status or reviewer-note commands, the inspector says so explicitly instead of implying that the record is conflict-free or editable. A selected evidence or preview record is reconciled against the latest task projection before it is rendered, and the inspector gets its own viewport scroll when the proof detail exceeds the desktop height.
 
 ### S06 Review Queue
 
