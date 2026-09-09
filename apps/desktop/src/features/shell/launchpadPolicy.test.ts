@@ -12,6 +12,8 @@ describe("launchpad presentation policy", () => {
     expect(sourceStatus(false, "idle")).toBe("Add sources");
     expect(sourceStatus(true, "idle")).toBe("1 source added");
     expect(sourceStatus(true, "uploading")).toBe("Preparing source");
+    expect(sourceStatus(true, "processing")).toBe("Source processing");
+    expect(sourceStatus(true, "clearance_mismatch")).toBe("Source needs attention");
     expect(sourceStatus(true, "failed")).toBe("Source needs attention");
     expect(sourceStatus(true, "ready")).toBe("1 source ready");
   });

@@ -1,4 +1,4 @@
-export type LaunchpadIntakeState = "idle" | "uploading" | "ready" | "failed";
+export type LaunchpadIntakeState = "idle" | "uploading" | "processing" | "ready" | "rejected" | "unsupported" | "oversized" | "partial" | "clearance_mismatch" | "failed";
 
 export interface ShortcutInput {
   key: string;
@@ -10,7 +10,9 @@ export function sourceStatus(hasSelectedFile: boolean, intakeState: LaunchpadInt
   if (!hasSelectedFile) return "Add sources";
   if (intakeState === "ready") return "1 source ready";
   if (intakeState === "uploading") return "Preparing source";
+  if (intakeState === "processing") return "Source processing";
   if (intakeState === "failed") return "Source needs attention";
+  if (intakeState !== "idle") return "Source needs attention";
   return "1 source added";
 }
 

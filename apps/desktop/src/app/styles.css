@@ -324,6 +324,13 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 
 .intake-result, .artifact-preview, .task-confirmation, .plan-review-card, .workspace-activity, .profile-card, .readiness-card, .workspace-plan { background: color-mix(in srgb, var(--surface) 86%, transparent); border: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 7%, transparent), 0 1px 0 color-mix(in srgb, var(--surface-raised) 60%, transparent); backdrop-filter: blur(12px) saturate(108%); }
 .intake-result { margin-top: 20px; padding: 19px; border-color: color-mix(in srgb, var(--trust) 30%, var(--line)); background: color-mix(in srgb, var(--trust-soft) 35%, var(--surface)); }
+.intake-status { display: grid; gap: 4px; margin-top: 12px; padding: 10px 12px; color: var(--ink-soft); background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 10px; line-height: 1.45; }
+.intake-status strong { color: var(--ink); font-size: 10px; }
+.intake-status span { color: var(--muted); }
+.intake-status-processing, .intake-status-uploading { border-color: color-mix(in srgb, var(--info) 35%, var(--line)); }
+.intake-status-processing strong, .intake-status-uploading strong { color: var(--info); }
+.intake-status-rejected, .intake-status-unsupported, .intake-status-oversized, .intake-status-clearance_mismatch, .intake-status-partial, .intake-status-failed { border-color: color-mix(in srgb, var(--attention) 35%, var(--line)); }
+.intake-status-rejected strong, .intake-status-unsupported strong, .intake-status-oversized strong, .intake-status-clearance_mismatch strong, .intake-status-partial strong, .intake-status-failed strong { color: var(--attention-ink); }
 .intake-result-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
 .intake-result-head .eyebrow { margin-bottom: 6px; }
 .intake-result h2, .artifact-preview h2 { margin-bottom: 0; font-size: 16px; }
