@@ -65,6 +65,23 @@ export interface WorkTraceArtifactRecord {
   latestEvent: WorkTraceActivity | null;
 }
 
+export interface WorkTraceTeamAssignment {
+  assignmentId: string;
+  dependencies: string[];
+}
+
+export interface WorkTraceTeamPlan {
+  state: "not_supplied" | "planned";
+  teamId: string | null;
+  executionMode: TaskPlanReview["execution_mode"];
+  executionModeLabel: string;
+  executionModeDetail: string;
+  concurrencyCeiling: number;
+  assignments: WorkTraceTeamAssignment[];
+  capabilityLanes: Array<{ role: string; capability: string }>;
+  planLedgerEventRef: string | null;
+}
+
 export interface WorkTrace {
   activity: WorkTraceActivity[];
   latestActivity: WorkTraceActivity | null;
@@ -75,6 +92,7 @@ export interface WorkTrace {
   review: { events: WorkTraceActivity[]; questions: string[] };
   artifacts: { events: WorkTraceActivity[]; ids: string[]; records: WorkTraceArtifactRecord[] };
   routing: WorkTraceRouting;
+  team: WorkTraceTeamPlan;
 }
 
 const stageOrder: Array<{ id: WorkTraceStageId; label: string }> = [
@@ -106,6 +124,7 @@ export function buildWorkTrace(projection: TaskProjection, plan: TaskPlanReview 
   const artifactRecords = buildArtifactRecords(projection.artifactRefs, artifactEvents);
   const records = projection.evidence.map(toEvidenceRecord);
   const routing = routingFromPlan(plan, routeTrace);
+  const team = teamPlanFromPlan(plan);
   const stages = stageOrder.map(({ id, label }) => {
     const events = activity.filter((item) => item.stage === id);
     return {
@@ -127,6 +146,7 @@ export function buildWorkTrace(projection: TaskProjection, plan: TaskPlanReview 
     review: { events: reviewEvents, questions: [...projection.unresolvedQuestions] },
     artifacts: { events: artifactEvents, ids: [...projection.artifactRefs], records: artifactRecords },
     routing,
+    team,
   };
 }
 
@@ -220,6 +240,57 @@ function routingFromPlan(plan: TaskPlanReview | null, routeTrace: NodeRouteTrace
     fallbackReason,
     policyReason,
     routeEntries,
+  };
+}
+
+function teamPlanFromPlan(plan: TaskPlanReview | null): WorkTraceTeamPlan {
+  if (!plan) {
+    return {
+      state: "not_supplied",
+      teamId: null,
+      executionMode: "not_selected",
+      executionModeLabel: "Execution mode not supplied",
+      executionModeDetail: "The Node has not supplied a team plan for this task.",
+      concurrencyCeiling: 0,
+      assignments: [],
+      capabilityLanes: [],
+      planLedgerEventRef: null,
+    };
+  }
+
+  const modeCopy: Record<TaskPlanReview["execution_mode"], { label: string; detail: string }> = {
+    parallel: {
+      label: "Parallel team",
+      detail: `The Node admitted up to ${plan.concurrency_ceiling} concurrent worker lane${plan.concurrency_ceiling === 1 ? "" : "s"}.`,
+    },
+    pipelined: {
+      label: "Pipelined team",
+      detail: "The Node may advance independent work while dependent stages wait for recorded handoffs.",
+    },
+    serial_virtual_team: {
+      label: "Serial virtual team",
+      detail: "The logical team is retained, while the Node schedules one worker turn at a time for the available hardware.",
+    },
+    not_selected: {
+      label: "Execution mode pending",
+      detail: "The Node has not admitted a runnable execution mode.",
+    },
+  };
+  const selectedMode = modeCopy[plan.execution_mode];
+
+  return {
+    state: "planned",
+    teamId: plan.team_id,
+    executionMode: plan.execution_mode,
+    executionModeLabel: selectedMode.label,
+    executionModeDetail: selectedMode.detail,
+    concurrencyCeiling: plan.concurrency_ceiling,
+    assignments: plan.assignments.map((assignmentId) => ({
+      assignmentId,
+      dependencies: [...(plan.dependency_graph[assignmentId] ?? [])],
+    })),
+    capabilityLanes: Object.entries(plan.worker_capabilities).map(([role, capability]) => ({ role, capability })),
+    planLedgerEventRef: plan.ledger_event_ref,
   };
 }
 
