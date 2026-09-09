@@ -200,6 +200,7 @@ FE-VAL-2, FE-VAL-3, and FE-VAL-4 can be developed in parallel after the typed fi
 
 - run the packaged application under Tauri WebDriver;
 - run the local WebDriver preflight with driver installation and Edge-driver downloads disabled by default;
+- run the authored-TSX accessibility contract check for explicit button types, native-control names, and modal naming;
 - mock Tauri IPC with deterministic snapshots and events;
 - capture Rust transport and backend fixture logs;
 - test task composer, plan review, live task, reconnect, evidence, artifact preview, approval blocking, approval success, local and remote node profiles;
