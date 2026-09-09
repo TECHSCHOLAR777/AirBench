@@ -22,6 +22,11 @@ export function NodeReadinessPanel({ connection, profile }: NodeReadinessPanelPr
       {readiness.connection.proof.length > 0
         ? <dl className="node-proof-grid">{readiness.connection.proof.map((field) => <div key={field.label}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl>
         : <p className="node-proof-empty">No trusted handshake fields are shown while this connection needs attention.</p>}
+      <dl className="node-recovery-guidance" aria-label="Safe Node connection recovery guidance">
+        <div><dt>Preserved</dt><dd>{readiness.connection.recovery.preserved}</dd></div>
+        <div><dt>Retry</dt><dd>{readiness.connection.recovery.retry}</dd></div>
+        <div><dt>Next</dt><dd>{readiness.connection.recovery.nextAction}</dd></div>
+      </dl>
     </section>
 
     <section className="node-readiness-explainer" aria-label="About an AirBench Node">

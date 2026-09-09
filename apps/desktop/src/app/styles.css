@@ -447,6 +447,10 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .node-proof-grid dt { margin-bottom: 5px; color: var(--faint); font-size: 9px; font-weight: 700; letter-spacing: .045em; text-transform: uppercase; }
 .node-proof-grid dd { overflow-wrap: anywhere; margin: 0; color: var(--ink-soft); font-family: var(--font-mono); font-size: 10px; line-height: 1.45; }
 .node-proof-empty { margin: 16px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.node-recovery-guidance { display: grid; gap: 6px; margin: 17px 0 0; padding-top: 12px; border-top: 1px solid var(--line); }
+.node-recovery-guidance > div { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.node-recovery-guidance dt { color: var(--faint); font-size: 8px; font-weight: 740; letter-spacing: .055em; text-transform: uppercase; }
+.node-recovery-guidance dd { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .node-readiness-explainer, .node-routing-boundary { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: flex-start; gap: 11px; padding: 14px 15px; background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--radius-sm); }
 .node-readiness-explainer-icon { width: 31px; height: 31px; border-radius: 8px; }
 .node-readiness-explainer .eyebrow, .node-routing-boundary .eyebrow { margin-bottom: 5px; color: var(--info); }

@@ -13,6 +13,11 @@ export interface NodeConnectionReadiness {
   title: string;
   detail: string;
   proof: NodeProofField[];
+  recovery: {
+    preserved: string;
+    retry: string;
+    nextAction: string;
+  };
 }
 
 export interface NodeOperationalReadiness {
@@ -40,6 +45,10 @@ function displayValue(value: string | null): string {
 function transportLabel(profile: ApprovedNodeProfileReference | null): string {
   if (!profile) return "Not supplied";
   return profile.transport === "loopback" ? "Local workstation" : "Internal network";
+}
+
+function recovery(preserved: string, retry: string, nextAction: string) {
+  return { preserved, retry, nextAction };
 }
 
 function operationalReadiness(verified: boolean): NodeOperationalReadiness {
@@ -81,6 +90,11 @@ export function buildNodeReadiness(
         tone: "trusted",
         title: "Approved Node connection verified",
         detail: "The native handshake verified the Node identity, operator context, and clearance. The Node still decides whether a consequential task action is permitted.",
+        recovery: recovery(
+          "The verified handshake proof and its ledger reference remain visible.",
+          "Recheck only through the approved Node profile if the session becomes uncertain.",
+          "Continue by submitting work to the Node for task-specific validation.",
+        ),
         proof: [
           { label: "Approved profile", value: profile?.displayName ?? "Not supplied" },
           { label: "Node identity", value: displayValue(connection.nodeIdentity) },
@@ -104,6 +118,11 @@ export function buildNodeReadiness(
         tone: "attention",
         title: "Reconnection required",
         detail: "The approved Node path was interrupted. AirBench will not use retained handshake details to authorize consequential work.",
+        recovery: recovery(
+          "The existing task view remains readable, but retained trust is not used for authority.",
+          "No consequential command is retried while the connection is uncertain.",
+          "Reconnect through the approved Node profile and wait for a fresh trust result.",
+        ),
         proof: [],
       },
       operational: operationalReadiness(false),
@@ -117,6 +136,11 @@ export function buildNodeReadiness(
         tone: "attention",
         title: "Checking approved Node",
         detail: "The native boundary is validating the approved profile before the desktop receives a trusted connection result.",
+        recovery: recovery(
+          "The selected profile remains available; no task or file has been submitted.",
+          "Wait for this handshake instead of starting a second connection attempt.",
+          "Wait for the native boundary to return a verified or blocked result.",
+        ),
         proof: [],
       },
       operational: operationalReadiness(false),
@@ -130,6 +154,11 @@ export function buildNodeReadiness(
         tone: "attention",
         title: "Connection proof needs attention",
         detail: "The trust response is incomplete, so the desktop cannot use this connection for consequential work.",
+        recovery: recovery(
+          "No consequential task action is accepted from this incomplete trust result.",
+          "Do not retry from the desktop until the approved profile or Node response is corrected.",
+          "Recheck the approved Node and wait for complete identity and clearance proof.",
+        ),
         proof: [],
       },
       operational: operationalReadiness(false),
@@ -143,6 +172,11 @@ export function buildNodeReadiness(
         tone: "blocked",
         title: "Node connection blocked",
         detail: connection.failure?.message ?? "This desktop cannot use the selected Node path for consequential work.",
+        recovery: recovery(
+          "No task, file, or consequential command is authorized by this blocked result.",
+          "Retry only after the Node or profile failure is resolved by approved policy.",
+          "Review the blocked result, then recheck an organization-approved Node.",
+        ),
         proof: [],
       },
       operational: operationalReadiness(false),
@@ -155,6 +189,11 @@ export function buildNodeReadiness(
       tone: "attention",
       title: "No approved Node connection",
       detail: "Choose an organization-approved Node before AirBench can request work or verify a connection result.",
+      recovery: recovery(
+        "Nothing has been submitted, and no local connection is treated as trusted.",
+        "Select an installed approved profile when you are ready to connect.",
+        "Open Node settings and choose an organization-approved Node.",
+      ),
       proof: [],
     },
     operational: operationalReadiness(false),

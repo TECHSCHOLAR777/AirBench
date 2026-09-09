@@ -49,6 +49,7 @@ describe("Node readiness summary", () => {
       state: "not_supplied",
       title: "Operational status is not supplied",
     });
+    expect(summary.connection.recovery.nextAction).toContain("task-specific validation");
     expect(JSON.stringify(summary)).not.toMatch(/gpu ready|qualified model|endpoint|certificate|credential/i);
   });
 
@@ -63,6 +64,11 @@ describe("Node readiness summary", () => {
       tone: "attention",
       title: "Reconnection required",
       proof: [],
+    });
+    expect(summary.connection.recovery).toEqual({
+      preserved: "The existing task view remains readable, but retained trust is not used for authority.",
+      retry: "No consequential command is retried while the connection is uncertain.",
+      nextAction: "Reconnect through the approved Node profile and wait for a fresh trust result.",
     });
     expect(JSON.stringify(summary)).not.toContain("operator-17");
     expect(JSON.stringify(summary)).not.toContain("ledger-connect-42");
