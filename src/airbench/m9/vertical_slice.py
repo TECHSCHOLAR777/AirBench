@@ -389,7 +389,18 @@ class RefineryVerticalSlice:
         event("execution.mode.selected", {"mode": mode, "safe_parallel_slots": safe_parallel_slots, "hardware_modes": list(supported_modes), "hardware_profile_id": hardware_profile.profile_id if hardware_profile else None})
         event("team.created", {"team_id": stable_id("team", task_id), "required_verification": True, "pack_workflow": "refinery_inspection_review"})
         event("team.execution.started", {"team_id": stable_id("team", task_id), "mode": mode})
-        route_specs = (("evidence_vision_worker", "vision"), ("reasoning_worker", "reasoning"), ("independent_verification_worker", "verification"), ("render_review_worker", "render"))
+        workflow = self.pack.workers.get("workflows", {}).get("refinery_inspection_review", {})
+        required_workers = tuple(str(worker) for worker in workflow.get("required_workers", ()))
+        capabilities = {
+            "lead_worker": "coordination",
+            "evidence_vision_worker": "vision",
+            "reasoning_worker": "reasoning",
+            "independent_verification_worker": "verification",
+            "render_review_worker": "render",
+        }
+        if not required_workers or any(worker not in capabilities for worker in required_workers):
+            raise SignedPackError("refinery workflow has an unsupported worker declaration")
+        route_specs = tuple((worker, capabilities[worker]) for worker in required_workers)
         routes = tuple(WorkerRoute(f"worker.m9.{role}", role, capability, mode, route_map.get(role, f"local.{capability}.qualified")) for role, capability in route_specs)
         for route in routes:
             event("worker.assigned", {"worker_id": route.worker_id, "role": route.role, "capability": route.capability, "mode": mode, "model_route": route.model_route})

@@ -101,6 +101,13 @@ def main() -> int:
         "ledger_head_hash": ledger.head_hash, "ledger_event_count": len(ledger.events),
         "runs": runs,
     }
+    (args.output_dir / "pack-signature.json").write_text(json.dumps({
+        "pack_id": pack.manifest["pack_id"],
+        "pack_version": pack.manifest["pack_version"],
+        "algorithm": "HMAC-SHA256",
+        "detached": True,
+        "signature": signature,
+    }, indent=2, sort_keys=True), encoding="utf-8")
     (args.output_dir / "run-summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0

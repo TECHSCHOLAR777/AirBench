@@ -56,6 +56,10 @@ def test_serial_run_extracts_provenance_computes_values_and_checks_docx(tmp_path
     assert run.execution_mode == "serial_virtual_team"
     assert run.computed_values == {"finding_count": 2, "critical_finding_count": 1, "manual_match_count": 2}
     assert set(run.manual_refs) == {"manual://pump-sop", "manual://vibration-sop"}
+    assert {route.role for route in run.routes} == {
+        "lead_worker", "evidence_vision_worker", "reasoning_worker",
+        "independent_verification_worker", "render_review_worker",
+    }
     assert all(f.fact.source_ref.startswith("intake:inspection-report") for f in run.findings)
     assert run.artifact and run.artifact.structural == "passed"
     assert run.artifact.content_hash
