@@ -9,7 +9,7 @@ import { listApprovedNodeProfiles } from "../platform/node/profileBridge";
 import { downloadArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, validateDownloadReceipt, type ArtifactPreview, type DownloadReceipt, type IntakeManifest, type SafePreview } from "../features/intake/intakeBridge";
 import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand, type CreateTaskResponse } from "../platform/node/nodeCommands";
 import type { NodeCommandResult, TaskPlanReview } from "../generated/core_contracts";
-import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan } from "../features/tasks/taskComposer";
+import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan, canCancelTask } from "../features/tasks/taskComposer";
 import { planRecoveryGuidance } from "../features/tasks/planRecovery";
 import { fetchTaskEventBatch } from "../platform/events/eventTransport";
 import { maySendConsequentialCommand, TaskEventSynchronizer, type EventSyncResult, type EventSyncState } from "../platform/events/eventStore";
@@ -26,7 +26,7 @@ import { ProofInspectorPanel, type ArtifactLifecycleState, type ArtifactPreviewS
 import { TaskEmptyView } from "../components/TaskEmptyView";
 import { NodeReadinessPanel } from "../components/NodeReadinessPanel";
 import { formatProvenanceLocation, reconcileProofSelection, type ProofSelection } from "../features/provenance/proofInspector";
-import type { TaskProjection } from "../platform/events/protocol";
+import type { TaskProjection, TaskStatus } from "../platform/events/protocol";
 import { classifyIntakeFailure, intakeStateFromManifest, intakeStatusCopy, type IntakeUiState } from "../features/intake/intakeState";
 
 type SelectedFile = { selection_id: string; file_name: string; byte_size: number };
@@ -477,6 +477,10 @@ function App() {
       setNotice("This plan is not ready for operator approval. The Node must resolve its policy or hardware state first.");
       return;
     }
+    if (planReview.task_sequence !== taskProjection.lastAppliedSequence) {
+      setNotice("This plan is based on an older Node sequence. Refresh the task projection before approving it.");
+      return;
+    }
     setApprovingPlan(true);
     setPlanApprovalResult(null);
     setNotice(null);
@@ -694,7 +698,7 @@ function HomeView({ outcomeInputRef, currentTask, taskText, setTaskText, taskTit
     {intakeManifest && <section className="intake-result" data-testid="intake-result" aria-label="File Intake result"><div className="intake-result-head"><div><p className="eyebrow">FILE INTAKE</p><h2>{intakeManifest.file_name}</h2></div><span className="intake-badge">{intakeCopy.label}</span></div><div className="intake-meta-grid"><div><span>Source hash</span><strong>{intakeManifest.source_hash}</strong></div><div><span>Pages</span><strong>{intakeManifest.page_count}</strong></div><div><span>Clearance</span><strong>{intakeManifest.clearance}</strong></div><div><span>Taint</span><strong>{intakeManifest.taint}</strong></div></div>{safePreview ? <div className="safe-preview"><div className="safe-preview-label">Node-generated safe preview <span>Page region: {safePreview.source_region}</span></div><p>{safePreview.text}</p><small>Confidence {Math.round(safePreview.confidence * 100)}% / ledger {safePreview.ledger_event_ref}</small></div> : <div className="intake-status intake-status-partial" role="status"><strong>{intakeCopy.title}</strong><span>{intakeCopy.detail}</span><IntakeRecoveryGuidance recovery={intakeCopy.recovery} /></div>}</section>}
     {artifactPreview && <section className="artifact-preview" data-testid="artifact-preview" aria-label="Artifact preview"><div className="intake-result-head"><div><p className="eyebrow">NODE ARTIFACT PREVIEW</p><h2>{artifactPreview.title}</h2></div><span className="intake-badge">{artifactPreview.preview_kind}</span></div><div className="artifact-preview-meta"><span>{artifactPreview.clearance} clearance</span><span>{artifactPreview.taint} data</span><span>Ledger {artifactPreview.ledger_event_ref}</span></div><div className="artifact-blocks">{artifactPreview.blocks.map((block, index) => <div className="artifact-block" key={`${block.kind}-${index}`}><span className="artifact-block-kind">{block.kind}</span><p>{block.text}</p></div>)}</div><div className="artifact-actions"><button type="button" className="primary-button" data-testid="download-artifact" onClick={onDownload} disabled={downloadState === "downloading"}>{downloadState === "downloading" ? "Verifying..." : downloadState === "downloaded" ? "Download again" : "Download artifact"}</button>{downloadReceipt && <small data-testid="download-receipt">Saved {downloadReceipt.byte_size} bytes / {downloadReceipt.content_hash} / ledger {downloadReceipt.ledger_event_ref}</small>}</div></section>}
     {taskResult && <section className="task-confirmation" data-testid="task-confirmation" aria-label="Task submission result"><p className="eyebrow">TASK ACCEPTED BY NODE</p><strong>{taskResult.task.task_id}</strong><span>State: {taskResult.command.state ?? taskResult.task.state ?? "created"}</span><small>Ledger {taskResult.command.ledger_event_ref ?? taskResult.ledger_event_ref} / sequence {taskResult.command.sequence ?? taskResult.snapshot.asOfSequence}</small></section>}
-    {taskResult && <PlanReviewCard plan={planReview} loading={planLoading} approval={planApprovalResult} approving={approvingPlan} synchronized={planSynchronized} onApprove={onApprovePlan} onCancel={onCancelTask} />}
+    {taskResult && <PlanReviewCard plan={planReview} loading={planLoading} approval={planApprovalResult} approving={approvingPlan} synchronized={planSynchronized} currentTaskSequence={currentTask?.lastAppliedSequence ?? taskResult.snapshot.asOfSequence} taskStatus={currentTask?.status ?? "accepted"} onApprove={onApprovePlan} onCancel={onCancelTask} />}
     {notice && <div className="inline-notice" role="status">{notice}</div>}
     <div className="trust-line" role="status"><span className="trust-item"><span className={`status-dot ${nodeConnected ? "status-dot-connected" : ""}`} aria-hidden="true" />{nodeConnected ? `${nodeLabel} is verified for this session.` : "No Node path is verified. Nothing has been submitted."}</span><button type="button" className="text-button" onClick={onHelp}>How this works</button></div>
     <section className="continue-section" aria-label="Continue work"><div className="section-heading"><div><h2>Continue work</h2><p>{currentWork ? "One task is available from the approved Node projection." : "The current Node has not supplied a task projection to this desktop."}</p></div>{currentWork && <span className={`home-work-health home-work-health-${currentWork.health}`}>{currentWork.healthLabel}</span>}</div>{currentWork ? <article className="current-work-card" data-testid="current-task-card"><div className="current-work-card-head"><div><p className="eyebrow">NODE TASK</p><h3>{currentWork.title}</h3><p>{currentWork.requestSummary}</p></div><span className={`home-work-status home-work-status-${currentWork.status}`}>{currentWork.statusLabel}</span></div><dl className="current-work-meta"><div><dt>Current phase</dt><dd>{currentWork.phase}</dd></div><div><dt>Node cursor</dt><dd>{currentWork.lastAppliedSequence}</dd></div><div><dt>Ledger head</dt><dd>{currentWork.ledgerHeadRef}</dd></div><div><dt>Latest record</dt><dd>{currentWork.latestActivity?.label ?? "No activity event in this cursor"}</dd></div></dl>{currentWork.latestActivity && <div className="current-work-latest"><span>Latest Node record</span><strong>{currentWork.latestActivity.summary}</strong><small>{formatTraceTime(currentWork.latestActivity.occurredAt)} / sequence {currentWork.latestActivity.sequence} / ledger {currentWork.latestActivity.ledgerEventRef}</small></div>}<div className="current-work-footer"><p>{currentWork.health === "current" ? "This card reflects the latest accepted Node snapshot." : "This snapshot remains readable, but consequential task actions stay gated until the event stream is current."}</p><button type="button" className="secondary-button bordered-button" onClick={onOpenCurrentTask}>Open task</button></div></article> : <div className="home-empty-state"><div className="empty-icon" aria-hidden="true"><AppIcon name="tasks" size={17} /></div><p>{nodeConnected ? "No current task in this desktop session" : "Connect an approved Node to view current work"}</p><small>{nodeConnected ? "When the Node returns a task snapshot, its recorded state will appear here." : "AirBench does not reconstruct task history locally."}</small></div>}</section>
@@ -718,16 +722,17 @@ function PlanRecoveryBlock({ guidance }: { guidance: RecoveryGuidance }) {
   </dl>;
 }
 
-function PlanReviewCard({ plan, loading, approval, approving, synchronized, onApprove, onCancel }: { plan: TaskPlanReview | null; loading: boolean; approval: NodeCommandResult | null; approving: boolean; synchronized: boolean; onApprove: () => void; onCancel: () => Promise<void> }) {
+function PlanReviewCard({ plan, loading, approval, approving, synchronized, currentTaskSequence, taskStatus, onApprove, onCancel }: { plan: TaskPlanReview | null; loading: boolean; approval: NodeCommandResult | null; approving: boolean; synchronized: boolean; currentTaskSequence: number | null; taskStatus: TaskStatus; onApprove: () => void; onCancel: () => Promise<void> }) {
   if (loading) {
     return <section className="plan-review-card" data-testid="plan-review-loading" aria-label="Task plan review"><p className="eyebrow">PLAN REVIEW</p><h2>AirBench is preparing the plan</h2><p className="plan-muted">The Node is validating the work against policy and available hardware. No execution has started.</p></section>;
   }
   if (!plan) return null;
   const modeLabel: Record<string, string> = { parallel: "Parallel team", pipelined: "Pipelined team", serial_virtual_team: "Serial virtual team", not_selected: "Not selected" };
   const stateLabel: Record<string, string> = { not_ready: "Not ready", ready: "Ready for approval", queued: "Queued for hardware", needs_review: "Needs review", blocked: "Blocked", rejected: "Rejected" };
-  const canApprove = canApprovePlan(plan, synchronized, Boolean(approval), approving);
-  const canCancel = synchronized && !approving;
-  const approvalHint = !synchronized ? "Approval is paused until the task view is current with the Node." : "The Node must return a ready plan requiring operator approval.";
+  const canApprove = canApprovePlan(plan, synchronized, Boolean(approval), approving, currentTaskSequence);
+  const canCancel = canCancelTask(taskStatus, synchronized, approving);
+  const planIsStale = currentTaskSequence !== null && plan.task_sequence !== currentTaskSequence;
+  const approvalHint = !synchronized ? "Approval is paused until the task view is current with the Node." : planIsStale ? "This plan is based on an older Node sequence. Refresh the task projection before approving it." : "The Node must return a ready plan requiring operator approval.";
   return <section className="plan-review-card" data-testid="plan-review" aria-label="Task plan review">
     <div className="plan-review-head"><div><p className="eyebrow">PLAN REVIEW</p><h2>{stateLabel[plan.plan_state] ?? plan.plan_state}</h2></div><span className={`intake-badge plan-state-${plan.plan_state}`}>{modeLabel[plan.execution_mode] ?? plan.execution_mode}</span></div>
     <p className="plan-muted">{plan.authority_reason}</p>
@@ -788,7 +793,7 @@ function TaskWorkspaceView({ projection, syncState, plan, approval, approving, c
     </div>
     <ProofInspectorPanel selection={proofSelection} artifactPreview={artifactPreview} artifactPreviewState={artifactPreviewState} artifactPreviewError={artifactPreviewError} artifactLifecycleState={selectedArtifactLifecycleState} downloadState={artifactDownloadState} downloadReceipt={artifactDownloadReceipt} onDownloadArtifact={(artifactId: string) => { void onDownloadArtifact(artifactId); }} />
     </div>
-    {plan && <PlanReviewCard plan={plan} loading={false} approval={approval} approving={approving} synchronized={maySendConsequentialCommand(projection, syncStatus)} onApprove={onApprovePlan} onCancel={onStop} />}
+    {plan && <PlanReviewCard plan={plan} loading={false} approval={approval} approving={approving} synchronized={maySendConsequentialCommand(projection, syncStatus)} currentTaskSequence={projection.lastAppliedSequence} taskStatus={projection.status} onApprove={onApprovePlan} onCancel={onStop} />}
     {controlResult && <div className="workspace-receipt" role="status">Stop command accepted by Node. Ledger {controlResult.ledger_event_ref ?? "pending"}; waiting for the authoritative event.</div>}
     <section className="workspace-activity"><div className="section-heading"><div><h2>Activity</h2><p>Chronological Node records. Model reasoning traces are not exposed.</p></div><span className="workspace-count">{trace.activity.length} events</span></div>{trace.activity.length === 0 ? <div className="workspace-empty">The Node has not returned a new activity event yet.</div> : <ol className="activity-list">{trace.activity.map((event) => <TraceActivityRow key={`${event.eventId}-${event.sequence}`} item={event} />)}</ol>}</section>
     {projection.diagnostics.length > 0 && <section className="workspace-warning" role="alert"><strong>Task view needs attention</strong>{projection.diagnostics.map((diagnostic) => <span key={`${diagnostic.code}-${diagnostic.sequence}`}>{diagnostic.code}: {diagnostic.detail}</span>)}</section>}

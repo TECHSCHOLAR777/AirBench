@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan } from "./taskComposer";
+import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan, canCancelTask } from "./taskComposer";
 
 const base = {
   actor: "operator-1" as const,
@@ -16,11 +16,21 @@ const base = {
 
 describe("task composer command", () => {
   it("gates plan approval on a current Node projection", () => {
-    const readyPlan = { plan_state: "ready", required_authority: "operator_approval" } as const;
-    expect(canApprovePlan(readyPlan, true, false, false)).toBe(true);
-    expect(canApprovePlan(readyPlan, false, false, false)).toBe(false);
-    expect(canApprovePlan(readyPlan, true, true, false)).toBe(false);
-    expect(canApprovePlan({ plan_state: "needs_review", required_authority: "operator_approval" }, true, false, false)).toBe(false);
+    const readyPlan = { plan_state: "ready", required_authority: "operator_approval", task_sequence: 7 } as const;
+    expect(canApprovePlan(readyPlan, true, false, false, 7)).toBe(true);
+    expect(canApprovePlan(readyPlan, true, false, false, 8)).toBe(false);
+    expect(canApprovePlan(readyPlan, false, false, false, 7)).toBe(false);
+    expect(canApprovePlan(readyPlan, true, true, false, 7)).toBe(false);
+    expect(canApprovePlan({ plan_state: "needs_review", required_authority: "operator_approval", task_sequence: 7 }, true, false, false, 7)).toBe(false);
+  });
+
+  it("does not offer cancellation for terminal task states", () => {
+    expect(canCancelTask("running", true, false)).toBe(true);
+    expect(canCancelTask("completed", true, false)).toBe(false);
+    expect(canCancelTask("failed", true, false)).toBe(false);
+    expect(canCancelTask("stopped", true, false)).toBe(false);
+    expect(canCancelTask("running", false, false)).toBe(false);
+    expect(canCancelTask("running", true, true)).toBe(false);
   });
 
   it("builds a server-authoritative create envelope with the Node-selected pack and manifest", () => {

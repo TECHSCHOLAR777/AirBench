@@ -1,5 +1,5 @@
 import type { NodeCommandEnvelope, TaskPlanReview } from "../../generated/core_contracts";
-import type { Clearance } from "../../platform/events/protocol";
+import type { Clearance, TaskStatus } from "../../platform/events/protocol";
 
 export interface TaskComposerInput {
   actor: string;
@@ -17,10 +17,11 @@ export interface TaskComposerInput {
 const MAX_REQUEST_LENGTH = 65_536;
 
 export function canApprovePlan(
-  plan: Pick<TaskPlanReview, "plan_state" | "required_authority"> | null,
+  plan: Pick<TaskPlanReview, "plan_state" | "required_authority" | "task_sequence"> | null,
   synchronized: boolean,
   alreadyApproved: boolean,
   approving: boolean,
+  currentTaskSequence: number | null = null,
 ): boolean {
   return Boolean(
     plan
@@ -28,8 +29,13 @@ export function canApprovePlan(
       && plan.required_authority === "operator_approval"
       && synchronized
       && !alreadyApproved
-      && !approving,
+      && !approving
+      && (currentTaskSequence === null || plan.task_sequence === currentTaskSequence),
   );
+}
+
+export function canCancelTask(taskStatus: TaskStatus, synchronized: boolean, controlling: boolean): boolean {
+  return synchronized && !controlling && !["completed", "failed", "stopped"].includes(taskStatus);
 }
 
 function required(value: string, label: string, maximum: number): string {
