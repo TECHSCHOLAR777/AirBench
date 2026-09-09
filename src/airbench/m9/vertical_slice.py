@@ -492,7 +492,21 @@ class RefineryVerticalSlice:
                 findings.append(InspectionFinding(fid, data["equipment"], data["severity"].lower(), data["description"].strip(), fact, f"{page_id}:line={index}"))
                 event("fact.candidate", {"fact_id": fact.fact_id, "source_ref": source, "confidence": fact.confidence, "clearance": clearance.value, "taint": fact.taint.value})
                 event("fact.committed", {"fact_id": fact.fact_id, "source_ref": source, "confidence": fact.confidence, "clearance": clearance.value, "taint": fact.taint.value, "scope": "task", "promotion": "provenance_gate"})
-        if not findings: raise ValueError("inspection report contained no sourced findings")
+        if not findings:
+            for route in routes:
+                event("worker.failed", {
+                    "worker_id": route.worker_id,
+                    "role": route.role,
+                    "stage": route.capability,
+                    "failure_code": "no_sourced_findings",
+                    "retryable": False,
+                })
+            event("team.execution.failed", {
+                "team_id": stable_id("team", task_id),
+                "failure_code": "no_sourced_findings",
+                "retryable": False,
+            })
+            raise ValueError("inspection report contained no sourced findings")
         manual_hits = tuple((key, value) for key, value in manuals.items() if any(token in value.lower() for finding in findings for token in finding.description.lower().split() if len(token) > 4))
         retrieved_refs = retrieved_manual_refs if retrieved_manual_refs is not None else tuple(key for key, _ in manual_hits)
         event("retrieval.completed", {"manual_refs": list(retrieved_refs), "finding_count": len(findings), "local_only": True})

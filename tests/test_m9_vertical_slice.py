@@ -112,10 +112,14 @@ def test_parallel_mode_is_hardware_selected(tmp_path: Path) -> None:
 
 
 def test_missing_findings_fails_closed(tmp_path: Path) -> None:
+    ledger = EventLedger()
     with pytest.raises(ValueError, match="no sourced findings"):
-        RefineryVerticalSlice(signed_pack(tmp_path), EventLedger(), artifact_dir=tmp_path / "artifacts").run(
+        RefineryVerticalSlice(signed_pack(tmp_path), ledger, artifact_dir=tmp_path / "artifacts").run(
             task_id="task.m9.empty", report_pages={"page-1": "not a finding"}, manuals={}
         )
+    assert sum(event.event_type == "worker.failed" for event in ledger.events) == 5
+    assert any(event.event_type == "team.execution.failed" for event in ledger.events)
+    assert next(event for event in ledger.events if event.event_type == "team.execution.failed").payload["failure_code"] == "no_sourced_findings"
 
 
 def test_missing_input_and_resource_pressure_fail_closed_or_degrade_to_serial(tmp_path: Path) -> None:
