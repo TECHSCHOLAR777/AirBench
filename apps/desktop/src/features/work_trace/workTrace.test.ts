@@ -118,6 +118,24 @@ describe("audit-safe work trace", () => {
     expect(trace.latestActivity).toMatchObject({ eventType: "task.completed", ledgerEventRef: "ledger-12", clearance: "restricted" });
   });
 
+  it("shows M4 team coordination as recorded execution activity", () => {
+    const trace = buildWorkTrace({
+      ...projection,
+      activity: [
+        event(5, "team.created", { status: "created", summary: "Team created.", teamId: "team-1" }),
+        event(6, "worker.assigned", { status: "assigned", summary: "Vision worker assigned.", teamId: "team-1", assignmentId: "assignment-vision", workerId: "worker-vision", role: "vision" }),
+        event(7, "execution.mode.selected", { status: "selected", summary: "Parallel execution admitted.", executionMode: "parallel", hardwareProfileRef: "hardware-1" }),
+        event(8, "join_barrier.waiting", { status: "waiting", summary: "Waiting for upstream handoff.", barrierId: "barrier-1", dependencyIds: ["assignment-vision"] }),
+      ],
+    }, plan);
+
+    expect(trace.execution.coordination.map((item) => item.eventType)).toEqual([
+      "team.created", "worker.assigned", "execution.mode.selected", "join_barrier.waiting",
+    ]);
+    expect(trace.execution.coordination[1]).toMatchObject({ label: "Worker assigned", summary: "Vision worker assigned. [team-1 · assignment-vision · worker-vision]" });
+    expect(trace.stages.find((stage) => stage.id === "execution")?.events).toHaveLength(4);
+  });
+
   it("shows an explicit attention state from a Node failure without inventing completion", () => {
     const trace = buildWorkTrace({
       ...projection,

@@ -120,6 +120,18 @@ Required event families include:
 - `ledger.written` and `ledger.verification_changed`;
 - `node.connection_changed` and `node.sovereignty_changed`.
 
+The M4 execution families are projected separately from generic ledger
+entries. They include team lifecycle, worker assignment and failure, handoffs,
+join barriers, execution-mode decisions, resource-plan admission and queueing,
+resource leases, exhaustion and recovery, lifecycle interception, and
+background-work yielding. Their payload is an allowlisted
+`NodeExecutionEventPayload` containing bounded identifiers, status, summary,
+mode, queue, hardware, qualification, and dependency references. The original
+ledger payload is never forwarded to the webview. The event envelope still
+retains the source event identity, clearance context, payload hash, sequence,
+and ledger reference, so the user can inspect what the Node recorded without
+being shown private worker content or model reasoning.
+
 Unknown event types are preserved in the diagnostic stream and do not mutate the projection until a compatible schema is available.
 
 ## 5. Command envelope
@@ -156,7 +168,7 @@ The Node returns an accepted, rejected, or needs-review result. The UI waits for
 
 ## 5.2 Live task workspace
 
-The Live Task Workspace is a presentation of the Node snapshot plus the ordered task-local event stream. It may show status, phase, worker and tool summaries, evidence and verification summaries, plan mode, hardware references, unresolved questions, and ledger references. It must not infer progress from elapsed time, client receipt order, worker count, or model output.
+The Live Task Workspace is a presentation of the Node snapshot plus the ordered task-local event stream. It may show status, phase, team coordination, worker and tool summaries, handoffs, barriers, resource admission, evidence and verification summaries, plan mode, hardware references, unresolved questions, and ledger references. It must not infer progress from elapsed time, client receipt order, worker count, or model output.
 
 The first desktop slice uses `task.cancel` for a bounded stop request. The command carries the last applied task sequence, authenticated actor, and idempotency key. The UI shows the command receipt but changes task status only after the Node emits the corresponding authoritative event. Pause, resume, and answer-question actions remain unavailable until their Node contracts and ledger transitions are defined.
 

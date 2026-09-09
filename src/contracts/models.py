@@ -265,6 +265,38 @@ class NodeWorkerEventPayload:
     role: str
     label: str
     status: str
+    team_id: str | None = None
+    assignment_id: str | None = None
+    worker_id: str | None = None
+    resource_lease_id: str | None = None
+
+
+@dataclass(frozen=True)
+class NodeExecutionEventPayload:
+    """Clearance-filtered execution metadata for the desktop work trace.
+
+    This is deliberately an allowlisted projection.  The Node exposes enough
+    structure to explain deterministic team execution, admission, handoffs,
+    and barriers, but never forwards the original ledger payload or worker
+    content to the desktop.
+    """
+
+    status: str
+    summary: str
+    execution_mode: str | None = None
+    team_id: str | None = None
+    plan_id: str | None = None
+    assignment_id: str | None = None
+    worker_id: str | None = None
+    role: str | None = None
+    label: str | None = None
+    barrier_id: str | None = None
+    dependency_ids: tuple[str, ...] = ()
+    resource_lease_id: str | None = None
+    queue_position: int | None = None
+    hardware_profile_ref: str | None = None
+    model_target_id: str | None = None
+    qualification_id: str | None = None
 
 
 @dataclass(frozen=True)

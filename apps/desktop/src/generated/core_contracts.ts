@@ -175,6 +175,29 @@ export interface NodeWorkerEventPayload {
   role: string;
   label: string;
   status: string;
+  teamId?: string | null;
+  assignmentId?: string | null;
+  workerId?: string | null;
+  resourceLeaseId?: string | null;
+}
+
+export interface NodeExecutionEventPayload {
+  status: string;
+  summary: string;
+  executionMode?: string | null;
+  teamId?: string | null;
+  planId?: string | null;
+  assignmentId?: string | null;
+  workerId?: string | null;
+  role?: string | null;
+  label?: string | null;
+  barrierId?: string | null;
+  dependencyIds?: Array<string>;
+  resourceLeaseId?: string | null;
+  queuePosition?: number | null;
+  hardwareProfileRef?: string | null;
+  modelTargetId?: string | null;
+  qualificationId?: string | null;
 }
 
 export interface NodeEvidenceEventPayload {
