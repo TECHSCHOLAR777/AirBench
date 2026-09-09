@@ -56,6 +56,11 @@ runtime evidence, and observed no-egress proof.
   resource URL was found.
 - `npm run check:tauri-config`: passed.
 - `git diff --check`: passed.
+- `npm run tauri:build:webdriver` with a fresh temporary `CARGO_TARGET_DIR`:
+  passed. The current Tauri source compiled to `airbench-desktop.exe`. The
+  repository's existing debug target was not deleted; its cached build-script
+  output still contains the historical `frontend/src-tauri` path, so that
+  target cannot be used as clean release evidence until it is rebuilt.
 - `npm run check:webdriver`: blocked before application launch because
   `msedgedriver.exe` is not provisioned on this host. No packaged desktop
   pass is claimed from the source-level checks.
