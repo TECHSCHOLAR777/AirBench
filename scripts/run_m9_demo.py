@@ -85,6 +85,7 @@ def main() -> int:
             "task_id": result.task_id, "outcome": result.outcome,
             "review_status": result.review_status, "execution_mode": result.execution_mode,
             "finding_count": len(result.findings), "computed_values": dict(result.computed_values),
+            "manual_refs": list(result.manual_refs),
             "artifact": result.artifact.__dict__ if hasattr(result.artifact, "__dict__") else {
                 "artifact_id": result.artifact.artifact_id, "content_hash": result.artifact.content_hash,
                 "structural": result.artifact.structural, "visual": result.artifact.visual,
