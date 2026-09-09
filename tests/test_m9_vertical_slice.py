@@ -80,6 +80,7 @@ def test_serial_run_extracts_provenance_computes_values_and_checks_docx(tmp_path
     assert all(f.fact.source_ref.startswith("intake:inspection-report") for f in run.findings)
     assert run.artifact and run.artifact.structural == "passed"
     assert run.artifact.content_hash
+    assert Path(run.artifact.path).is_file()
     assert Path(tmp_path / "artifacts" / "task.m9.demo-approval-note.docx").is_file()
     with zipfile.ZipFile(tmp_path / "artifacts" / "task.m9.demo-approval-note.docx") as document:
         document_text = document.read("word/document.xml").decode("utf-8")
@@ -90,6 +91,7 @@ def test_serial_run_extracts_provenance_computes_values_and_checks_docx(tmp_path
     artifact_event = next(event for event in ledger.events if event.event_type == "artifact.checked")
     assert artifact_event.payload["visual_backend"] in {"microsoft_word", "libreoffice", "none"}
     assert artifact_event.payload["check_reason"]
+    assert artifact_event.payload["path"] == run.artifact.path
     handoffs = [event for event in ledger.events if event.event_type == "worker.handoff"]
     assert len(handoffs) == len(run.routes) - 1
     assert all(HandoffSubmission.from_dict(event.payload["handoff"]).packet_hash for event in handoffs)

@@ -172,6 +172,7 @@ class ArtifactCheck:
     check_reason: str
     generator_version: str = "m9-docx-1"
     visual_backend: str = "none"
+    path: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,7 +272,7 @@ class ApprovalNoteRenderer:
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as docx:
             docx.writestr("[Content_Types].xml", content); docx.writestr("_rels/.rels", rels); docx.writestr("word/document.xml", document); docx.writestr("word/styles.xml", styles)
         structural, visual, reason, visual_backend = self.check(output, values, tuple(str(section) for section in template.get("required_sections", ())), template)
-        return ArtifactCheck(stable_id("artifact", output.name, _sha(output.read_bytes())), _sha(output.read_bytes()), structural, visual, reason, self.version, visual_backend)
+        return ArtifactCheck(stable_id("artifact", output.name, _sha(output.read_bytes())), _sha(output.read_bytes()), structural, visual, reason, self.version, visual_backend, str(output.resolve()))
 
     def check(self, path: Path, values: Mapping[str, int], required_sections: tuple[str, ...], template: Mapping[str, Any]) -> tuple[str, str, str, str]:
         try:
@@ -578,7 +579,7 @@ class RefineryVerticalSlice:
             values=values, review_status="verified draft for human review", template=template,
         )
         event("artifact.staged", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "path": str(artifact_path)})
-        event("artifact.checked", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "structural": artifact.structural, "visual": artifact.visual, "visual_backend": artifact.visual_backend, "check_reason": artifact.check_reason})
+        event("artifact.checked", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "structural": artifact.structural, "visual": artifact.visual, "visual_backend": artifact.visual_backend, "check_reason": artifact.check_reason, "path": artifact.path})
         status = "verified draft for human review" if artifact.structural == "passed" and artifact.visual == "passed" else "needs_review"
         fact_values = tuple(fact.fact for fact in findings)
         verification = VerificationRunner(self.ledger, actor_id="worker.m9.independent_verification_worker").run(VerificationRequest(

@@ -86,7 +86,8 @@ def verify_trace(trace_dir: Path) -> dict[str, object]:
         if event.event_type != "artifact.checked":
             continue
         artifact = event.payload
-        artifact_path = trace_dir / f"{event.task_id}-approval-note.docx"
+        declared_path = Path(str(artifact.get("path", "")))
+        artifact_path = trace_dir / (declared_path.name or f"{event.task_id}-approval-note.docx")
         expected_hash = artifact.get("content_hash")
         if not artifact_path.is_file():
             raise ValueError(f"checked artifact is missing: {artifact_path}")
