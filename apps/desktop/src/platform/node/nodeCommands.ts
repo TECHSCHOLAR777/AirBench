@@ -16,17 +16,17 @@ export interface CreateTaskResponse {
   command: NodeCommandResult;
 }
 
-class InvalidNodePlanResponse extends Error {
-  readonly code = "invalid_node_plan";
+class InvalidNodeResponse extends Error {
+  readonly code = "invalid_node_response";
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new InvalidNodePlanResponse(`The Node returned an invalid ${label}.`);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new InvalidNodeResponse(`The Node returned an invalid ${label}.`);
   return value as Record<string, unknown>;
 }
 
 function requireString(value: unknown, label: string): string {
-  if (typeof value !== "string" || !value.trim()) throw new InvalidNodePlanResponse(`The Node returned an invalid ${label}.`);
+  if (typeof value !== "string" || !value.trim()) throw new InvalidNodeResponse(`The Node returned an invalid ${label}.`);
   return value;
 }
 
@@ -36,24 +36,24 @@ function optionalString(value: unknown, label: string): string | null {
 }
 
 function requireSequence(value: unknown, label: string): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new InvalidNodePlanResponse(`The Node returned an invalid ${label}.`);
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new InvalidNodeResponse(`The Node returned an invalid ${label}.`);
   return value;
 }
 
 function requireBoolean(value: unknown, label: string): boolean {
-  if (typeof value !== "boolean") throw new InvalidNodePlanResponse(`The Node returned an invalid ${label}.`);
+  if (typeof value !== "boolean") throw new InvalidNodeResponse(`The Node returned an invalid ${label}.`);
   return value;
 }
 
 function requireClearance(value: unknown): Clearance {
   if (value !== "public" && value !== "internal" && value !== "restricted" && value !== "secret") {
-    throw new InvalidNodePlanResponse("The Node returned an invalid plan clearance.");
+    throw new InvalidNodeResponse("The Node returned an invalid response clearance.");
   }
   return value;
 }
 
 function requireStringList(value: unknown, label: string): string[] {
-  if (!Array.isArray(value)) throw new InvalidNodePlanResponse(`The Node returned an invalid ${label}.`);
+  if (!Array.isArray(value)) throw new InvalidNodeResponse(`The Node returned an invalid ${label}.`);
   return value.map((entry) => requireString(entry, label));
 }
 
@@ -85,16 +85,16 @@ export function validateTaskPlanReview(value: unknown, profile: ApprovedNodeProf
   const protocolVersion = requireString(source.protocol_version, "plan protocol version");
   const clearanceContext = requireClearance(source.clearance_context);
   if (schemaVersion !== CORE_CONTRACT_SCHEMA_VERSION || compatibilityId !== CORE_CONTRACT_COMPATIBILITY_ID || responseTaskId !== taskId || nodeIdentity !== profile.nodeIdentity || protocolVersion !== profile.protocolVersion || clearanceContext !== profile.clearanceContext) {
-    throw new InvalidNodePlanResponse("The Node plan does not match the approved task or Node profile.");
+    throw new InvalidNodeResponse("The Node plan does not match the approved task or Node profile.");
   }
 
   const planState = requireString(source.plan_state, "plan state");
   if (planState !== "not_ready" && planState !== "ready" && planState !== "queued" && planState !== "needs_review" && planState !== "blocked" && planState !== "rejected") {
-    throw new InvalidNodePlanResponse("The Node plan state is not supported by this client.");
+    throw new InvalidNodeResponse("The Node plan state is not supported by this client.");
   }
   const executionMode = requireString(source.execution_mode, "plan execution mode");
   if (executionMode !== "parallel" && executionMode !== "pipelined" && executionMode !== "serial_virtual_team" && executionMode !== "not_selected") {
-    throw new InvalidNodePlanResponse("The Node plan execution mode is not supported by this client.");
+    throw new InvalidNodeResponse("The Node plan execution mode is not supported by this client.");
   }
 
   const teamId = optionalString(source.team_id, "plan team identity");
@@ -102,13 +102,13 @@ export function validateTaskPlanReview(value: unknown, profile: ApprovedNodeProf
   const failureCode = optionalFailureField(source.failure_code, "plan failure code");
   const failureReason = optionalFailureField(source.failure_reason, "plan failure reason");
   if (!requireBoolean(source.required_verification, "plan verification requirement")) {
-    throw new InvalidNodePlanResponse("The Node plan did not require independent verification.");
+    throw new InvalidNodeResponse("The Node plan did not require independent verification.");
   }
   if (planState === "ready" && (!teamId || !planVersionHash || executionMode === "not_selected")) {
-    throw new InvalidNodePlanResponse("The Node returned a ready plan without complete team or hardware admission context.");
+    throw new InvalidNodeResponse("The Node returned a ready plan without complete team or hardware admission context.");
   }
   if ((planState === "blocked" || planState === "rejected") && (!failureCode || !failureReason)) {
-    throw new InvalidNodePlanResponse("The Node returned a blocked plan without a failure reason.");
+    throw new InvalidNodeResponse("The Node returned a blocked plan without a failure reason.");
   }
 
   return {
@@ -137,6 +137,59 @@ export function validateTaskPlanReview(value: unknown, profile: ApprovedNodeProf
     ledger_event_ref: optionalString(source.ledger_event_ref, "plan ledger reference"),
     failure_code: failureCode,
     failure_reason: failureReason,
+  };
+}
+
+function optionalResponseString(value: unknown, label: string): string | null {
+  if (value === null || value === undefined) return null;
+  return requireString(value, label);
+}
+
+/**
+ * Re-validates a successful state-changing command result before the UI can
+ * show acceptance. The Node remains authoritative, but a result is not
+ * trusted unless it is bound to the submitted command and carries its ledger
+ * record and current Node context.
+ */
+export function validateNodeCommandResult(value: unknown, profile: ApprovedNodeProfileReference, command: NodeCommandEnvelope): NodeCommandResult {
+  const source = requireRecord(value, "Node command result");
+  const schemaVersion = requireString(source.schema_version, "command result schema version");
+  const compatibilityId = requireString(source.compatibility_id, "command result compatibility identity");
+  const outcome = requireString(source.outcome, "command result outcome");
+  if (schemaVersion !== CORE_CONTRACT_SCHEMA_VERSION || compatibilityId !== CORE_CONTRACT_COMPATIBILITY_ID || (outcome !== "accepted" && outcome !== "rejected" && outcome !== "needs_review")) {
+    throw new InvalidNodeResponse("The Node command result is not compatible with this application.");
+  }
+  const commandId = requireString(source.command_id, "command result command identity");
+  const taskId = optionalResponseString(source.task_id, "command result task identity");
+  const idempotencyKey = requireString(source.idempotency_key, "command result idempotency key");
+  if (commandId !== command.command_id || taskId !== command.task_id || idempotencyKey !== command.idempotency_key) {
+    throw new InvalidNodeResponse("The Node command result does not match the submitted command.");
+  }
+  const nodeIdentity = requireString(source.node_identity, "command result Node identity");
+  const protocolVersion = requireString(source.protocol_version, "command result protocol version");
+  const clearanceContext = requireClearance(source.clearance_context);
+  if (nodeIdentity !== profile.nodeIdentity || protocolVersion !== profile.protocolVersion || clearanceContext !== profile.clearanceContext) {
+    throw new InvalidNodeResponse("The Node command result does not match the approved Node profile.");
+  }
+  const ledgerEventRef = optionalResponseString(source.ledger_event_ref, "command result ledger reference");
+  if (!ledgerEventRef) throw new InvalidNodeResponse("The Node command result is missing its ledger reference.");
+  return {
+    schema_version: schemaVersion,
+    compatibility_id: compatibilityId,
+    outcome,
+    command_id: commandId,
+    task_id: taskId,
+    idempotency_key: idempotencyKey,
+    ledger_event_ref: ledgerEventRef,
+    sequence: source.sequence === null || source.sequence === undefined ? null : requireSequence(source.sequence, "command result sequence"),
+    state: optionalResponseString(source.state, "command result state"),
+    node_identity: nodeIdentity,
+    protocol_version: protocolVersion,
+    clearance_context: clearanceContext,
+    event_type: optionalResponseString(source.event_type, "command result event type"),
+    code: optionalResponseString(source.code, "command result code"),
+    message: optionalResponseString(source.message, "command result message"),
+    reason: optionalResponseString(source.reason, "command result reason"),
   };
 }
 
@@ -201,8 +254,8 @@ export function createTask(profile: ApprovedNodeProfileReference, command: NodeC
 export function sendTaskCommand(profile: ApprovedNodeProfileReference, command: NodeCommandEnvelope): Promise<NodeCommandResult> {
   assertApprovedProfile(profile);
   assertTaskCommand(command);
-  return invoke<NodeCommandResult>("send_task_command", {
+  return invoke<unknown>("send_task_command", {
     profileId: profile.profileId,
     command,
-  });
+  }).then((value) => validateNodeCommandResult(value, profile, command));
 }

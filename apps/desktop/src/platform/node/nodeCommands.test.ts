@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@airbench/tauri-invoke", () => ({ invoke: invokeMock }));
 
-import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand, validateTaskPlanReview } from "./nodeCommands";
-import type { NodeCommandEnvelope } from "../../generated/core_contracts";
+import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand, validateNodeCommandResult, validateTaskPlanReview } from "./nodeCommands";
+import type { NodeCommandEnvelope, NodeCommandResult } from "../../generated/core_contracts";
 import type { TaskPlanReview } from "../../generated/core_contracts";
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 
@@ -59,6 +59,25 @@ const plan: TaskPlanReview = {
   failure_reason: "The orchestration engine has not committed a validated plan.",
 };
 
+const commandResult: NodeCommandResult = {
+  schema_version: "1.0",
+  compatibility_id: "airbench-core-contracts",
+  outcome: "accepted",
+  command_id: "command.approve.1",
+  task_id: "task-1",
+  idempotency_key: "idempotency.approve.1",
+  ledger_event_ref: "ledger-command-1",
+  sequence: 5,
+  state: "accepted",
+  node_identity: "node-1",
+  protocol_version: "0.1",
+  clearance_context: "restricted",
+  event_type: "task.plan.approved",
+  code: null,
+  message: null,
+  reason: null,
+};
+
 describe("typed Node command transport", () => {
   beforeEach(() => invokeMock.mockReset());
 
@@ -94,6 +113,15 @@ describe("typed Node command transport", () => {
   });
 
   it("serializes creation and consequential commands as one envelope", () => {
+    invokeMock.mockImplementation((_name, args) => {
+      const submitted = (args as { command?: NodeCommandEnvelope } | undefined)?.command;
+      return Promise.resolve({
+        ...commandResult,
+        command_id: submitted?.command_id ?? commandResult.command_id,
+        task_id: submitted?.task_id ?? commandResult.task_id,
+        idempotency_key: submitted?.idempotency_key ?? commandResult.idempotency_key,
+      });
+    });
     createTask(profile, createCommand);
     expect(invokeMock).toHaveBeenCalledWith("create_task", {
       profileId: "profile-1",
@@ -129,6 +157,22 @@ describe("typed Node command transport", () => {
       profileId: "profile-1",
       command: approval,
     });
+  });
+
+  it("accepts a command result only when it is bound to the command and ledger", () => {
+    const command: NodeCommandEnvelope = {
+      ...createCommand,
+      command_id: "command.approve.1",
+      task_id: "task-1",
+      expected_sequence: 5,
+      idempotency_key: "idempotency.approve.1",
+      command_type: "task.approve_plan",
+    };
+
+    expect(validateNodeCommandResult({ ...commandResult, unexpected: "ignored" }, profile, command)).toEqual(commandResult);
+    expect(() => validateNodeCommandResult({ ...commandResult, command_id: "command.other.1" }, profile, command)).toThrow("does not match the submitted command");
+    expect(() => validateNodeCommandResult({ ...commandResult, ledger_event_ref: null }, profile, command)).toThrow("missing its ledger");
+    expect(() => validateNodeCommandResult({ ...commandResult, node_identity: "other-node" }, profile, command)).toThrow("approved Node profile");
   });
 
   it("fails closed before IPC for unsafe profiles, targets, or envelopes", () => {

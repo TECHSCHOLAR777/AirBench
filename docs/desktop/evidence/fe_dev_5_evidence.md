@@ -14,11 +14,12 @@ Status: the typed plan projection and approval transport slice is implemented lo
 - Approval is offered only when the plan task sequence matches the current Node task projection. The handler repeats this check immediately before IPC, so a plan cannot be approved from an older cursor.
 - The plan review cancel action is unavailable for completed, failed, or stopped tasks and remains gated by a current, verified Node projection.
 - The webview re-validates the runtime `TaskPlanReview` response before approval or work-trace presentation. It checks the core envelope, task and Node identity, protocol and clearance, supported state and execution mode, required independent verification, team and dependency structures, hardware reason, authority fields, hashes, ledger reference, and blocked-plan failure context. A malformed ready plan fails closed.
+- State-changing command results are also re-validated before an approval or cancel receipt is shown. The result must match the submitted command ID, task ID, idempotency key, approved Node context, and clearance, and must carry a ledger reference.
 
 ## Verification
 
 - Python focused Node API, orchestrator, and contract tests: 30 passed.
-- Frontend tests: 22 files, 115 passed on 2026-09-09.
+- Frontend tests: 22 files, 116 passed on 2026-09-09.
 - Rust transport tests: 14 passed.
 - Generated contract check, frontend build, static no-egress check, Tauri policy check, and Python compile checks passed.
 - Fixture transport run `AirBenchNodeValidation-20260907-022035-cf89d512b74446c6b614eb4da0e565f9` passed typed plan retrieval with a parallel hardware-admitted plan and typed `task.approve_plan` command transport.
