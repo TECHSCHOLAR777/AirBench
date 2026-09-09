@@ -531,6 +531,8 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .plan-review-footer-outcome { display: grid; align-items: stretch; justify-content: stretch; }
 .plan-review-footer-outcome > small { max-width: none; }
 .workspace-activity { padding: 18px; }
+.workspace-activity-window { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -2px 0 5px; padding: 9px 0; color: var(--muted); border-bottom: 1px solid var(--line); font-size: 10px; line-height: 1.4; }
+.workspace-activity-window span { max-width: 70ch; }
 .workspace-count { color: var(--faint); font-family: var(--font-mono); font-size: 10px; }
 .workspace-empty { padding: 30px 12px; color: var(--muted); font-size: 11px; text-align: center; }
 .activity-list { display: grid; margin: 0; padding: 0; list-style: none; }

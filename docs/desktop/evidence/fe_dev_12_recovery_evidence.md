@@ -29,6 +29,10 @@ runtime evidence, and observed no-egress proof.
 - The plan surface no longer routes rejected or deferred command receipts
   through the accepted-approval recovery copy. Node-provided reason text is
   rendered as text only and cannot create local authority.
+- The initial activity, worker, and tool lists use a bounded presentation
+  window for long tasks. The full Node projection remains intact, and the
+  operator can reveal older recorded activity explicitly. This keeps the
+  initial DOM work bounded without silently deleting task history.
 
 ## Contracts and files
 
@@ -44,10 +48,14 @@ runtime evidence, and observed no-egress proof.
   receipts to the operator-facing outcome and recovery contract.
 - `apps/desktop/src/features/tasks/commandOutcome.test.ts` covers accepted,
   review-required, rejected, and refresh-gating behavior.
+- `apps/desktop/src/features/work_trace/activityWindow.ts` bounds the initial
+  activity presentation window without mutating the Node projection.
+- `apps/desktop/src/features/work_trace/activityWindow.test.ts` covers recent
+  record retention, short tasks, invalid limits, and non-mutation.
 
 ## Verification
 
-- `npm test -- --run`: 127 passed across 24 test files.
+- `npm test -- --run`: 130 passed across 25 test files.
 - `npm run build`: passed.
 - `npm run check:contracts`: passed.
 - `npm run check:ui`: passed, including the authored-source accessibility
