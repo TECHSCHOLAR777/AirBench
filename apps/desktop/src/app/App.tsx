@@ -260,7 +260,14 @@ function App() {
     try {
       const manifest = await uploadSelectedQueryFile(profile, selectedFile.selection_id);
       setIntakeManifest(manifest);
-      setIntakeState(intakeStateFromManifest(manifest));
+      const manifestState = intakeStateFromManifest(manifest);
+      setIntakeState(manifestState);
+      if (manifestState !== "ready") {
+        setNotice(manifestState === "processing"
+          ? "File Intake accepted the source, but OCR or vision is still processing. Launch remains paused until the Node supplies a completed preview."
+          : "File Intake accepted the manifest, but its processing result is incomplete. Launch remains paused until the Node supplies a complete result.");
+        return;
+      }
       try {
         const preview = await fetchSafePreview(profile, manifest.preview_ref, manifest.source_hash);
         setSafePreview(preview);
@@ -270,7 +277,6 @@ function App() {
         setNotice(intakeStatusCopy(state).detail);
         return;
       }
-      setIntakeState(intakeStateFromManifest(manifest));
       try {
         const artifact = await fetchArtifactPreview(profile, manifest.artifact_ref);
         setArtifactPreview(artifact);
@@ -695,7 +701,7 @@ function HomeView({ outcomeInputRef, currentTask, taskText, setTaskText, taskTit
       </section>}
       <div className="composer-footer launchpad-footer"><div className="composer-tools"><button type="button" className="secondary-button launchpad-attach-button" data-testid="attach-files" onClick={openSourcePicker}><AppIcon name="attachment" size={15} /> Attach files</button><span className="launchpad-footer-status"><AppIcon name="route" size={15} /><span><strong>Auto route</strong> Node validates the task before choosing qualified workers.</span></span></div><button type="button" className="primary-button" data-testid="start-task" onClick={onStart} disabled={!canStart} title={launchTitle}>{creatingTask ? "Launching..." : "Launch"} <kbd>Ctrl Enter</kbd></button></div>
     </section>
-    {intakeManifest && <section className="intake-result" data-testid="intake-result" aria-label="File Intake result"><div className="intake-result-head"><div><p className="eyebrow">FILE INTAKE</p><h2>{intakeManifest.file_name}</h2></div><span className="intake-badge">{intakeCopy.label}</span></div><div className="intake-meta-grid"><div><span>Source hash</span><strong>{intakeManifest.source_hash}</strong></div><div><span>Pages</span><strong>{intakeManifest.page_count}</strong></div><div><span>Clearance</span><strong>{intakeManifest.clearance}</strong></div><div><span>Taint</span><strong>{intakeManifest.taint}</strong></div></div>{safePreview ? <div className="safe-preview"><div className="safe-preview-label">Node-generated safe preview <span>Page region: {safePreview.source_region}</span></div><p>{safePreview.text}</p><small>Confidence {Math.round(safePreview.confidence * 100)}% / ledger {safePreview.ledger_event_ref}</small></div> : <div className="intake-status intake-status-partial" role="status"><strong>{intakeCopy.title}</strong><span>{intakeCopy.detail}</span><IntakeRecoveryGuidance recovery={intakeCopy.recovery} /></div>}</section>}
+    {intakeManifest && <section className="intake-result" data-testid="intake-result" aria-label="File Intake result"><div className="intake-result-head"><div><p className="eyebrow">FILE INTAKE</p><h2>{intakeManifest.file_name}</h2></div><span className="intake-badge">{intakeCopy.label}</span></div><div className="intake-meta-grid"><div><span>Source hash</span><strong>{intakeManifest.source_hash}</strong></div><div><span>Pages</span><strong>{intakeManifest.page_count}</strong></div><div><span>Clearance</span><strong>{intakeManifest.clearance}</strong></div><div><span>Taint</span><strong>{intakeManifest.taint}</strong></div></div>{safePreview ? <div className="safe-preview"><div className="safe-preview-label">Node-generated safe preview <span>Page region: {safePreview.source_region}</span></div><p>{safePreview.text}</p><small>Confidence {Math.round(safePreview.confidence * 100)}% / ledger {safePreview.ledger_event_ref}</small></div> : <div className={`intake-status intake-status-${intakeState}`} role={intakeState === "uploading" || intakeState === "processing" ? "status" : "alert"}><strong>{intakeCopy.title}</strong><span>{intakeCopy.detail}</span><IntakeRecoveryGuidance recovery={intakeCopy.recovery} /></div>}</section>}
     {artifactPreview && <section className="artifact-preview" data-testid="artifact-preview" aria-label="Artifact preview"><div className="intake-result-head"><div><p className="eyebrow">NODE ARTIFACT PREVIEW</p><h2>{artifactPreview.title}</h2></div><span className="intake-badge">{artifactPreview.preview_kind}</span></div><div className="artifact-preview-meta"><span>{artifactPreview.clearance} clearance</span><span>{artifactPreview.taint} data</span><span>Ledger {artifactPreview.ledger_event_ref}</span></div><div className="artifact-blocks">{artifactPreview.blocks.map((block, index) => <div className="artifact-block" key={`${block.kind}-${index}`}><span className="artifact-block-kind">{block.kind}</span><p>{block.text}</p></div>)}</div><div className="artifact-actions"><button type="button" className="primary-button" data-testid="download-artifact" onClick={onDownload} disabled={downloadState === "downloading"}>{downloadState === "downloading" ? "Verifying..." : downloadState === "downloaded" ? "Download again" : "Download artifact"}</button>{downloadReceipt && <small data-testid="download-receipt">Saved {downloadReceipt.byte_size} bytes / {downloadReceipt.content_hash} / ledger {downloadReceipt.ledger_event_ref}</small>}</div></section>}
     {taskResult && <section className="task-confirmation" data-testid="task-confirmation" aria-label="Task submission result"><p className="eyebrow">TASK ACCEPTED BY NODE</p><strong>{taskResult.task.task_id}</strong><span>State: {taskResult.command.state ?? taskResult.task.state ?? "created"}</span><small>Ledger {taskResult.command.ledger_event_ref ?? taskResult.ledger_event_ref} / sequence {taskResult.command.sequence ?? taskResult.snapshot.asOfSequence}</small></section>}
     {taskResult && <PlanReviewCard plan={planReview} loading={planLoading} approval={planApprovalResult} approving={approvingPlan} synchronized={planSynchronized} currentTaskSequence={currentTask?.lastAppliedSequence ?? taskResult.snapshot.asOfSequence} taskStatus={currentTask?.status ?? "accepted"} onApprove={onApprovePlan} onCancel={onCancelTask} />}

@@ -7,6 +7,7 @@ Status: implementation slice complete locally. Issue #76 remains open for the re
 - Home now collects an outcome, bounded title, optional project reference, deliverable type, priority, and optional deadline.
 - A selected file can be handed to the existing query-upload path. The UI sends only the native selection token and the returned File Intake manifest reference.
 - The UI does not parse, OCR, inspect, execute, or reinterpret file bytes.
+- A manifest is treated as ready only when both OCR and vision statuses are terminal success or explicitly not applicable. Pending or running work remains processing, and failed, unavailable, or unknown statuses remain partial; the UI does not request or display a preview as if those results were complete.
 - The Node handshake supplies the domain-pack reference. The UI carries it in the command, while the Node rejects a value that differs from its configured pack.
 - `task.create` is sent through the Rust-owned typed command bridge. The Python Node validates the command, creates the task envelope, and preserves the bounded user metadata and manifest references.
 - The Home screen renders the Node acceptance receipt with task ID, task state, ledger reference, and sequence. It does not claim that the task has completed; later authoritative task state must arrive through the event stream.
@@ -22,8 +23,13 @@ Status: implementation slice complete locally. Issue #76 remains open for the re
 ## Verification
 
 - `python -m pytest -q tests/test_node_api.py tests/test_contracts.py`: 24 passed.
-- `npm test -- --run`: 40 passed.
+- `npm test -- --run`: 100 passed across 22 test files.
 - `npm run build`: passed.
+- `npm run check:contracts`: passed.
+- `npm run check:ui`: passed, including the authored-source accessibility contract.
+- `npm run check:egress`: passed; no network-capable frontend API or external resource URL was found.
+- `npm run check:tauri-config`: passed.
+- `git diff --check`: passed.
 - `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml`: 14 passed.
 - `npm run validate:node`: passed local and pinned internal-HTTPS fixture coverage. Run: `AirBenchNodeValidation-20260907-015945-fb13075cb05e4b8f8fc916bb49847522`.
 

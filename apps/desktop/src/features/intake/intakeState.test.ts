@@ -5,6 +5,8 @@ describe("File Intake presentation state", () => {
   it("recognizes processing manifests without treating them as ready", () => {
     expect(intakeStateFromManifest({ ocr_status: "running", vision_status: "completed" })).toBe("processing");
     expect(intakeStateFromManifest({ ocr_status: "completed", vision_status: "not_applicable" })).toBe("ready");
+    expect(intakeStateFromManifest({ ocr_status: "failed", vision_status: "completed" })).toBe("partial");
+    expect(intakeStateFromManifest({ ocr_status: "unknown", vision_status: "completed" })).toBe("partial");
   });
 
   it("maps Node rejection categories to safe user-facing states", () => {
