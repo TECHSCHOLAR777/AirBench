@@ -6,7 +6,7 @@ import { initialPresentationState } from "../contracts";
 import { NodeConnectionController, type NodeConnectionView } from "../platform/node/nodeConnectionController";
 import type { ApprovedNodeProfileReference } from "../platform/node/nodeConnection";
 import { listApprovedNodeProfiles } from "../platform/node/profileBridge";
-import { downloadArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, validateDownloadReceipt, type ArtifactPreview, type DownloadReceipt, type IntakeManifest, type SafePreview } from "../features/intake/intakeBridge";
+import { downloadVerifiedArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, type ArtifactPreview, type DownloadReceipt, type IntakeManifest, type SafePreview } from "../features/intake/intakeBridge";
 import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand, type CreateTaskResponse } from "../platform/node/nodeCommands";
 import type { NodeCommandResult, TaskPlanReview } from "../generated/core_contracts";
 import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan, canCancelTask } from "../features/tasks/taskComposer";
@@ -305,9 +305,10 @@ function App() {
       return;
     }
     setDownloadState("downloading");
+    setDownloadReceipt(null);
     setNotice(null);
     try {
-      const receipt = await downloadArtifact(profile, artifactPreview.artifact_id, "approval-note.pdf");
+      const receipt = await downloadVerifiedArtifact(profile, artifactPreview.artifact_id, "approval-note.pdf");
       setDownloadReceipt(receipt);
       setDownloadState("downloaded");
       setNotice("The Node-authorized artifact was saved after its hash and ledger receipt were verified.");
@@ -349,7 +350,7 @@ function App() {
     setTaskArtifactDownloadState("downloading");
     setTaskArtifactDownloadReceipt(null);
     try {
-      const receipt = validateDownloadReceipt(await downloadArtifact(profile, artifactId, `airbench-artifact-${artifactId}.bin`), artifactId);
+      const receipt = await downloadVerifiedArtifact(profile, artifactId, `airbench-artifact-${artifactId}.bin`);
       setTaskArtifactDownloadReceipt(receipt);
       setTaskArtifactDownloadState("downloaded");
     } catch {
