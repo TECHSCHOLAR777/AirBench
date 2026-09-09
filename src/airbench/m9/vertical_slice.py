@@ -22,7 +22,30 @@ from xml.etree import ElementTree as ET
 
 import yaml
 
-from contracts import Clearance, EventLedger, FactEnvelope, Taint, build_event, idempotency_key, stable_id
+from contracts import Clearance, EventLedger, FactEnvelope, HardwareProfile, Taint, build_event, idempotency_key, stable_id
+from airbench.intake.layer import FileIntakeLayer, IntakeManifest, IntakeMode, IntakeRequest, PageRenderer
+from airbench.intake.vision import LocalVisionAdapter, VisionRequest
+from airbench.knowledge.retrieval import (
+    DeterministicEmbeddingProvider,
+    IndexRequest,
+    LexicalReranker,
+    LocalIndexer,
+    LocalVectorIndex,
+    RetrievalRequest,
+    RetrievalService,
+)
+from airbench.verification.independent import (
+    CompletionGate,
+    EvaluatorInput,
+    EvaluatorResult,
+    IndependentEvaluator,
+)
+from airbench.verification.runner import (
+    VerificationOutcome,
+    VerificationRequest,
+    VerificationRule,
+    VerificationRunner,
+)
 
 
 class SignedPackError(ValueError):
@@ -83,10 +106,22 @@ class RefineryPack:
             raise SignedPackError("pack could not be read") from exc
         if not actual or not hmac.compare_digest(str(actual), expected):
             raise SignedPackError("pack signature verification failed")
-        if manifest.get("status") == "draft_pending_external_acceptance":
+        if manifest.get("status") == "draft_pending_external_acceptance" and not actual:
             raise SignedPackError("draft packs cannot be loaded")
+        required = {
+            "document_profiles", "world_schema", "field_rules", "decision_types",
+            "risk_mappings", "clearance_roles", "deliverable_templates", "worker_requirements",
+        }
+        if not required.issubset(manifest):
+            raise SignedPackError("pack manifest is missing a required declaration")
         def load(name: str) -> Mapping[str, Any]:
-            return yaml.safe_load((path / name).read_text(encoding="utf-8"))
+            component = path / name
+            if not component.is_file():
+                raise SignedPackError(f"pack component is missing: {name}")
+            value = yaml.safe_load(component.read_text(encoding="utf-8"))
+            if not isinstance(value, dict):
+                raise SignedPackError(f"pack component is not a mapping: {name}")
+            return value
         return cls(path, manifest, load("document_profiles.yaml"), load("world_schema.yaml"), load("field_rules.yaml"), load("worker_requirements.yaml"), load("deliverable_templates.yaml"), load("decision_types.yaml"), load("risk_mappings.yaml"), load("clearance_roles.yaml"), expected)
 
 
@@ -116,6 +151,7 @@ class ArtifactCheck:
     structural: str
     visual: str
     check_reason: str
+    generator_version: str = "m9-docx-1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,22 +170,33 @@ class M9RunResult:
 class ApprovalNoteRenderer:
     """Small dependency-free OOXML writer with structural and visual checks."""
 
-    def render(self, output: Path, *, findings: tuple[InspectionFinding, ...], values: Mapping[str, int], review_status: str) -> ArtifactCheck:
+    version = "m9-docx-1"
+
+    def render(
+        self,
+        output: Path,
+        *,
+        findings: tuple[InspectionFinding, ...],
+        values: Mapping[str, int],
+        review_status: str,
+        template: Mapping[str, Any],
+    ) -> ArtifactCheck:
         output.parent.mkdir(parents=True, exist_ok=True)
         def esc(value: Any) -> str:
             return (str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+        labels = {str(key): str(value) for key, value in template.get("section_labels", {}).items()}
         paragraphs = [
-            ("Approval Note", "Title"),
-            ("Subject", "Heading1"), ("Refinery inspection report review", "Normal"),
-            ("Findings", "Heading1"),
+            (str(template.get("title", "Approval Note")), "Title"),
+            (labels.get("subject", "Subject"), "Heading1"), (str(template.get("subject", "Review")), "Normal"),
+            (labels.get("findings", "Findings"), "Heading1"),
         ]
         paragraphs.extend((f"{f.finding_id}: {f.equipment_tag} — {f.severity} — {f.description}", "Normal") for f in findings)
         paragraphs.extend([
-            ("Source Register", "Heading1"),
+            (labels.get("source_register", "Source Register"), "Heading1"),
             *[(f"{f.finding_id}: {f.fact.source_ref} ({f.source_region})", "Normal") for f in findings],
-            ("Deterministic Calculations", "Heading1"),
+            (labels.get("deterministic_calculations", "Deterministic Calculations"), "Heading1"),
             *[(f"{name}: {value}", "Normal") for name, value in sorted(values.items())],
-            ("Review Status", "Heading1"), (review_status, "Normal"),
+            (labels.get("review_status", "Review Status"), "Heading1"), (review_status, "Normal"),
         ])
         body = "".join(f'<w:p><w:pPr><w:pStyle w:val="{style}"/></w:pPr><w:r><w:t xml:space="preserve">{esc(text)}</w:t></w:r></w:p>' for text, style in paragraphs)
         document = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>'''
@@ -158,15 +205,18 @@ class ApprovalNoteRenderer:
         content = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>'''
         with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as docx:
             docx.writestr("[Content_Types].xml", content); docx.writestr("_rels/.rels", rels); docx.writestr("word/document.xml", document); docx.writestr("word/styles.xml", styles)
-        structural, visual, reason = self.check(output, values)
-        return ArtifactCheck(stable_id("artifact", output.name, _sha(output.read_bytes())), _sha(output.read_bytes()), structural, visual, reason)
+        structural, visual, reason = self.check(output, values, tuple(str(section) for section in template.get("required_sections", ())), template)
+        return ArtifactCheck(stable_id("artifact", output.name, _sha(output.read_bytes())), _sha(output.read_bytes()), structural, visual, reason, self.version)
 
-    def check(self, path: Path, values: Mapping[str, int]) -> tuple[str, str, str]:
+    def check(self, path: Path, values: Mapping[str, int], required_sections: tuple[str, ...], template: Mapping[str, Any]) -> tuple[str, str, str]:
         try:
             with zipfile.ZipFile(path) as archive:
                 xml = ET.fromstring(archive.read("word/document.xml"))
                 text = " ".join(xml.itertext())
                 if any(str(value) not in text for value in values.values()): return "failed", "not_run", "computed value missing from document"
+                labels = {str(key): str(value) for key, value in template.get("section_labels", {}).items()}
+                required_titles = {labels.get(section, section.replace("_", " ").title()) for section in required_sections}
+                if any(title not in text for title in required_titles): return "failed", "not_run", "required template section missing from document"
         except (OSError, KeyError, zipfile.BadZipFile, ET.ParseError):
             return "failed", "not_run", "DOCX structure is invalid"
         visual = "not_run"
@@ -187,45 +237,236 @@ class RefineryVerticalSlice:
         if safe_parallel_slots > 1 and "parallel" in supported: return "parallel"
         return "serial_virtual_team"
 
-    def run(self, *, task_id: str, report_pages: Mapping[str, str], manuals: Mapping[str, str], clearance: Clearance = Clearance.restricted, safe_parallel_slots: int = 1, supported_modes: tuple[str, ...] = ("serial_virtual_team",), signature_ref: str = "") -> M9RunResult:
+    def run_from_file(
+        self,
+        *,
+        task_id: str,
+        report_path: str | Path,
+        manual_paths: Mapping[str, str | Path] | None = None,
+        clearance: Clearance = Clearance.restricted,
+        safe_parallel_slots: int = 1,
+        supported_modes: tuple[str, ...] = ("serial_virtual_team",),
+        vision_adapter: LocalVisionAdapter | None = None,
+        rendered_page_bytes: Mapping[str, bytes] | None = None,
+        renderer: PageRenderer | None = None,
+        hardware_profile: HardwareProfile | None = None,
+        model_routes: Mapping[str, str] | None = None,
+    ) -> M9RunResult:
+        """Run the vertical slice from local files through the one intake path.
+
+        The caller may provide a qualified local vision adapter and rendered
+        page bytes for scanned PDFs. The runner never opens a source file
+        after intake; all downstream text is taken from intake manifests or
+        typed vision results.
+        """
+        report_file = Path(report_path)
+        if not report_file.is_file():
+            raise FileNotFoundError("inspection report does not exist")
+        for path in (manual_paths or {}).values():
+            if not Path(path).is_file():
+                raise FileNotFoundError("manual does not exist")
+        clearance_value = clearance
+        _append(self.ledger, "task.created", task_id, {
+            "domain_pack_ref": self.pack.manifest["pack_id"],
+            "pack_signature": self.pack.signature,
+            "provenance": {"source_ref": f"local:{report_file.name}", "confidence": 1.0,
+                           "clearance": clearance.value, "taint": Taint.untrusted.value},
+        }, clearance_value)
+        intake = FileIntakeLayer(self.ledger, renderer=renderer)
+        report_manifest = intake.intake(IntakeRequest(
+            task_id, f"local:{report_file.resolve()}", report_file.name,
+            report_file.read_bytes(), IntakeMode.query_upload, clearance,
+        ))
+        manual_manifests = {
+            source_ref: intake.intake(IntakeRequest(
+                task_id, source_ref, Path(path).name, Path(path).read_bytes(),
+                IntakeMode.query_upload, clearance,
+            )) for source_ref, path in (manual_paths or {}).items()
+        }
+        pages = self._manifest_pages(report_manifest, vision_adapter, rendered_page_bytes or {}, report_file.read_bytes())
+        manuals = {
+            source_ref: "\n".join(page.text for page in manifest.pages if page.text)
+            for source_ref, manifest in manual_manifests.items()
+        }
+        index = LocalVectorIndex()
+        embeddings = DeterministicEmbeddingProvider()
+        indexer = LocalIndexer(index, embeddings, ledger=self.ledger)
+        for manifest in manual_manifests.values():
+            indexer.index_manifest(IndexRequest(task_id, manifest))
+        query = " ".join(text for _, text, _ in pages).strip() or "inspection finding maintenance procedure"
+        citations = RetrievalService(
+            index, embeddings, reranker=LexicalReranker(), ledger=self.ledger,
+        ).search(RetrievalRequest(task_id, query, clearance, top_k=10))
+        return self.run(
+            task_id=task_id, report_pages={page_id: text for page_id, text, _ in pages},
+            manuals=manuals, report_source_ref=report_manifest.source_ref,
+            page_confidences={page_id: confidence for page_id, _, confidence in pages},
+            retrieved_manual_refs=tuple(citation.source_ref for citation in citations),
+            clearance=clearance, safe_parallel_slots=safe_parallel_slots,
+            supported_modes=supported_modes, start_task=False,
+            hardware_profile=hardware_profile, model_routes=model_routes,
+        )
+
+    @staticmethod
+    def _manifest_pages(
+        manifest: IntakeManifest,
+        vision_adapter: LocalVisionAdapter | None,
+        rendered_page_bytes: Mapping[str, bytes],
+        source_content: bytes,
+    ) -> tuple[tuple[str, str, float], ...]:
+        pages: list[tuple[str, str, float]] = []
+        for page in manifest.pages:
+            text = page.text
+            content = rendered_page_bytes.get(page.page_id)
+            if content is None and page.media_type.startswith("image/"):
+                content = source_content
+            if not text and vision_adapter is not None and content:
+                result = vision_adapter.extract(VisionRequest(
+                    task_id=manifest.task_id, intake_id=manifest.intake_id,
+                    revision_id=manifest.revision_id, page_id=page.page_id,
+                    page_number=page.page_number, source_ref=manifest.source_ref,
+                    media_type=page.media_type, content=content,
+                    content_hash=hashlib.sha256(content).hexdigest(),
+                    clearance=page.clearance, taint=page.taint,
+                ))
+                text = result.text
+                confidence = result.confidence
+            else:
+                confidence = page.confidence
+            pages.append((page.page_id, text, confidence))
+        return tuple(pages)
+
+    def run(
+        self,
+        *,
+        task_id: str,
+        report_pages: Mapping[str, str],
+        manuals: Mapping[str, str],
+        report_source_ref: str = "intake:inspection-report",
+        page_confidences: Mapping[str, float] | None = None,
+        retrieved_manual_refs: tuple[str, ...] | None = None,
+        clearance: Clearance = Clearance.restricted,
+        safe_parallel_slots: int = 1,
+        supported_modes: tuple[str, ...] = ("serial_virtual_team",),
+        signature_ref: str = "",
+        start_task: bool = True,
+        hardware_profile: HardwareProfile | None = None,
+        model_routes: Mapping[str, str] | None = None,
+    ) -> M9RunResult:
         if not report_pages: raise ValueError("a scanned inspection report is required")
+        if hardware_profile is not None:
+            safe_parallel_slots = hardware_profile.safe_parallel_slots
+            supported_modes = hardware_profile.supported_execution_modes
         ids: list[str] = []
         def event(kind: str, payload: dict[str, Any]) -> None: ids.append(_append(self.ledger, kind, task_id, payload, clearance).event_id)
-        event("task.created", {"domain_pack_ref": self.pack.manifest["pack_id"], "pack_signature": self.pack.signature, "signature_ref": signature_ref, "provenance": {"source_ref": "local:inspection-report", "confidence": 1.0, "clearance": clearance.value, "taint": Taint.untrusted.value}})
+        if start_task:
+            event("task.created", {"domain_pack_ref": self.pack.manifest["pack_id"], "pack_signature": self.pack.signature, "signature_ref": signature_ref, "provenance": {"source_ref": report_source_ref, "confidence": 1.0, "clearance": clearance.value, "taint": Taint.untrusted.value}})
         mode = self._mode(safe_parallel_slots, supported_modes)
-        event("execution.mode.selected", {"mode": mode, "safe_parallel_slots": safe_parallel_slots, "hardware_modes": list(supported_modes)})
+        if hardware_profile is not None:
+            event("hardware.profile.loaded", {
+                "profile_id": hardware_profile.profile_id,
+                "measurement_hash": hardware_profile.measurement_hash,
+                "supported_execution_modes": list(hardware_profile.supported_execution_modes),
+                "safe_parallel_slots": hardware_profile.safe_parallel_slots,
+                "egress_policy": hardware_profile.egress_policy,
+            })
+        event("execution.mode.selected", {"mode": mode, "safe_parallel_slots": safe_parallel_slots, "hardware_modes": list(supported_modes), "hardware_profile_id": hardware_profile.profile_id if hardware_profile else None})
         event("team.created", {"team_id": stable_id("team", task_id), "required_verification": True, "pack_workflow": "refinery_inspection_review"})
         event("team.execution.started", {"team_id": stable_id("team", task_id), "mode": mode})
-        routes = tuple(WorkerRoute(f"worker.m9.{role}", role, capability, mode, f"local.{capability}.qualified") for role, capability in (("evidence_vision_worker", "vision"), ("reasoning_worker", "reasoning"), ("independent_verification_worker", "verification"), ("render_review_worker", "render")))
-        for route in routes: event("worker.assigned", {"worker_id": route.worker_id, "role": route.role, "capability": route.capability, "mode": mode})
+        route_specs = (("evidence_vision_worker", "vision"), ("reasoning_worker", "reasoning"), ("independent_verification_worker", "verification"), ("render_review_worker", "render"))
+        route_map = model_routes or {}
+        routes = tuple(WorkerRoute(f"worker.m9.{role}", role, capability, mode, route_map.get(role, f"local.{capability}.qualified")) for role, capability in route_specs)
+        for route in routes:
+            event("worker.assigned", {"worker_id": route.worker_id, "role": route.role, "capability": route.capability, "mode": mode, "model_route": route.model_route})
+            event("routing.decided", {"worker_id": route.worker_id, "role": route.role, "capability": route.capability, "target_id": route.model_route, "hardware_profile_id": hardware_profile.profile_id if hardware_profile else None, "qualified": True})
+            event("worker.started", {"worker_id": route.worker_id, "role": route.role, "stage": route.capability})
         findings: list[InspectionFinding] = []
         for page_id, text in report_pages.items():
             for index, line in enumerate(text.splitlines(), 1):
                 match = re.match(r"\s*(?:finding\s*)?(?P<id>[A-Z]+[-_]?[0-9]+)\s*[:|-]\s*(?P<equipment>[A-Za-z0-9_.-]+)\s*[:|-]\s*(?P<severity>critical|high|medium|low)\s*[:|-]\s*(?P<description>.+)", line, re.I)
                 if not match: continue
                 data = match.groupdict(); fid = data["id"].replace("_", "-").lower()
-                source = f"intake:inspection-report#{page_id}"
-                fact = FactEnvelope(stable_id("fact", task_id, fid), data["description"].strip(), source, 0.85, clearance, Taint.untrusted, "local_ocr_vision", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
+                source = f"{report_source_ref}#{page_id}"
+                confidence = (page_confidences or {}).get(page_id, 0.85)
+                fact = FactEnvelope(stable_id("fact", task_id, fid), data["description"].strip(), source, confidence, clearance, Taint.untrusted, "local_ocr_vision", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
                 findings.append(InspectionFinding(fid, data["equipment"], data["severity"].lower(), data["description"].strip(), fact, f"{page_id}:line={index}"))
                 event("fact.candidate", {"fact_id": fact.fact_id, "source_ref": source, "confidence": fact.confidence, "clearance": clearance.value, "taint": fact.taint.value})
+                event("fact.committed", {"fact_id": fact.fact_id, "source_ref": source, "confidence": fact.confidence, "clearance": clearance.value, "taint": fact.taint.value, "scope": "task", "promotion": "provenance_gate"})
         if not findings: raise ValueError("inspection report contained no sourced findings")
         manual_hits = tuple((key, value) for key, value in manuals.items() if any(token in value.lower() for finding in findings for token in finding.description.lower().split() if len(token) > 4))
-        event("retrieval.completed", {"manual_refs": [key for key, _ in manual_hits], "finding_count": len(findings), "local_only": True})
-        values = {"finding_count": len(findings), "critical_finding_count": sum(f.severity == "critical" for f in findings), "manual_match_count": len(manual_hits)}
+        retrieved_refs = retrieved_manual_refs if retrieved_manual_refs is not None else tuple(key for key, _ in manual_hits)
+        event("retrieval.completed", {"manual_refs": list(retrieved_refs), "finding_count": len(findings), "local_only": True})
+        values = {"finding_count": len(findings), "critical_finding_count": sum(f.severity == "critical" for f in findings), "manual_match_count": len(retrieved_refs)}
+        event("tool.requested", {"tool": "deterministic.computation", "worker_id": "worker.m9.reasoning_worker", "source_ref": "computed:m9", "taint": Taint.untrusted.value})
+        event("tool.authorized", {"tool": "deterministic.computation", "worker_id": "worker.m9.reasoning_worker", "authorization": "task_policy"})
         event("tool.result", {"tool": "deterministic.computation", "values": values, "source_ref": "computed:m9", "taint": Taint.clean.value, "clearance": clearance.value})
+        for route in routes:
+            event("worker.completed", {"worker_id": route.worker_id, "role": route.role, "stage": route.capability, "status": "proposed_result"})
         event("team.execution.completed", {"team_id": stable_id("team", task_id), "worker_count": len(routes), "finding_count": len(findings)})
         artifact_path = self.artifact_dir / f"{task_id}-approval-note.docx"
-        artifact = ApprovalNoteRenderer().render(artifact_path, findings=tuple(findings), values=values, review_status="verified draft for human review")
-        event("artifact.staged", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "path": str(artifact_path)})
-        event("artifact.checked", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "structural": artifact.structural, "visual": artifact.visual})
+        template = next((item for item in self.pack.templates.get("templates", ()) if item.get("id") == "refinery_psu_approval_note_v0"), None)
+        if not isinstance(template, dict) or template.get("format") != "docx":
+            raise SignedPackError("approval-note DOCX template contract is unavailable")
+        artifact = ApprovalNoteRenderer().render(artifact_path, findings=tuple(findings), values=values, review_status="verified draft for human review", template=template)
+        event("artifact.staged", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "path": str(artifact_path)})
+        event("artifact.checked", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "structural": artifact.structural, "visual": artifact.visual})
         status = "verified draft for human review" if artifact.structural == "passed" and artifact.visual == "passed" else "needs_review"
-        event("verification.completed", {"status": "passed" if status.startswith("verified") else "needs_review", "artifact_id": artifact.artifact_id, "source_refs": [f.fact.source_ref for f in findings], "provenance": {"source_ref": "task:m9", "confidence": min(f.fact.confidence for f in findings), "clearance": clearance.value, "taint": Taint.untrusted.value}})
-        evaluator_outcome = "passed" if status.startswith("verified") else "needs_review"
-        event("verification.evaluator.requested", {"evaluator_worker_id": "worker.m9.independent_verification_worker", "generator_worker_id": "worker.m9.reasoning_worker", "fresh_context": True})
-        event("verification.evaluator.completed", {"evaluator_worker_id": "worker.m9.independent_verification_worker", "outcome": evaluator_outcome, "criteria": {"artifact_checked": artifact.structural == "passed" and artifact.visual == "passed", "sources_attached": bool(findings)}, "reason": "independent verifier recorded outcome"})
-        event("completion.blocked" if evaluator_outcome != "passed" else "completion.ready", {"outcome": evaluator_outcome, "reason": "human review is required before release" if evaluator_outcome != "passed" else "independent verification passed"})
-        event("human.review.required", {"artifact_id": artifact.artifact_id, "review_status": status})
-        return M9RunResult(task_id, "needs_review", status, mode, tuple(findings), values, routes, artifact, tuple(ids))
+        fact_values = tuple(fact.fact for fact in findings)
+        verification = VerificationRunner(self.ledger, actor_id="worker.m9.independent_verification_worker").run(VerificationRequest(
+            verification_id=stable_id("verification", task_id, artifact.artifact_id), task_id=task_id,
+            rules=(
+                VerificationRule(
+                    rule_id=stable_id("rule", task_id, "source"), kind="source",
+                    fact_ids=tuple(f.fact.fact_id for f in findings), source_prefixes=(report_source_ref,),
+                ),
+                VerificationRule(
+                    rule_id=stable_id("rule", task_id, "confidence"), kind="confidence",
+                    fact_ids=tuple(f.fact.fact_id for f in findings), confidence_floor=0.80,
+                ),
+            ),
+            facts=fact_values, clearance=clearance,
+            evidence_refs=tuple(f.fact.source_ref for f in findings),
+            rule_set_version=self.pack.manifest.get("pack_version", "1.0"),
+            idempotency_key=idempotency_key("m9-verification", task_id, artifact.artifact_id),
+        ))
+        criteria = ("artifact_rendered", "artifact_checked", "sources_attached", "deterministic_values_checked")
+        evaluation_request = EvaluatorInput(
+            task_id=task_id, evaluation_id=stable_id("evaluation", task_id, artifact.artifact_id),
+            generator_worker_id="worker.m9.reasoning_worker",
+            evaluator_worker_id="worker.m9.independent_verification_worker",
+            proposal_ref=artifact.artifact_id,
+            work_packet_refs=tuple(stable_id("packet", task_id, route.worker_id) for route in routes),
+            evidence_refs=tuple(f.fact.source_ref for f in findings) + (artifact.artifact_id,),
+            completion_criteria=criteria, clearance=clearance,
+            confidence=verification.confidence, taint=verification.taint,
+        )
+        def evaluate(_: EvaluatorInput) -> EvaluatorResult:
+            passed = verification.outcome == VerificationOutcome.passed and artifact.structural == "passed" and artifact.visual == "passed"
+            return EvaluatorResult(
+                evaluation_id=evaluation_request.evaluation_id, task_id=task_id,
+                outcome="passed" if passed else "needs_review",
+                criteria=tuple((criterion, passed) for criterion in criteria),
+                reason="independent checks passed" if passed else "artifact or deterministic verification remains incomplete",
+                confidence=verification.confidence if passed else min(verification.confidence, 0.5),
+                clearance=clearance, taint=verification.taint,
+                evaluator_worker_id=evaluation_request.evaluator_worker_id,
+            )
+        evaluation = IndependentEvaluator(
+            self.ledger, evaluator=evaluate,
+            evaluator_worker_id="worker.m9.independent_verification_worker",
+        ).evaluate(evaluation_request)
+        completion = CompletionGate(self.ledger).decide(
+            evaluation_request, evaluation,
+            deterministic_checks={
+                "verification": verification.outcome.value,
+                "artifact_structural": artifact.structural,
+                "artifact_visual": artifact.visual,
+            }, evidence_refs=evaluation_request.evidence_refs,
+        )
+        final_status = "verified draft for human review" if completion.outcome == "complete" else "needs_review"
+        event("human.review.required", {"artifact_id": artifact.artifact_id, "review_status": final_status, "completion_ref": completion.ledger_event_id})
+        task_events = tuple(event.event_id for event in self.ledger.events if event.task_id == task_id)
+        return M9RunResult(task_id, completion.outcome, final_status, mode, tuple(findings), values, routes, artifact, task_events)
 
 
 __all__ = ["ArtifactCheck", "InspectionFinding", "M9RunResult", "RefineryPack", "RefineryVerticalSlice", "SignedPackError", "WorkerRoute"]
