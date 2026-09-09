@@ -7,6 +7,8 @@ describe("File Intake presentation state", () => {
     expect(intakeStateFromManifest({ ocr_status: "completed", vision_status: "not_applicable" })).toBe("ready");
     expect(intakeStateFromManifest({ ocr_status: "failed", vision_status: "completed" })).toBe("partial");
     expect(intakeStateFromManifest({ ocr_status: "unknown", vision_status: "completed" })).toBe("partial");
+    expect(intakeStatusCopy("processing").retryable).toBe(false);
+    expect(intakeStatusCopy("partial").retryable).toBe(false);
   });
 
   it("maps Node rejection categories to safe user-facing states", () => {
@@ -18,11 +20,11 @@ describe("File Intake presentation state", () => {
 
   it("preserves accepted-manifest context when preview work is incomplete", () => {
     expect(classifyIntakeFailure(new Error("The approved Node preview request failed."), true)).toBe("partial");
-    expect(intakeStatusCopy("partial").retryable).toBe(true);
+    expect(intakeStatusCopy("partial").retryable).toBe(false);
     expect(intakeStatusCopy("partial").recovery).toEqual({
       preserved: "The accepted manifest and source provenance remain available; launch remains paused.",
       retry: "Do not replace the accepted manifest with a local or unverified preview.",
-      nextAction: "Request a Node-authorized preview retry or remove the source.",
+      nextAction: "Wait for a Node-authorized preview result or remove the source.",
     });
     expect(intakeStatusCopy("clearance_mismatch").retryable).toBe(false);
     expect(intakeStatusCopy("clearance_mismatch").recovery.nextAction).toContain("required clearance");
