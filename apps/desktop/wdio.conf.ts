@@ -11,6 +11,7 @@ const driverProvider = requestedDriverProvider === "embedded" || requestedDriver
     ? "external"
     : "embedded";
 const tauriDriverPath = process.env.TAURI_DRIVER_PATH;
+const allowDriverDownloads = process.env.AIRBENCH_ALLOW_DRIVER_DOWNLOAD === "1";
 
 export const config: Config = {
   runner: "local",
@@ -23,6 +24,8 @@ export const config: Config = {
     ["tauri", {
       appBinaryPath,
       driverProvider,
+      autoInstallTauriDriver: allowDriverDownloads,
+      ...(process.platform === "win32" ? { autoDownloadEdgeDriver: allowDriverDownloads } : {}),
       ...(driverProvider === "external" && tauriDriverPath ? { tauriDriverPath } : {}),
       captureBackendLogs: true,
       captureFrontendLogs: true,
