@@ -192,6 +192,16 @@ describe("sequence-numbered task projection", () => {
     expect(maySendConsequentialCommand(result.projection, "reconnecting")).toBe(false);
   });
 
+  it("retains the last ledger reference across an empty event poll", async () => {
+    const synchronizer = new TaskEventSynchronizer(async () => batch([], 4));
+    synchronizer.loadSnapshot(snapshot);
+
+    const result = await synchronizer.synchronizeOnce();
+
+    expect(result.kind).toBe("current");
+    expect(result.state.lastLedgerEventRefs).toEqual(["ledger-4"]);
+  });
+
   it("replaces the projection after replay refuses to converge", async () => {
     let snapshotCalls = 0;
     const synchronizer = new TaskEventSynchronizer(
