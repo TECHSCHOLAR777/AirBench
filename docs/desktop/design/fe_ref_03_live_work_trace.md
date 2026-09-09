@@ -25,10 +25,12 @@ The live task workspace is deliberately a task narrative, not an infrastructure 
 
 1. **Current Node state** shows the authoritative task status and phase, plus the latest recorded event when one is available.
 2. **Work trace** presents the fixed work order: Plan, Work, Evidence, Verification, Review, Artifacts, Outcome. Each stage is waiting, active, recorded, or needs attention.
-3. **Supporting records** group worker and tool events, source-backed evidence, latest verification, Node-reported questions, and artifact references.
+3. **Supporting records** group the Node-issued team plan, worker and tool events, source-backed evidence, latest verification, Node-reported questions, and artifact references.
 4. **Plan review** remains the existing Node-issued plan and approval surface.
 5. **Chronological activity** keeps the ordered task records available for a user who needs an event-by-event account.
 6. **Technical trace** is a collapsed disclosure with plan-level capability and hardware context, Node-issued route proof, and event metadata: event type, sequence, Node time, actor, clearance, payload hash, and ledger reference.
+
+The supporting execution card shows the Node-issued team mode, concurrency ceiling, assignment dependency graph, capability lanes, team identity, and plan ledger reference. It labels these as planned inputs and shows runtime status separately from recorded M4 coordination and worker events. A serial virtual team is therefore explained as a deliberate hardware scheduling mode, not presented as simultaneous GPU work.
 
 The trace keeps a defensive sequence sort for a valid but unordered projection. Normal ordering, duplicate rejection, replay, and gap handling remain the responsibility of `TaskEventSynchronizer` and the Node contract.
 

@@ -115,7 +115,32 @@ describe("audit-safe work trace", () => {
     expect(trace.artifacts.ids).toEqual(["artifact-1"]);
     expect(trace.artifacts.records).toMatchObject([{ artifactId: "artifact-1", state: "ready" }]);
     expect(trace.routing).toMatchObject({ state: "plan_context", executionMode: "serial_virtual_team", selectedTarget: null, fallbackReason: null, policyReason: null });
+    expect(trace.team).toMatchObject({
+      state: "planned",
+      teamId: "team-1",
+      executionModeLabel: "Serial virtual team",
+      concurrencyCeiling: 2,
+      assignments: [{ assignmentId: "plan", dependencies: [] }, { assignmentId: "verify", dependencies: ["plan"] }],
+      capabilityLanes: [{ role: "planner", capability: "reasoning" }, { role: "verifier", capability: "verification" }],
+      planLedgerEventRef: "ledger-plan-1",
+    });
     expect(trace.latestActivity).toMatchObject({ eventType: "task.completed", ledgerEventRef: "ledger-12", clearance: "restricted" });
+  });
+
+  it("does not invent a team plan when the Node has not supplied one", () => {
+    const trace = buildWorkTrace(projection, null);
+
+    expect(trace.team).toEqual({
+      state: "not_supplied",
+      teamId: null,
+      executionMode: "not_selected",
+      executionModeLabel: "Execution mode not supplied",
+      executionModeDetail: "The Node has not supplied a team plan for this task.",
+      concurrencyCeiling: 0,
+      assignments: [],
+      capabilityLanes: [],
+      planLedgerEventRef: null,
+    });
   });
 
   it("shows M4 team coordination as recorded execution activity", () => {
