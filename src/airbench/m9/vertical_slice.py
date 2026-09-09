@@ -28,7 +28,7 @@ from contracts import (
     LedgerEventEnvelope, Taint, WorkPacket, build_event, idempotency_key,
     stable_id, work_packet_hash,
 )
-from airbench.intake.layer import FileIntakeLayer, IntakeManifest, IntakeMode, IntakeRequest, LocalIntakeStore, PageRenderer
+from airbench.intake.layer import FileIntakeLayer, IntakeError, IntakeManifest, IntakeMode, IntakeRequest, LocalIntakeStore, PageRenderer
 from airbench.intake.vision import LocalVisionAdapter, VisionRequest
 from airbench.knowledge.retrieval import (
     DeterministicEmbeddingProvider,
@@ -350,16 +350,25 @@ class RefineryVerticalSlice:
         }, clearance_value)
         intake_store = LocalIntakeStore(self.artifact_dir / ".intake") if renderer is not None else None
         intake = FileIntakeLayer(self.ledger, renderer=renderer, store=intake_store)
-        report_manifest = intake.intake(IntakeRequest(
-            task_id, f"local:{report_file.resolve()}", report_file.name,
-            report_content, IntakeMode.query_upload, clearance,
-        ))
-        manual_manifests = {
-            source_ref: intake.intake(IntakeRequest(
-                task_id, source_ref, Path(path).name, Path(path).read_bytes(),
-                IntakeMode.query_upload, clearance,
-            )) for source_ref, path in (manual_paths or {}).items()
-        }
+        try:
+            report_manifest = intake.intake(IntakeRequest(
+                task_id, f"local:{report_file.resolve()}", report_file.name,
+                report_content, IntakeMode.query_upload, clearance,
+            ))
+            manual_manifests = {
+                source_ref: intake.intake(IntakeRequest(
+                    task_id, source_ref, Path(path).name, Path(path).read_bytes(),
+                    IntakeMode.query_upload, clearance,
+                )) for source_ref, path in (manual_paths or {}).items()
+            }
+        except IntakeError as exc:
+            _append(self.ledger, "task.failed", task_id, {
+                "failure_code": exc.code,
+                "failure_message": str(exc),
+                "stage": "file_intake",
+                "retryable": False,
+            }, clearance)
+            raise
         rendered = dict(rendered_page_bytes or {})
         if intake_store is not None:
             rendered.update({
