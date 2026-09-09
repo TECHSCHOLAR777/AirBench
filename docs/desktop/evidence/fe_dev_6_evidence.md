@@ -11,6 +11,7 @@ Status: the first Live Task Workspace slice is implemented locally and remains o
 - The workspace has a concise atomic live announcement for Node-authoritative task status, phase, and cursor changes. It does not announce raw event payloads or private model reasoning.
 - The workspace now runs one guarded event-sync loop per active task. It polls the Node cursor without overlapping requests, backs off while reconnecting, stops after a terminal Node result, and cannot publish a late result after the task view is replaced or unmounted.
 - The webview event transport re-validates the runtime batch before normalization. It checks both envelopes, approved Node identity and clearance, event identity, sequence monotonicity, payload shape, ledger alignment, continuation flags, and cursor consistency. A malformed batch raises a protocol-invalid error and blocks consequential commands instead of being treated as a temporary reconnect.
+- An empty cursor poll preserves the last known ledger reference instead of replacing the provenance context with an empty list.
 - Replay recovery validates a replacement snapshot against the current task, Node identity, clearance context, cursor, snapshot identity, and ledger reference before it can replace the projection. A foreign or rewound snapshot blocks the task view and cannot authorize a command.
 - Plan approval is now disabled unless the task projection is current, the synchronizer is connected, the Node plan is ready, and no approval is already in flight or recorded. The same gate is enforced by the command handler, not only by button presentation.
 - Controlled artifact download is also disabled while the task projection is stale, reconnecting, or blocked. The desktop requires a current Node projection before requesting a Node-authorized release.
@@ -21,7 +22,7 @@ Status: the first Live Task Workspace slice is implemented locally and remains o
 
 ## Verification
 
-- Frontend tests: 116 passed, including event transport and command-result boundary tests.
+- Frontend tests: 117 passed, including event transport, command-result, and quiet-poll provenance tests.
 - Frontend TypeScript and production Vite build: passed.
 - Static egress and Tauri policy checks: passed.
 - `git diff --check`: passed.

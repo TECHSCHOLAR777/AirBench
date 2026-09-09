@@ -164,7 +164,9 @@ export class TaskEventSynchronizer {
         this.validateBatch(batch, before.taskId, before.lastAppliedSequence);
         this.setState({
           status: batch.events.length > 0 ? "replaying" : "syncing",
-          lastLedgerEventRefs: batch.ledger_event_refs,
+          lastLedgerEventRefs: batch.ledger_event_refs.length > 0
+            ? batch.ledger_event_refs
+            : this.syncState.lastLedgerEventRefs,
           lastAppliedSequence: before.lastAppliedSequence,
           error: null,
         });
