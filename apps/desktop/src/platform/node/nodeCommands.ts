@@ -1,7 +1,7 @@
 import { invoke } from "@airbench/tauri-invoke";
 import { CORE_CONTRACT_COMPATIBILITY_ID, CORE_CONTRACT_SCHEMA_VERSION } from "../../generated/core_contracts";
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
-import type { TaskSnapshot } from "../events/protocol";
+import type { Clearance, TaskSnapshot } from "../events/protocol";
 import type { NodeCommandEnvelope, NodeCommandResult, TaskEnvelope, TaskPlanReview } from "../../generated/core_contracts";
 
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -14,6 +14,130 @@ export interface CreateTaskResponse {
   snapshot: TaskSnapshot;
   ledger_event_ref: string;
   command: NodeCommandResult;
+}
+
+class InvalidNodePlanResponse extends Error {
+  readonly code = "invalid_node_plan";
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new InvalidNodePlanResponse(`The Node returned an invalid ${label}.`);
+  return value as Record<string, unknown>;
+}
+
+function requireString(value: unknown, label: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new InvalidNodePlanResponse(`The Node returned an invalid ${label}.`);
+  return value;
+}
+
+function optionalString(value: unknown, label: string): string | null {
+  if (value === null || value === undefined) return null;
+  return requireString(value, label);
+}
+
+function requireSequence(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new InvalidNodePlanResponse(`The Node returned an invalid ${label}.`);
+  return value;
+}
+
+function requireBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") throw new InvalidNodePlanResponse(`The Node returned an invalid ${label}.`);
+  return value;
+}
+
+function requireClearance(value: unknown): Clearance {
+  if (value !== "public" && value !== "internal" && value !== "restricted" && value !== "secret") {
+    throw new InvalidNodePlanResponse("The Node returned an invalid plan clearance.");
+  }
+  return value;
+}
+
+function requireStringList(value: unknown, label: string): string[] {
+  if (!Array.isArray(value)) throw new InvalidNodePlanResponse(`The Node returned an invalid ${label}.`);
+  return value.map((entry) => requireString(entry, label));
+}
+
+function requireStringMap(value: unknown, label: string): Record<string, string> {
+  const source = requireRecord(value, label);
+  return Object.fromEntries(Object.entries(source).map(([key, entry]) => [requireString(key, label), requireString(entry, label)]));
+}
+
+function requireDependencyGraph(value: unknown): Record<string, string[]> {
+  const source = requireRecord(value, "plan dependency graph");
+  return Object.fromEntries(Object.entries(source).map(([key, entry]) => [requireString(key, "plan stage"), requireStringList(entry, "plan dependency reference")]));
+}
+
+function optionalFailureField(value: unknown, label: string): string | null {
+  return optionalString(value, label);
+}
+
+/**
+ * Re-validates the Node plan projection before it can drive approval or work
+ * trace presentation. Rust validates the remote response too; this guard
+ * keeps a malformed IPC result from becoming a ready plan in the webview.
+ */
+export function validateTaskPlanReview(value: unknown, profile: ApprovedNodeProfileReference, taskId: string): TaskPlanReview {
+  const source = requireRecord(value, "task plan");
+  const schemaVersion = requireString(source.schema_version, "plan schema version");
+  const compatibilityId = requireString(source.compatibility_id, "plan compatibility identity");
+  const responseTaskId = requireString(source.task_id, "plan task identity");
+  const nodeIdentity = requireString(source.node_identity, "plan Node identity");
+  const protocolVersion = requireString(source.protocol_version, "plan protocol version");
+  const clearanceContext = requireClearance(source.clearance_context);
+  if (schemaVersion !== CORE_CONTRACT_SCHEMA_VERSION || compatibilityId !== CORE_CONTRACT_COMPATIBILITY_ID || responseTaskId !== taskId || nodeIdentity !== profile.nodeIdentity || protocolVersion !== profile.protocolVersion || clearanceContext !== profile.clearanceContext) {
+    throw new InvalidNodePlanResponse("The Node plan does not match the approved task or Node profile.");
+  }
+
+  const planState = requireString(source.plan_state, "plan state");
+  if (planState !== "not_ready" && planState !== "ready" && planState !== "queued" && planState !== "needs_review" && planState !== "blocked" && planState !== "rejected") {
+    throw new InvalidNodePlanResponse("The Node plan state is not supported by this client.");
+  }
+  const executionMode = requireString(source.execution_mode, "plan execution mode");
+  if (executionMode !== "parallel" && executionMode !== "pipelined" && executionMode !== "serial_virtual_team" && executionMode !== "not_selected") {
+    throw new InvalidNodePlanResponse("The Node plan execution mode is not supported by this client.");
+  }
+
+  const teamId = optionalString(source.team_id, "plan team identity");
+  const planVersionHash = optionalString(source.plan_version_hash, "plan version hash");
+  const failureCode = optionalFailureField(source.failure_code, "plan failure code");
+  const failureReason = optionalFailureField(source.failure_reason, "plan failure reason");
+  if (!requireBoolean(source.required_verification, "plan verification requirement")) {
+    throw new InvalidNodePlanResponse("The Node plan did not require independent verification.");
+  }
+  if (planState === "ready" && (!teamId || !planVersionHash || executionMode === "not_selected")) {
+    throw new InvalidNodePlanResponse("The Node returned a ready plan without complete team or hardware admission context.");
+  }
+  if ((planState === "blocked" || planState === "rejected") && (!failureCode || !failureReason)) {
+    throw new InvalidNodePlanResponse("The Node returned a blocked plan without a failure reason.");
+  }
+
+  return {
+    schema_version: schemaVersion,
+    compatibility_id: compatibilityId,
+    task_id: responseTaskId,
+    node_identity: nodeIdentity,
+    protocol_version: protocolVersion,
+    clearance_context: clearanceContext,
+    plan_state: planState,
+    task_sequence: requireSequence(source.task_sequence, "plan task sequence"),
+    team_id: teamId,
+    assignments: requireStringList(source.assignments, "plan assignment"),
+    dependency_graph: requireDependencyGraph(source.dependency_graph),
+    concurrency_ceiling: requireSequence(source.concurrency_ceiling, "plan concurrency ceiling"),
+    execution_mode: executionMode,
+    worker_capabilities: requireStringMap(source.worker_capabilities, "plan worker capabilities"),
+    hardware_profile_ref: optionalString(source.hardware_profile_ref, "hardware profile reference"),
+    hardware_reason: requireString(source.hardware_reason, "hardware reason"),
+    required_verification: true,
+    completion_criteria: requireStringList(source.completion_criteria, "completion criterion"),
+    required_authority: requireString(source.required_authority, "required authority"),
+    authority_reason: requireString(source.authority_reason, "authority reason"),
+    plan_version_hash: planVersionHash,
+    policy_version_hash: optionalString(source.policy_version_hash, "policy version hash"),
+    ledger_event_ref: optionalString(source.ledger_event_ref, "plan ledger reference"),
+    failure_code: failureCode,
+    failure_reason: failureReason,
+  };
 }
 
 function assertApprovedProfile(profile: ApprovedNodeProfileReference): void {
@@ -56,10 +180,10 @@ export function fetchTaskSnapshot(profile: ApprovedNodeProfileReference, taskId:
 export function fetchTaskPlan(profile: ApprovedNodeProfileReference, taskId: string): Promise<TaskPlanReview> {
   assertApprovedProfile(profile);
   if (!TASK_ID.test(taskId)) throw new Error("The task identifier is invalid.");
-  return invoke<TaskPlanReview>("fetch_task_plan", {
+  return invoke<unknown>("fetch_task_plan", {
     profileId: profile.profileId,
     taskId,
-  });
+  }).then((value) => validateTaskPlanReview(value, profile, taskId));
 }
 
 export function createTask(profile: ApprovedNodeProfileReference, command: NodeCommandEnvelope): Promise<CreateTaskResponse> {

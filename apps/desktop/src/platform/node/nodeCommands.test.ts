@@ -3,8 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@airbench/tauri-invoke", () => ({ invoke: invokeMock }));
 
-import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand } from "./nodeCommands";
+import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand, validateTaskPlanReview } from "./nodeCommands";
 import type { NodeCommandEnvelope } from "../../generated/core_contracts";
+import type { TaskPlanReview } from "../../generated/core_contracts";
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 
 const profile: ApprovedNodeProfileReference = {
@@ -30,10 +31,39 @@ const createCommand: NodeCommandEnvelope = {
   arguments: { request: "Review the report" },
 };
 
+const plan: TaskPlanReview = {
+  schema_version: "1.0",
+  compatibility_id: "airbench-core-contracts",
+  task_id: "task-1",
+  node_identity: "node-1",
+  protocol_version: "0.1",
+  clearance_context: "restricted",
+  plan_state: "not_ready",
+  task_sequence: 4,
+  team_id: null,
+  assignments: [],
+  dependency_graph: {},
+  concurrency_ceiling: 0,
+  execution_mode: "not_selected",
+  worker_capabilities: {},
+  hardware_profile_ref: null,
+  hardware_reason: "The Node has accepted the task but has not committed a plan yet.",
+  required_verification: true,
+  completion_criteria: ["A reviewed approval note is produced."],
+  required_authority: "operator_approval",
+  authority_reason: "An authorized operator must approve this plan before execution.",
+  plan_version_hash: null,
+  policy_version_hash: null,
+  ledger_event_ref: null,
+  failure_code: "plan_not_ready",
+  failure_reason: "The orchestration engine has not committed a validated plan.",
+};
+
 describe("typed Node command transport", () => {
   beforeEach(() => invokeMock.mockReset());
 
   it("routes snapshot reads through the Rust-owned bridge", () => {
+    invokeMock.mockResolvedValue(plan);
     fetchTaskSnapshot(profile, "task-1");
     expect(invokeMock).toHaveBeenCalledWith("fetch_task_snapshot", {
       profileId: "profile-1",
@@ -44,6 +74,23 @@ describe("typed Node command transport", () => {
       profileId: "profile-1",
       taskId: "task-1",
     });
+  });
+
+  it("validates the plan response before it reaches approval or trace state", async () => {
+    invokeMock.mockResolvedValueOnce(plan);
+
+    await expect(fetchTaskPlan(profile, "task-1")).resolves.toEqual(plan);
+  });
+
+  it("rejects a ready plan without complete authority and hardware context", () => {
+    expect(() => validateTaskPlanReview({ ...plan, plan_state: "ready", team_id: null, plan_version_hash: null, execution_mode: "not_selected" }, profile, "task-1")).toThrow("complete team or hardware admission context");
+    expect(() => validateTaskPlanReview({ ...plan, plan_state: "blocked", failure_code: null, failure_reason: null }, profile, "task-1")).toThrow("failure reason");
+    expect(() => validateTaskPlanReview({ ...plan, required_verification: false }, profile, "task-1")).toThrow("independent verification");
+  });
+
+  it("rejects a plan returned for another task or Node", () => {
+    expect(() => validateTaskPlanReview({ ...plan, task_id: "task-2" }, profile, "task-1")).toThrow("does not match");
+    expect(() => validateTaskPlanReview({ ...plan, node_identity: "other-node" }, profile, "task-1")).toThrow("does not match");
   });
 
   it("serializes creation and consequential commands as one envelope", () => {
