@@ -158,6 +158,20 @@ describe("audit-safe work trace", () => {
       "team.created", "worker.assigned", "execution.mode.selected", "join_barrier.waiting",
     ]);
     expect(trace.execution.coordination[1]).toMatchObject({ label: "Worker assigned", summary: "Vision worker assigned. [team-1 · assignment-vision · worker-vision]" });
+    expect(trace.execution.coordination[1].context).toEqual([
+      { label: "Team", value: "team-1" },
+      { label: "Assignment", value: "assignment-vision" },
+      { label: "Worker", value: "worker-vision" },
+      { label: "Role", value: "vision" },
+    ]);
+    expect(trace.execution.coordination[2].context).toEqual([
+      { label: "Mode", value: "parallel" },
+      { label: "Hardware", value: "hardware-1" },
+    ]);
+    expect(trace.execution.coordination[3].context).toEqual([
+      { label: "Barrier", value: "barrier-1" },
+      { label: "Dependencies", value: "assignment-vision" },
+    ]);
     expect(trace.stages.find((stage) => stage.id === "execution")?.events).toHaveLength(4);
   });
 
@@ -228,6 +242,10 @@ describe("audit-safe work trace", () => {
       payloadHash: "hash-5",
       ledgerEventRef: "ledger-5",
     });
+    expect(item.context).toEqual([
+      { label: "Role", value: "planner" },
+      { label: "Record", value: "Prepare evidence plan" },
+    ]);
     expect(item).not.toHaveProperty("payload");
   });
 

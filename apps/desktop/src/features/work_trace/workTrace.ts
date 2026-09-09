@@ -19,6 +19,12 @@ export interface WorkTraceActivity {
   label: string;
   summary: string;
   artifactId: string | null;
+  context: WorkTraceContextField[];
+}
+
+export interface WorkTraceContextField {
+  label: string;
+  value: string;
 }
 
 export interface WorkTraceStage {
@@ -186,7 +192,55 @@ function toTraceActivity(event: TaskEvent): WorkTraceActivity {
     label: eventLabel(event),
     summary: eventSummary(event),
     artifactId: event.eventType === "artifact.ready" || event.eventType === "artifact.superseded" ? event.payload.artifactId : null,
+    context: activityContext(event),
   };
+}
+
+function activityContext(event: TaskEvent): WorkTraceContextField[] {
+  if (event.eventType === "worker.started" || event.eventType === "worker.completed" || event.eventType === "tool.started" || event.eventType === "tool.completed") {
+    return [
+      { label: "Role", value: event.payload.role },
+      { label: "Record", value: event.payload.label },
+    ];
+  }
+  if (!isExecutionEvent(event)) return [];
+
+  const payload = event.payload;
+  const fields: Array<[string, string | number | null | undefined]> = [
+    ["Team", payload.teamId],
+    ["Assignment", payload.assignmentId],
+    ["Worker", payload.workerId],
+    ["Role", payload.role],
+    ["Barrier", payload.barrierId],
+    ["Resource lease", payload.resourceLeaseId],
+    ["Mode", payload.executionMode],
+    ["Hardware", payload.hardwareProfileRef],
+    ["Model target", payload.modelTargetId],
+    ["Qualification", payload.qualificationId],
+    ["Queue position", payload.queuePosition],
+  ];
+  if (payload.dependencyIds && payload.dependencyIds.length > 0) fields.push(["Dependencies", payload.dependencyIds.join(", ")]);
+  return fields.filter((field): field is [string, string | number] => {
+    const value = field[1];
+    return value !== undefined && value !== null && String(value).trim().length > 0;
+  }).map(([label, value]) => ({ label, value: String(value) }));
+}
+
+function isExecutionEvent(event: TaskEvent): event is Extract<TaskEvent, { payload: NodeExecutionEventPayload }> {
+  return event.eventType !== "unknown"
+    && event.eventType !== "evidence.added"
+    && event.eventType !== "evidence.revised"
+    && event.eventType !== "verification.completed"
+    && event.eventType !== "verification.failed"
+    && event.eventType !== "approval.required"
+    && event.eventType !== "approval.recorded"
+    && event.eventType !== "approval.returned"
+    && event.eventType !== "artifact.ready"
+    && event.eventType !== "artifact.superseded"
+    && event.eventType !== "ledger.written"
+    && event.eventType !== "ledger.verification_changed"
+    && event.eventType !== "node.connection_changed"
+    && event.eventType !== "node.sovereignty_changed";
 }
 
 function toEvidenceRecord(evidence: EvidenceRef): WorkTraceEvidenceRecord {

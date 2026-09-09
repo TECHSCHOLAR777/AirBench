@@ -856,7 +856,7 @@ function TraceStageCard({ stage }: { stage: WorkTraceStage }) {
 }
 
 function TraceActivityGroup({ label, items, empty }: { label: string; items: WorkTraceActivity[]; empty: string }) {
-  return <div className="worktrace-activity-group"><span>{label}</span>{items.length === 0 ? <p>{empty}</p> : <ol>{items.map((item) => <li key={`${label}-${item.eventId}`} className={`tone-${item.tone}`}><strong>{item.label}</strong><small>{item.summary}</small><em>{formatTraceTime(item.occurredAt)} / ledger {item.ledgerEventRef}</em></li>)}</ol>}</div>;
+  return <div className="worktrace-activity-group"><span>{label}</span>{items.length === 0 ? <p>{empty}</p> : <ol>{items.map((item) => <li key={`${label}-${item.eventId}`} className={`tone-${item.tone}`}><strong>{item.label}</strong><small>{item.summary}</small>{item.context.length > 0 && <ul className="worktrace-activity-context">{item.context.map((field) => <li key={`${field.label}-${field.value}`}><span>{field.label}</span><strong>{field.value}</strong></li>)}</ul>}<em>{formatTraceTime(item.occurredAt)} / ledger {item.ledgerEventRef}</em></li>)}</ol>}</div>;
 }
 
 function TeamPlanSummary({ plan }: { plan: WorkTrace["team"] }) {
