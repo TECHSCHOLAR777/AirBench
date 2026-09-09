@@ -384,6 +384,10 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .plan-stage small { color: var(--muted); font-size: 10px; text-align: right; }
 .plan-warning { display: grid; gap: 4px; padding: 11px; color: var(--attention-ink); background: var(--attention-soft); border: 1px solid color-mix(in srgb, var(--attention) 36%, var(--line)); border-radius: var(--radius-sm); font-size: 11px; line-height: 1.45; }
 .plan-warning strong { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.plan-recovery-guidance { display: grid; gap: 6px; margin: -7px 0 0; padding: 10px 11px; background: color-mix(in srgb, var(--surface-subtle) 74%, transparent); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.plan-recovery-guidance > div { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.plan-recovery-guidance dt { color: var(--faint); font-size: 8px; font-weight: 740; letter-spacing: .055em; text-transform: uppercase; }
+.plan-recovery-guidance dd { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
 .plan-review-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 2px; }
 .plan-review-footer small { max-width: 60%; color: var(--faint); font-family: var(--font-mono); font-size: 9px; overflow-wrap: anywhere; }
 .plan-review-actions { display: flex; align-items: center; gap: 8px; }
