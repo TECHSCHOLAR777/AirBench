@@ -181,10 +181,16 @@ export function buildNodeReadiness(
   }
 
   if (connection.state === "blocked" || connection.state === "failed") {
+    const failureTitle: Record<string, string> = {
+      trust_failed: "Node trust check failed",
+      unauthorized: "Node authentication failed",
+      incompatible: "Node protocol is incompatible",
+      transport_failed: "Node connection failed",
+    };
     return {
       connection: {
         tone: "blocked",
-        title: "Node connection blocked",
+        title: failureTitle[connection.failure?.kind ?? "transport_failed"] ?? "Node connection blocked",
         detail: connection.failure?.message ?? "This desktop cannot use the selected Node path for consequential work.",
         recovery: recovery(
           "No task, file, or consequential command is authorized by this blocked result.",

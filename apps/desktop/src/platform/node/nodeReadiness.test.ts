@@ -57,7 +57,7 @@ describe("Node readiness summary", () => {
     const summary = buildNodeReadiness({
       ...verifiedConnection,
       state: "reconnecting",
-      failure: { code: "node_disconnected", message: "Connection interrupted." },
+      failure: { kind: "transport_failed", code: "node_disconnected", message: "Connection interrupted." },
     }, profile);
 
     expect(summary.connection).toMatchObject({

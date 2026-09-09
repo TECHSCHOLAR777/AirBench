@@ -48,6 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => connect_node_profile(profile)
             .await
+            .map_err(|error| error.to_string())
             .map(|result| serde_json::to_value(result).expect("serialize connection result")),
     };
     match result {

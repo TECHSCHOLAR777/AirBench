@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertApprovedNodeProfile, validateApprovedProfile, type ApprovedNodeProfile } from "./nodeConnection";
+import { assertApprovedNodeProfile, connectionFailureKind, validateApprovedProfile, type ApprovedNodeProfile } from "./nodeConnection";
 
 const baseProfile: ApprovedNodeProfile = {
   profileId: "node-profile-1",
@@ -16,6 +16,13 @@ const baseProfile: ApprovedNodeProfile = {
 };
 
 describe("approved Node connection profiles", () => {
+  it("classifies connection failures without conflating trust, authority, and transport", () => {
+    expect(connectionFailureKind("certificate_pin_mismatch")).toBe("trust_failed");
+    expect(connectionFailureKind("authentication_failed")).toBe("unauthorized");
+    expect(connectionFailureKind("protocol_mismatch")).toBe("incompatible");
+    expect(connectionFailureKind("request_failed")).toBe("transport_failed");
+  });
+
   it("accepts an approved internal HTTPS profile with a certificate pin", () => {
     expect(validateApprovedProfile(baseProfile)).toEqual({
       valid: true,
