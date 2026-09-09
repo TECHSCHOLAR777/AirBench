@@ -66,6 +66,6 @@ The frontend fixture transport run `AirBenchNodeValidation-20260907-015945-fb130
 - Provision the bearer identity from the deployment credential store instead of a process configuration value.
 - Run the API through the offline one-node packaging path with Uvicorn and a local SQLite ledger.
 - Add the real File Intake query-upload, safe preview, artifact download, and approval command endpoints through their existing typed adapters.
-- Add the remaining authoritative Node-specific snapshot, evidence, review, preview, and download-receipt schemas to the generated frontend contract source.
+- Add the remaining authoritative Node-specific snapshot, evidence, review, preview, and download-receipt schemas to the generated frontend contract source. The route-trace schema and Rust/webview projection are now covered; these other projections remain open.
 - Exercise the Rust-owned command and snapshot transport against a running packaged Python Node.
 - Capture packaged local and pinned internal-HTTPS handshake, reconnect, and no-egress evidence against this API.
