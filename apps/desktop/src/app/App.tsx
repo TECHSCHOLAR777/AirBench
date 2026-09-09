@@ -872,7 +872,7 @@ function TeamPlanSummary({ plan }: { plan: WorkTrace["team"] }) {
 }
 
 function TraceActivityRow({ item }: { item: WorkTraceActivity }) {
-  return <li className={`activity-row tone-${item.tone}`}><span className="activity-sequence">{item.sequence}</span><div><strong>{item.label}</strong><p>{item.summary}</p><small>{formatTraceTime(item.occurredAt)} / {item.eventType} / ledger {item.ledgerEventRef}</small></div></li>;
+  return <li className={`activity-row tone-${item.tone}`}><span className="activity-sequence">{item.sequence}</span><div><strong>{item.label}</strong><p>{item.summary}</p>{item.context.length > 0 && <ul className="worktrace-activity-context">{item.context.map((field) => <li key={`${field.label}-${field.value}`}><span>{field.label}</span><strong>{field.value}</strong></li>)}</ul>}<small>{formatTraceTime(item.occurredAt)} / {item.eventType} / ledger {item.ledgerEventRef}</small></div></li>;
 }
 
 function traceStageIcon(stage: WorkTraceStage["id"]): AppIconName {
