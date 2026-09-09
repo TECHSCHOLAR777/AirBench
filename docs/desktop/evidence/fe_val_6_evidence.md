@@ -9,13 +9,14 @@ Status: WebDriver harness implemented. The Windows desktop command now selects t
 - The production Tauri configuration explicitly references only the `main-window` capability. The test overlay adds the `wdio` capability and enables `withGlobalTauri`.
 - The frontend statically imports the WebDriver plugin as required by the official plugin setup. Vite aliases that import to an empty module in production, so production builds do not register or bundle the WebDriver plugin path.
 - The WebDriver build uses a test-only invoke bridge. It checks the WDIO mock registry before the normal Tauri core surface because the Windows WebView2 global Tauri core object can reject the plugin's property interception. The production bridge remains the normal `@tauri-apps/api/core` implementation.
-- The desktop suite covers visible shell rendering, IPC mocking for native file selection, trusted settings navigation, Tauri execute access, a retained frontend log marker, and an approved-profile intake preview path. A separate multiremote configuration exists for two local app instances.
+- The desktop suite covers visible shell rendering, IPC mocking for native file selection, trusted settings navigation, Tauri execute access, a retained frontend log marker, and an approved-profile intake preview path. A separate multiremote configuration exists for two local app instances. Driver installation and downloads are disabled by default so running the harness cannot silently add network traffic.
 
 ## Commands
 
 From `apps/desktop/`:
 
 ```text
+npm run check:webdriver
 npm run build:webdriver
 npm run tauri:build:webdriver
 npm run test:desktop
@@ -26,18 +27,21 @@ The test binary is deliberately built with the `wdio` feature and is never the p
 
 Latest retained Windows run: `apps/desktop/logs/wdio-2026-09-08T18-29-06-616Z.log`. The self-built webdriver binary passed 6/6 shell checks, including approved-profile connection and safe intake preview. The same non-fatal WDIO mock-cleanup warning remains after session teardown.
 
-The self-building default `npm run test:desktop` run with Microsoft Edge WebDriver 152.0.4191.66 passed all six shell checks, including approved profile connection and safe intake preview. The retained WDIO log contains the frontend marker emitted through the Tauri log path. The self-building default multiremote run passed its two-instance addressability assertion. The WDIO service still emits a non-fatal cleanup warning when it tries to restore mocks after the WebDriver session has already been deleted, so that warning remains part of the harness evidence and should be removed or accepted explicitly before a release gate.
+The retained 2026-09-08 run with Microsoft Edge WebDriver 152.0.4191.66 passed all six shell checks, including approved profile connection and safe intake preview. The retained WDIO log contains the frontend marker emitted through the Tauri log path. The retained multiremote run passed its two-instance addressability assertion. Those are provisioned-driver results, not proof that this host can run offline today. The WDIO service still emits a non-fatal cleanup warning when it tries to restore mocks after the WebDriver session has already been deleted, so that warning remains part of the harness evidence and should be removed or accepted explicitly before a release gate.
 
-The standalone desktop command still requires the webdriver build first, but it no longer requires a provider override on Windows. Running it against a stale production binary or without a reachable driver can fail before the application is exercised. The reproducible current-host sequence is:
+On 2026-09-09, a fresh Windows run reached the external provider but could not resolve `msedgedriver.microsoft.com` because no matching local Edge driver was provisioned. It did not reach application assertions. The new preflight prevents this missing-prerequisite case from triggering a download or rebuilding the Tauri binary first.
+
+The standalone desktop command now performs a local WebDriver preflight before the expensive webdriver build. On Windows, the default external provider requires `tauri-driver` and a matching local `msedgedriver.exe`; the preflight fails before compilation if either is unavailable. The reproducible sequence is:
 
 ```text
+npm run check:webdriver
 npm run build:webdriver
 npm run tauri:build:webdriver
 npm run test:desktop
 npm run test:desktop:multiremote
 ```
 
-To reproduce the embedded-provider diagnostic failure, set `AIRBENCH_WDIO_DRIVER=embedded` explicitly. The current Windows account has `tauri-driver` installed at the standard Cargo bin location, so the default command exercises the application without a hidden environment override.
+The embedded provider may be selected with `AIRBENCH_WDIO_DRIVER=embedded` when the test binary has the embedded plugin enabled. A deliberately connected test host may set `AIRBENCH_ALLOW_DRIVER_DOWNLOAD=1`, but that run is not offline or no-egress evidence. `TAURI_DRIVER_PATH` may point to an approved local `tauri-driver` binary.
 
 ## Remaining acceptance evidence
 
