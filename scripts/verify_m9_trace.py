@@ -37,10 +37,18 @@ def _sha256(path: Path) -> str:
 def verify_trace(trace_dir: Path) -> dict[str, object]:
     ledger_path = trace_dir / "ledger.jsonl"
     summary_path = trace_dir / "run-summary.json"
-    if not ledger_path.is_file() or not summary_path.is_file():
-        raise ValueError("trace must contain ledger.jsonl and run-summary.json")
+    signature_path = trace_dir / "pack-signature.json"
+    if not ledger_path.is_file() or not summary_path.is_file() or not signature_path.is_file():
+        raise ValueError("trace must contain pack-signature.json, ledger.jsonl, and run-summary.json")
 
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    pack_signature = json.loads(signature_path.read_text(encoding="utf-8"))
+    if pack_signature.get("pack_id") != summary.get("pack_id"):
+        raise ValueError("detached pack signature does not identify the run pack")
+    if pack_signature.get("signature") != summary.get("pack_signature"):
+        raise ValueError("detached pack signature does not match the run summary")
+    if pack_signature.get("algorithm") != "HMAC-SHA256" or pack_signature.get("detached") is not True:
+        raise ValueError("detached pack signature metadata is invalid")
     ledger = EventLedger()
     for line_number, line in enumerate(ledger_path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
