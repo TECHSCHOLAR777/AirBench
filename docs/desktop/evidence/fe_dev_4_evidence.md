@@ -8,6 +8,7 @@ Status: implementation slice complete locally. Issue #76 remains open for the re
 - A selected file can be handed to the existing query-upload path. The UI sends only the native selection token and the returned File Intake manifest reference.
 - The UI does not parse, OCR, inspect, execute, or reinterpret file bytes.
 - A manifest is treated as ready only when both OCR and vision statuses are terminal success or explicitly not applicable. Pending or running work remains processing, and failed, unavailable, or unknown statuses remain partial; the UI does not request or display a preview as if those results were complete.
+- The webview re-validates the runtime payload returned by the native intake commands before it becomes React state. Intake identity, file bounds, hashes, statuses, clearance, taint, preview references, source regions, confidence, safe text limits, artifact blocks, and ledger references fail closed when malformed or over-cleared.
 - The Node handshake supplies the domain-pack reference. The UI carries it in the command, while the Node rejects a value that differs from its configured pack.
 - `task.create` is sent through the Rust-owned typed command bridge. The Python Node validates the command, creates the task envelope, and preserves the bounded user metadata and manifest references.
 - The Home screen renders the Node acceptance receipt with task ID, task state, ledger reference, and sequence. It does not claim that the task has completed; later authoritative task state must arrive through the event stream.
@@ -18,12 +19,13 @@ Status: implementation slice complete locally. Issue #76 remains open for the re
 - `src/airbench/node/api.py` exposes the Node-selected domain pack in the handshake and applies it as the authority for task creation.
 - `apps/desktop/src/features/tasks/taskComposer.ts` builds and validates the typed command without selecting models, tools, or sector behavior.
 - `apps/desktop/src/app/App.tsx` owns only presentation state and invokes the existing Node and File Intake bridges.
+- `apps/desktop/src/features/intake/intakeBridge.ts` validates native IPC responses before exposing them to presentation state.
 - `apps/desktop/src-tauri/src/node_transport.rs` carries the typed handshake domain-pack field without exposing arbitrary URLs or credentials to the webview.
 
 ## Verification
 
 - `python -m pytest -q tests/test_node_api.py tests/test_contracts.py`: 24 passed.
-- `npm test -- --run`: 100 passed across 22 test files.
+- `npm test -- --run`: 110 passed across 22 test files.
 - `npm run build`: passed.
 - `npm run check:contracts`: passed.
 - `npm run check:ui`: passed, including the authored-source accessibility contract.

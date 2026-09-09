@@ -62,7 +62,8 @@ The current evidence contract does not provide conflict status or reviewer-note 
 
 - Pure state mapping, boundary copy, confidence cues, taint fail-closed behavior, missing locations, and supersession are covered in `apps/desktop/src/features/provenance/proofInspector.test.ts`.
 - The inspector uses the existing typed artifact preview and download bridge in `apps/desktop/src/components/ProofInspectorPanel.tsx`.
+- The intake bridge re-validates safe-preview, artifact-preview, and download-receipt payloads at the webview boundary. It rejects malformed identity, provenance, clearance, taint, confidence, text-size, and block-shape fields before the inspector can render them.
 - A selected evidence, finding, or source preview is refreshed from the latest task projection before rendering. Removed or hash-changed records are cleared instead of leaving stale provenance in view. The inspector is internally scrollable on tall desktop proof panels and collapses into the page flow at narrower widths.
-- The current local frontend suite passes 22 test files and 95 tests; the production build, generated-contract check, authored UI accessibility check, source no-egress check, and Tauri configuration check pass.
+- The current local frontend suite passes 22 test files and 110 tests; the production build, generated-contract check, authored UI accessibility check, source no-egress check, and Tauri configuration check pass.
 - No Rust or backend files are changed by this slice.
 - Full issue closure still requires the Node-owned artifact review projection, verification evidence, approval commands, and packaged desktop validation described in the frontend execution plan.
