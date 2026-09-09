@@ -517,7 +517,19 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .workspace-plan strong { color: var(--ink); font-size: 13px; }
 .workspace-plan span { color: var(--muted); font-size: 10px; line-height: 1.45; }
 .workspace-plan small { color: var(--faint); font-family: var(--font-mono); font-size: 9px; }
-.workspace-receipt { padding: 11px 13px; color: var(--trust-ink); background: var(--trust-soft); border: 1px solid color-mix(in srgb, var(--trust) 32%, var(--line)); border-radius: var(--radius-sm); font-size: 11px; }
+.command-outcome { display: grid; gap: 9px; width: 100%; padding: 11px 13px; color: var(--muted); background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 10px; line-height: 1.45; }
+.command-outcome-positive { color: var(--trust-ink); background: var(--trust-soft); border-color: color-mix(in srgb, var(--trust) 32%, var(--line)); }
+.command-outcome-attention { color: var(--attention-ink); background: var(--attention-soft); border-color: color-mix(in srgb, var(--attention) 35%, var(--line)); }
+.command-outcome-danger { color: var(--danger-ink); background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
+.command-outcome > div { display: grid; gap: 3px; }
+.command-outcome strong { color: inherit; font-size: 11px; }
+.command-outcome span { color: inherit; }
+.command-outcome dl { display: grid; gap: 5px; margin: 0; padding-top: 8px; border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
+.command-outcome dl > div { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.command-outcome dt { color: var(--faint); font-size: 8px; font-weight: 740; letter-spacing: .055em; text-transform: uppercase; }
+.command-outcome dd { margin: 0; color: var(--muted); }
+.plan-review-footer-outcome { display: grid; align-items: stretch; justify-content: stretch; }
+.plan-review-footer-outcome > small { max-width: none; }
 .workspace-activity { padding: 18px; }
 .workspace-count { color: var(--faint); font-family: var(--font-mono); font-size: 10px; }
 .workspace-empty { padding: 30px 12px; color: var(--muted); font-size: 11px; text-align: center; }
