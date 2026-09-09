@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -10,8 +12,9 @@ from PIL import Image
 from io import BytesIO
 
 from airbench.m9 import RefineryPack, RefineryVerticalSlice, SignedPackError
+import airbench.m9.vertical_slice as vertical_slice
 from airbench.intake.vision import LocalVisionAdapter, VisionResult, static_text_extractor
-from contracts import Clearance, EventLedger
+from contracts import Clearance, EventLedger, HardwareProfile
 
 
 ROOT = Path(__file__).parents[1]
@@ -52,10 +55,17 @@ def test_serial_run_extracts_provenance_computes_values_and_checks_docx(tmp_path
     )
     assert run.execution_mode == "serial_virtual_team"
     assert run.computed_values == {"finding_count": 2, "critical_finding_count": 1, "manual_match_count": 2}
+    assert set(run.manual_refs) == {"manual://pump-sop", "manual://vibration-sop"}
     assert all(f.fact.source_ref.startswith("intake:inspection-report") for f in run.findings)
     assert run.artifact and run.artifact.structural == "passed"
     assert run.artifact.content_hash
     assert Path(tmp_path / "artifacts" / "task.m9.demo-approval-note.docx").is_file()
+    with zipfile.ZipFile(tmp_path / "artifacts" / "task.m9.demo-approval-note.docx") as document:
+        document_text = document.read("word/document.xml").decode("utf-8")
+    assert "Manual/SOP: manual://pump-sop" in document_text
+    assert "Manual/SOP: manual://vibration-sop" in document_text
+    completion = next(event for event in ledger.events if event.event_type == "completion.blocked")
+    assert set(completion.payload["evidence_refs"]) >= {"manual://pump-sop", "manual://vibration-sop"}
     assert "artifact.checked" in [event.event_type for event in ledger.events]
     assert "verification.evaluator.completed" in [event.event_type for event in ledger.events]
     assert "completion.blocked" in [event.event_type for event in ledger.events]
@@ -79,6 +89,60 @@ def test_missing_findings_fails_closed(tmp_path: Path) -> None:
         RefineryVerticalSlice(signed_pack(tmp_path), EventLedger(), artifact_dir=tmp_path / "artifacts").run(
             task_id="task.m9.empty", report_pages={"page-1": "not a finding"}, manuals={}
         )
+
+
+def test_missing_input_and_resource_pressure_fail_closed_or_degrade_to_serial(tmp_path: Path) -> None:
+    pack = signed_pack(tmp_path)
+    slice_ = RefineryVerticalSlice(pack, EventLedger(), artifact_dir=tmp_path / "artifacts")
+    with pytest.raises(FileNotFoundError, match="inspection report"):
+        slice_.run_from_file(task_id="task.m9.missing", report_path=tmp_path / "missing.pdf")
+    result = slice_.run(
+        task_id="task.m9.resource", report_pages={"page-1": "F-01: P-101: low: label damaged"},
+        manuals={}, safe_parallel_slots=0, supported_modes=("parallel", "serial_virtual_team"),
+    )
+    assert result.execution_mode == "serial_virtual_team"
+
+
+def test_unsupported_hardware_modes_and_nonlocal_routes_fail_closed(tmp_path: Path) -> None:
+    pack = signed_pack(tmp_path)
+    slice_ = RefineryVerticalSlice(pack, EventLedger(), artifact_dir=tmp_path / "artifacts")
+    with pytest.raises(ValueError, match="cannot admit"):
+        slice_.run(
+            task_id="task.m9.no-mode", report_pages={"page-1": "F-01: P-101: low: label damaged"},
+            manuals={}, safe_parallel_slots=1, supported_modes=("parallel",),
+        )
+    profile = HardwareProfile.from_dict(json.loads((ROOT / "tests" / "fixtures" / "hardware_profile_96gb_valid.json").read_text()))
+    with pytest.raises(ValueError, match="no-egress"):
+        slice_.run(
+            task_id="task.m9.egress", report_pages={"page-1": "F-01: P-101: low: label damaged"},
+            manuals={}, hardware_profile=profile, model_routes={"reasoning": "remote.reasoning"},
+        )
+
+
+def test_low_confidence_finding_remains_review_required(tmp_path: Path) -> None:
+    ledger = EventLedger()
+    result = RefineryVerticalSlice(signed_pack(tmp_path), ledger, artifact_dir=tmp_path / "artifacts").run(
+        task_id="task.m9.low-confidence", report_pages={"page-1": "F-01: P-101: high: seal leakage observed"},
+        manuals={}, page_confidences={"page-1": 0.2},
+    )
+    assert result.outcome == "needs_review"
+    verification = next(event for event in ledger.events if event.event_type == "verification.completed")
+    assert verification.payload["status"] == "needs_review"
+
+
+def test_visual_converter_timeout_is_a_blocking_artifact_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(vertical_slice.shutil, "which", lambda _name: "soffice")
+
+    def timed_out(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired("soffice", 30)
+
+    monkeypatch.setattr(vertical_slice.subprocess, "run", timed_out)
+    result = RefineryVerticalSlice(signed_pack(tmp_path), EventLedger(), artifact_dir=tmp_path / "artifacts").run(
+        task_id="task.m9.visual-timeout", report_pages={"page-1": "F-01: P-101: low: label damaged"},
+        manuals={},
+    )
+    assert result.artifact and result.artifact.structural == "passed" and result.artifact.visual == "failed"
+    assert result.outcome == "needs_review"
 
 
 def test_run_from_local_image_uses_file_intake_and_typed_vision(tmp_path: Path) -> None:

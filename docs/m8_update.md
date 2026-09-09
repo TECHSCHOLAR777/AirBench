@@ -34,3 +34,5 @@ The offline demonstration can be reproduced with `python scripts/run_m9_demo.py 
 Remaining evidence is deployment-specific: measured-node model routes, operator-supplied scanned PDF and manuals, successful LibreOffice visual conversion on that node, no-egress observation, and the human review record must be captured in the acceptance run before the parent issue can claim production acceptance. The implementation intentionally does not claim release approval or replace those external gates.
 
 The emitted trace can be independently replayed offline with `python scripts/verify_m9_trace.py <trace-dir>`. The verifier rebuilds the append-only ledger from JSONL, checks event hashes and replay transitions, confirms both execution modes, and re-hashes every staged artifact referenced by `artifact.checked` events.
+
+The vertical slice now carries retrieved manual/SOP references into the approval-note source register and independent completion evidence, rejects unsupported hardware modes and non-local routes under a no-egress profile, and converts visual-renderer timeouts into a blocking artifact check rather than an uncaught failure.

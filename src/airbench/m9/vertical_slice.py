@@ -162,6 +162,7 @@ class M9RunResult:
     execution_mode: str
     findings: tuple[InspectionFinding, ...]
     computed_values: Mapping[str, int]
+    manual_refs: tuple[str, ...]
     routes: tuple[WorkerRoute, ...]
     artifact: ArtifactCheck | None
     ledger_event_ids: tuple[str, ...]
@@ -177,6 +178,7 @@ class ApprovalNoteRenderer:
         output: Path,
         *,
         findings: tuple[InspectionFinding, ...],
+        manual_refs: tuple[str, ...],
         values: Mapping[str, int],
         review_status: str,
         template: Mapping[str, Any],
@@ -194,6 +196,7 @@ class ApprovalNoteRenderer:
         paragraphs.extend([
             (labels.get("source_register", "Source Register"), "Heading1"),
             *[(f"{f.finding_id}: {f.fact.source_ref} ({f.source_region})", "Normal") for f in findings],
+            *[(f"Manual/SOP: {source_ref}", "Normal") for source_ref in manual_refs],
             (labels.get("deterministic_calculations", "Deterministic Calculations"), "Heading1"),
             *[(f"{name}: {value}", "Normal") for name, value in sorted(values.items())],
             (labels.get("review_status", "Review Status"), "Heading1"), (review_status, "Normal"),
@@ -223,7 +226,10 @@ class ApprovalNoteRenderer:
         soffice = shutil.which("soffice") or shutil.which("libreoffice")
         if soffice:
             with tempfile.TemporaryDirectory() as temp:
-                completed = subprocess.run([soffice, "--headless", "--convert-to", "pdf", "--outdir", temp, str(path)], capture_output=True, timeout=30)
+                try:
+                    completed = subprocess.run([soffice, "--headless", "--convert-to", "pdf", "--outdir", temp, str(path)], capture_output=True, timeout=30)
+                except (OSError, subprocess.TimeoutExpired):
+                    return "passed", "failed", "structural checks passed; visual conversion failed or timed out"
                 visual = "passed" if completed.returncode == 0 and list(Path(temp).glob("*.pdf")) else "failed"
         return "passed", visual, "structural checks passed; visual conversion " + visual
 
@@ -235,7 +241,8 @@ class RefineryVerticalSlice:
     @staticmethod
     def _mode(safe_parallel_slots: int, supported: tuple[str, ...]) -> str:
         if safe_parallel_slots > 1 and "parallel" in supported: return "parallel"
-        return "serial_virtual_team"
+        if "serial_virtual_team" in supported: return "serial_virtual_team"
+        raise ValueError("hardware profile cannot admit parallel or serial execution")
 
     def run_from_file(
         self,
@@ -262,6 +269,7 @@ class RefineryVerticalSlice:
         report_file = Path(report_path)
         if not report_file.is_file():
             raise FileNotFoundError("inspection report does not exist")
+        report_content = report_file.read_bytes()
         for path in (manual_paths or {}).values():
             if not Path(path).is_file():
                 raise FileNotFoundError("manual does not exist")
@@ -275,7 +283,7 @@ class RefineryVerticalSlice:
         intake = FileIntakeLayer(self.ledger, renderer=renderer)
         report_manifest = intake.intake(IntakeRequest(
             task_id, f"local:{report_file.resolve()}", report_file.name,
-            report_file.read_bytes(), IntakeMode.query_upload, clearance,
+            report_content, IntakeMode.query_upload, clearance,
         ))
         manual_manifests = {
             source_ref: intake.intake(IntakeRequest(
@@ -283,7 +291,7 @@ class RefineryVerticalSlice:
                 IntakeMode.query_upload, clearance,
             )) for source_ref, path in (manual_paths or {}).items()
         }
-        pages = self._manifest_pages(report_manifest, vision_adapter, rendered_page_bytes or {}, report_file.read_bytes())
+        pages = self._manifest_pages(report_manifest, vision_adapter, rendered_page_bytes or {}, report_content)
         manuals = {
             source_ref: "\n".join(page.text for page in manifest.pages if page.text)
             for source_ref, manifest in manual_manifests.items()
@@ -357,6 +365,14 @@ class RefineryVerticalSlice:
         if hardware_profile is not None:
             safe_parallel_slots = hardware_profile.safe_parallel_slots
             supported_modes = hardware_profile.supported_execution_modes
+        route_map = model_routes or {}
+        if hardware_profile is not None and str(hardware_profile.egress_policy).replace("_", "-") == "no-egress":
+            invalid_routes = {
+                role: target for role, target in route_map.items()
+                if not str(target).startswith("local.")
+            }
+            if invalid_routes:
+                raise ValueError("no-egress hardware profile rejects non-local model routes")
         ids: list[str] = []
         def event(kind: str, payload: dict[str, Any]) -> None: ids.append(_append(self.ledger, kind, task_id, payload, clearance).event_id)
         if start_task:
@@ -374,7 +390,6 @@ class RefineryVerticalSlice:
         event("team.created", {"team_id": stable_id("team", task_id), "required_verification": True, "pack_workflow": "refinery_inspection_review"})
         event("team.execution.started", {"team_id": stable_id("team", task_id), "mode": mode})
         route_specs = (("evidence_vision_worker", "vision"), ("reasoning_worker", "reasoning"), ("independent_verification_worker", "verification"), ("render_review_worker", "render"))
-        route_map = model_routes or {}
         routes = tuple(WorkerRoute(f"worker.m9.{role}", role, capability, mode, route_map.get(role, f"local.{capability}.qualified")) for role, capability in route_specs)
         for route in routes:
             event("worker.assigned", {"worker_id": route.worker_id, "role": route.role, "capability": route.capability, "mode": mode, "model_route": route.model_route})
@@ -407,7 +422,10 @@ class RefineryVerticalSlice:
         template = next((item for item in self.pack.templates.get("templates", ()) if item.get("id") == "refinery_psu_approval_note_v0"), None)
         if not isinstance(template, dict) or template.get("format") != "docx":
             raise SignedPackError("approval-note DOCX template contract is unavailable")
-        artifact = ApprovalNoteRenderer().render(artifact_path, findings=tuple(findings), values=values, review_status="verified draft for human review", template=template)
+        artifact = ApprovalNoteRenderer().render(
+            artifact_path, findings=tuple(findings), manual_refs=tuple(retrieved_refs),
+            values=values, review_status="verified draft for human review", template=template,
+        )
         event("artifact.staged", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "path": str(artifact_path)})
         event("artifact.checked", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "structural": artifact.structural, "visual": artifact.visual})
         status = "verified draft for human review" if artifact.structural == "passed" and artifact.visual == "passed" else "needs_review"
@@ -436,7 +454,7 @@ class RefineryVerticalSlice:
             evaluator_worker_id="worker.m9.independent_verification_worker",
             proposal_ref=artifact.artifact_id,
             work_packet_refs=tuple(stable_id("packet", task_id, route.worker_id) for route in routes),
-            evidence_refs=tuple(f.fact.source_ref for f in findings) + (artifact.artifact_id,),
+            evidence_refs=tuple(f.fact.source_ref for f in findings) + tuple(retrieved_refs) + (artifact.artifact_id,),
             completion_criteria=criteria, clearance=clearance,
             confidence=verification.confidence, taint=verification.taint,
         )
@@ -466,7 +484,7 @@ class RefineryVerticalSlice:
         final_status = "verified draft for human review" if completion.outcome == "complete" else "needs_review"
         event("human.review.required", {"artifact_id": artifact.artifact_id, "review_status": final_status, "completion_ref": completion.ledger_event_id})
         task_events = tuple(event.event_id for event in self.ledger.events if event.task_id == task_id)
-        return M9RunResult(task_id, completion.outcome, final_status, mode, tuple(findings), values, routes, artifact, task_events)
+        return M9RunResult(task_id, completion.outcome, final_status, mode, tuple(findings), values, tuple(retrieved_refs), routes, artifact, task_events)
 
 
 __all__ = ["ArtifactCheck", "InspectionFinding", "M9RunResult", "RefineryPack", "RefineryVerticalSlice", "SignedPackError", "WorkerRoute"]

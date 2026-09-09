@@ -67,6 +67,8 @@ def verify_trace(trace_dir: Path) -> dict[str, object]:
     modes = {run.get("execution_mode") for run in runs if isinstance(run, dict)}
     if not {"serial_virtual_team", "parallel"}.issubset(modes):
         raise ValueError("summary must demonstrate serial and parallel execution")
+    if any(not run.get("manual_refs") for run in runs if isinstance(run, dict)):
+        raise ValueError("every run must retain at least one local manual/SOP reference")
 
     checked_artifacts = [
         event.payload for event in ledger.events if event.event_type == "artifact.checked"
@@ -86,6 +88,7 @@ def verify_trace(trace_dir: Path) -> dict[str, object]:
         "event_count": len(ledger.events),
         "ledger_head_hash": ledger.head_hash,
         "execution_modes": sorted(modes),
+        "manual_ref_count": sum(len(run.get("manual_refs", ())) for run in runs if isinstance(run, dict)),
         "checked_artifact_count": len(checked_artifacts),
     }
 
