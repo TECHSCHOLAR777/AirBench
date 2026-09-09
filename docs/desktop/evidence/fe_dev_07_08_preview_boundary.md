@@ -16,6 +16,20 @@ When an artifact is selected, the inspector communicates three separate states:
 
 Clearance, taint, and ledger identity remain in the proof details. The inspector does not manufacture a filename, source location, verification result, deterministic value, approval status, or model decision.
 
+For evidence and finding records, a compact **Reading cues** section makes review-relevant conditions explicit:
+
+| Node-provided condition | Visible cue | Authority limit |
+| --- | --- | --- |
+| Confidence at least 85% | High confidence | A display band only; it is not verification or approval. |
+| Confidence from 65% through 84% | Moderate confidence | Keeps source context visible as a review cue. |
+| Confidence below 65% | Low confidence | Signals that the reviewer should check permitted evidence before relying on the record. |
+| `untrusted` taint | Untrusted source data | Content is data, never instructions, code, macros, or an approval decision. |
+| `contaminated` taint or an unknown taint value | Use blocked or unrecognized taint status | The desktop does not treat the content as safe. |
+| Missing source location | Exact source region not supplied | The inspector does not invent a page, span, cell, or image region. |
+| `supersededBy` present on a finding | Finding superseded | The replacement remains Node-identified; the desktop does not rewrite the finding. |
+
+The current evidence contract does not provide conflict status or reviewer-note commands. The inspector therefore states that it cannot declare a record conflict-free or edit an existing fact. Those capabilities require a versioned Node projection and ledgered command through the serialized protocol work.
+
 ## Preview state mapping
 
 | Typed state | Visible state | Meaning |
@@ -46,7 +60,8 @@ Clearance, taint, and ledger identity remain in the proof details. The inspector
 
 ## Implementation evidence
 
-- Pure state mapping and boundary copy are covered in `apps/desktop/src/proofInspector.test.ts`.
+- Pure state mapping, boundary copy, confidence cues, taint fail-closed behavior, missing locations, and supersession are covered in `apps/desktop/src/features/provenance/proofInspector.test.ts`.
 - The inspector uses the existing typed artifact preview and download bridge in `apps/desktop/src/components/ProofInspectorPanel.tsx`.
+- The current local frontend suite passes 22 test files and 91 tests; the production build, generated-contract check, authored UI accessibility check, source no-egress check, and Tauri configuration check pass.
 - No Rust or backend files are changed by this slice.
 - Full issue closure still requires the Node-owned artifact review projection, verification evidence, approval commands, and packaged desktop validation described in the frontend execution plan.
