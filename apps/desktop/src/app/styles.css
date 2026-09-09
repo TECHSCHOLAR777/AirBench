@@ -630,6 +630,10 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .proof-preview-boundary svg { margin-top: 1px; }
 .proof-preview-boundary strong { display: block; color: var(--ink-soft); font-size: 10px; }
 .proof-preview-boundary p { margin: 3px 0 0; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.proof-recovery-guidance { display: grid; gap: 6px; margin: 8px 0 0; padding-top: 8px; border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
+.proof-recovery-guidance > div { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 7px; align-items: baseline; }
+.proof-recovery-guidance dt { color: var(--faint); font-size: 8px; font-weight: 740; letter-spacing: .055em; text-transform: uppercase; }
+.proof-recovery-guidance dd { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.4; }
 .proof-preview-safe pre { max-height: 210px; overflow: auto; margin: 0; color: var(--ink-soft); font-family: var(--font-ui); font-size: 10px; line-height: 1.55; white-space: pre-wrap; scrollbar-color: color-mix(in srgb, var(--accent) 44%, var(--line-strong)) transparent; }
 .proof-preview-safe small { color: var(--faint); font-size: 9px; line-height: 1.45; }
 .proof-artifact-preview-head { display: grid; gap: 4px; }

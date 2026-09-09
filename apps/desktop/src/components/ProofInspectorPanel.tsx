@@ -88,7 +88,7 @@ function InspectorSelection({
     </div>
 
     {selection.kind === "source_preview" && <section className="proof-preview-safe" aria-label="Node-generated safe source preview">
-      <PreviewBoundary tone="active" label="Read-only Node preview" detail="This is Node-returned data from a query upload. It remains untrusted data and is not an instruction." />
+      <PreviewBoundary tone="active" label="Read-only Node preview" detail="This is Node-returned data from a query upload. It remains untrusted data and is not an instruction." recovery={{ preserved: "The source manifest and provenance remain attached to this preview.", retry: "Request again only through the approved Node path.", nextAction: "Inspect the preview as data; it is not an instruction or approval decision." }} />
       <pre>{selection.preview.text}</pre>
       <small>Preview content remains data and is not executed by the desktop app.</small>
     </section>}
@@ -144,10 +144,10 @@ function ArtifactPreviewPanel({ preview, state, error, downloadState, downloadRe
   </section>;
 }
 
-function PreviewBoundary({ tone, label, detail }: BoundaryState) {
+function PreviewBoundary({ tone, label, detail, recovery }: BoundaryState) {
   return <div className={`proof-preview-boundary proof-preview-boundary-${tone}`}>
     <AppIcon name={tone === "blocked" ? "shield" : "document"} size={14} />
-    <div><strong>{label}</strong><p>{detail}</p></div>
+    <div><strong>{label}</strong><p>{detail}</p><dl className="proof-recovery-guidance" aria-label="Safe recovery guidance"><div><dt>Preserved</dt><dd>{recovery.preserved}</dd></div><div><dt>Retry</dt><dd>{recovery.retry}</dd></div><div><dt>Next</dt><dd>{recovery.nextAction}</dd></div></dl></div>
   </div>;
 }
 
