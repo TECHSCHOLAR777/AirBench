@@ -33,6 +33,7 @@ from airbench.node.server import (
     run_startup_checks,
     add_readiness_route,
 )
+from airbench.node.bundle import BundleManifest
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +378,46 @@ class TestStartupChecks(unittest.TestCase):
             cfg = self._make_config(ledger_path=ledger_path)
             result = run_startup_checks(cfg)
             self.assertTrue(result.passed)
+
+    def test_configured_bundle_must_be_signed_and_verified(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asset = root / "asset.txt"
+            asset.write_text("verified", encoding="utf-8")
+            manifest = BundleManifest.build(
+                "airbench.test.bundle", "0.1.0", [("asset", "file", asset)], bundle_root=root
+            ).sign(b"b" * 32)
+            manifest_path = root / "bundle_manifest.json"
+            manifest_path.write_text(manifest.to_json(), encoding="utf-8")
+            key_path = root / "signing.key"
+            key_path.write_bytes(b"b" * 32)
+
+            cfg = self._make_config(
+                signing_key_path=str(key_path),
+                bundle_manifest_path=str(manifest_path),
+                bundle_root=str(root),
+            )
+            result = run_startup_checks(cfg)
+            self.assertTrue(result.passed)
+            self.assertEqual(next(c for c in result.checks if c["name"] == "bundle.manifest")["status"], "ok")
+
+            asset.write_text("tampered", encoding="utf-8")
+            self.assertFalse(run_startup_checks(cfg).passed)
+
+    def test_configured_bundle_without_signing_key_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            asset = root / "asset.txt"
+            asset.write_text("unsigned", encoding="utf-8")
+            manifest = BundleManifest.build(
+                "airbench.test.bundle", "0.1.0", [("asset", "file", asset)], bundle_root=root
+            )
+            manifest_path = root / "bundle_manifest.json"
+            manifest_path.write_text(manifest.to_json(), encoding="utf-8")
+            cfg = self._make_config(bundle_manifest_path=str(manifest_path), bundle_root=str(root))
+            result = run_startup_checks(cfg)
+            self.assertFalse(result.passed)
+            self.assertIn("bundle.signature", {c["name"] for c in result.checks if c["status"] != "ok"})
 
 
 # ---------------------------------------------------------------------------
