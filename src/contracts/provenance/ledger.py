@@ -186,7 +186,7 @@ class EventLedger:
             raise TransitionRejected("task.created requires an absent task")
         if event.event_type != "task.created" and state == "absent":
             raise TransitionRejected(f"{event.event_type} requires task.created")
-        if state in TERMINAL_STATES and event.event_type not in {"human.review.required"}:
+        if state in TERMINAL_STATES and event.event_type not in {"human.review.required", "artifact.previewed", "artifact.downloaded"}:
             raise TransitionRejected("terminal task cannot accept another consequential event")
         if event.event_type == "completion.recorded" and state not in {"verified", "needs_review"}:
             raise TransitionRejected("completion requires verified or review state")

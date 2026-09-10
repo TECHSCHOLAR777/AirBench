@@ -13,12 +13,14 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
+from email import policy
+from email.parser import BytesParser
 from threading import RLock
 from typing import Any, Protocol
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from contracts import (
     AuthorizationError,
@@ -31,6 +33,7 @@ from contracts import (
     NodeEvidenceRef,
     NodeFactRef,
     NodeHandshake,
+    NodeRouteTrace,
     NodeTaskEvent,
     NodeTaskEventBatch,
     NodeTaskSnapshot,
@@ -47,11 +50,15 @@ from contracts import (
 )
 from contracts.ids import stable_id
 from contracts.provenance.ledger import LedgerError
+from .intake_gateway import NodeArtifactDownload, NodeIntakeError, NodeIntakeGateway
+from .deliverable_gateway import NodeDeliverableGateway
 
 
 PROTOCOL_VERSION = NODE_PROTOCOL_VERSION
 PROTOCOL_COMPATIBILITY_ID = NODE_PROTOCOL_COMPATIBILITY_ID
 MAX_JSON_BODY_BYTES = 1_048_576
+MAX_QUERY_UPLOAD_BYTES = 100 * 1024 * 1024
+MAX_MULTIPART_BODY_BYTES = MAX_QUERY_UPLOAD_BYTES + 64 * 1024
 MAX_EVENT_BATCH = 128
 MAX_EVIDENCE_ITEMS = 1_000
 MAX_ROUTE_ITEMS = 1_000
@@ -115,9 +122,11 @@ class NodeApiConfig:
 class NodeApiService:
     """Owns API authentication and projections, not task authority."""
 
-    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig):
+    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None):
         self.orchestrator = orchestrator
         self.config = config
+        self.intake_gateway = intake_gateway
+        self.deliverable_gateway = deliverable_gateway
         self._ledger: LedgerView = orchestrator.store
         self._lock = RLock()
 
@@ -162,6 +171,60 @@ class NodeApiService:
                 }
             except Exception as exc:
                 raise NodeApiError(503, "ledger_unavailable", "The local ledger could not be verified.") from exc
+
+    def query_upload(self, subject: str, *, task_id: str, file_name: str, content: bytes) -> dict[str, Any]:
+        with self._lock:
+            gateway = self._require_intake_gateway()
+            try:
+                return gateway.query_upload(
+                    subject=subject,
+                    task_id=task_id,
+                    file_name=file_name,
+                    content=content,
+                )
+            except NodeIntakeError as exc:
+                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
+    def safe_preview(self, preview_ref: str) -> dict[str, Any]:
+        with self._lock:
+            gateway = self._require_intake_gateway()
+            try:
+                return gateway.preview(preview_ref=preview_ref)
+            except NodeIntakeError as exc:
+                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
+    def artifact_preview(self, artifact_id: str) -> dict[str, Any]:
+        with self._lock:
+            if self.deliverable_gateway is not None:
+                try:
+                    return self.deliverable_gateway.artifact_preview(artifact_id=artifact_id)
+                except NodeIntakeError as exc:
+                    if exc.code not in {"deliverable_not_found", "invalid_reference"}:
+                        raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+            gateway = self._require_intake_gateway()
+            try:
+                return gateway.artifact_preview(artifact_id=artifact_id)
+            except NodeIntakeError as exc:
+                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
+    def artifact_download(self, artifact_id: str) -> NodeArtifactDownload:
+        with self._lock:
+            if self.deliverable_gateway is not None:
+                try:
+                    return self.deliverable_gateway.download(artifact_id=artifact_id)
+                except NodeIntakeError as exc:
+                    if exc.code not in {"deliverable_not_found", "invalid_reference"}:
+                        raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+            gateway = self._require_intake_gateway()
+            try:
+                return gateway.download(artifact_id=artifact_id)
+            except NodeIntakeError as exc:
+                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
+    def _require_intake_gateway(self) -> NodeIntakeGateway:
+        if self.intake_gateway is None:
+            raise NodeApiError(503, "intake_unavailable", "The local File Intake service is not configured.")
+        return self.intake_gateway
 
     def create_task(self, subject: str, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -593,7 +656,17 @@ class NodeApiService:
                 entries.append(entry)
                 if len(entries) >= MAX_ROUTE_ITEMS:
                     break
-            return {"taskId": task.task_id, "schemaVersion": self.config.protocol_version, "entries": entries}
+            try:
+                trace = NodeRouteTrace.from_wire_dict({
+                    "taskId": task.task_id,
+                    "nodeIdentity": self.config.node_identity,
+                    "protocolVersion": self.config.protocol_version,
+                    "clearanceContext": self.config.clearance_context.value,
+                    "entries": entries,
+                })
+            except ContractValidationError as exc:
+                raise NodeApiError(503, "route_trace_contract_corrupt", "The routing trace could not be verified.") from exc
+            return trace.to_wire_dict()
 
     def review(self, task_id: str) -> dict[str, Any]:
         with self._lock:
@@ -622,6 +695,15 @@ class NodeApiService:
                 "ledgerEventRef": event.event_id if event else None,
                 "clearanceContext": self.config.clearance_context.value,
             }
+
+    def artifact_review(self, task_id: str) -> dict[str, Any]:
+        with self._lock:
+            if self.deliverable_gateway is None:
+                raise NodeApiError(503, "deliverable_unavailable", "The local Deliverable Engine is not configured.")
+            try:
+                return self.deliverable_gateway.artifact_review(task_id=task_id)
+            except NodeIntakeError as exc:
+                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
 
     def _visible_task(self, task_id: str) -> TaskEnvelope:
         _validate_task_id(task_id)
@@ -674,9 +756,11 @@ class NodeApiService:
         if event.event_type == "task.plan.approved":
             return "plan.approved", {"phase": "planning", "status": "planning", "summary": _event_summary(event)}
         if event.event_type in {"model.requested", "worker.started"}:
-            return "worker.started", {"role": _role(p, "worker"), "label": _label(p, event.event_type), "status": "running"}
+            return "worker.started", _worker_projection(p, role=_role(p, "worker"), label=_label(p, event.event_type), status="running")
         if event.event_type in {"model.responded", "worker.completed"}:
-            return "worker.completed", {"role": _role(p, "worker"), "label": _label(p, event.event_type), "status": "completed"}
+            return "worker.completed", _worker_projection(p, role=_role(p, "worker"), label=_label(p, event.event_type), status="completed")
+        if event.event_type in _EXECUTION_NODE_EVENT_TYPES:
+            return event.event_type, _execution_projection(event)
         if event.event_type == "tool.requested":
             return "tool.started", {"role": _role(p, "tool"), "label": _label(p, event.event_type), "status": "running"}
         if event.event_type == "tool.result":
@@ -795,6 +879,18 @@ _ROUTE_EVENT_TYPES = {
     "model.call.started", "model.call.completed", "model.call.failed", "fallback.selected",
 }
 
+_EXECUTION_NODE_EVENT_TYPES = {
+    "team.created", "team.execution.started", "team.execution.completed", "team.execution.failed", "team.execution.cancelled",
+    "lifecycle.intercepted", "lifecycle.blocked", "worker.context.compacted", "worker.assigned", "worker.failed",
+    "worker.handoff", "worker.handoff.rejected", "worker.handoff.late", "worker.resource_reserved", "worker.preempted", "worker.cancelled",
+    "team.resource_plan.created", "team.resource_plan.admitted", "team.resource_plan.queued", "team.resource_plan.degraded_needs_review",
+    "team.resource_plan.rejected", "team.resource_plan.released", "team.resource_plan.cancelled", "execution.mode.selected", "execution.mode.changed",
+    "join_barrier.waiting", "join_barrier.completed", "join_barrier.resolved", "resource.exhaustion.detected", "resource.recovered",
+    "resource.queue.updated", "resource.lease.granted", "resource.lease.activated", "resource.lease.released", "resource.lease.expired",
+    "resource.lease.cancelled", "resource.lease.failed", "resource.admission.degraded", "background.work.yielded",
+    "resource.plan.admitted", "resource.plan.queued", "barrier.waiting", "barrier.completed",
+}
+
 
 def create_app(service: NodeApiService) -> FastAPI:
     """Build an API app with documentation endpoints disabled by default."""
@@ -840,6 +936,77 @@ def create_app(service: NodeApiService) -> FastAPI:
             raise NodeApiError(400, "json_object_required", "The request body must be a JSON object.")
         return value
 
+    async def multipart_document(request: Request) -> tuple[str, str, bytes]:
+        """Decode only multipart framing; document interpretation stays in M7."""
+        content_type = request.headers.get("content-type", "")
+        if not content_type.lower().startswith("multipart/form-data"):
+            raise NodeApiError(400, "multipart_required", "The intake request must be multipart form data.")
+        declared_length = request.headers.get("content-length")
+        if declared_length is not None:
+            try:
+                if int(declared_length) > MAX_MULTIPART_BODY_BYTES:
+                    raise NodeApiError(413, "upload_too_large", "The upload exceeds the local query-upload limit.")
+            except ValueError as exc:
+                raise NodeApiError(400, "content_length_invalid", "The upload content length is invalid.") from exc
+        data = bytearray()
+        async for chunk in request.stream():
+            data.extend(chunk)
+            if len(data) > MAX_MULTIPART_BODY_BYTES:
+                raise NodeApiError(413, "upload_too_large", "The upload exceeds the local query-upload limit.")
+        try:
+            raw_message = (
+                b"Content-Type: " + content_type.encode("utf-8")
+                + b"\r\nMIME-Version: 1.0\r\n\r\n" + bytes(data)
+            )
+            message = BytesParser(policy=policy.default).parsebytes(raw_message)
+        except (UnicodeEncodeError, ValueError) as exc:
+            raise NodeApiError(400, "multipart_invalid", "The intake multipart envelope is invalid.") from exc
+        if not message.is_multipart():
+            raise NodeApiError(400, "multipart_invalid", "The intake request did not contain multipart parts.")
+
+        fields: dict[str, str] = {}
+        documents = []
+        for part in message.iter_parts():
+            if part.get_content_disposition() != "form-data":
+                continue
+            name = part.get_param("name", header="content-disposition")
+            if not isinstance(name, str) or not name:
+                raise NodeApiError(400, "multipart_field_invalid", "The intake multipart field name is invalid.")
+            if name == "document":
+                documents.append(part)
+                continue
+            if name in fields:
+                raise NodeApiError(400, "multipart_field_duplicate", "The intake multipart field was repeated.")
+            value = part.get_payload(decode=True) or b""
+            try:
+                fields[name] = value.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise NodeApiError(400, "multipart_field_invalid", "The intake multipart field is not valid text.") from exc
+        if fields.get("intake_mode") != "query_upload":
+            raise NodeApiError(400, "intake_mode_invalid", "The intake mode must be query_upload.")
+        task_id = fields.get("task_id")
+        if not isinstance(task_id, str) or not TASK_ID_RE.fullmatch(task_id):
+            raise NodeApiError(409, "task_required", "Create the task through the Node before sending query-upload material.")
+        if len(documents) != 1:
+            raise NodeApiError(400, "document_part_invalid", "Exactly one document part is required.")
+        document = documents[0]
+        file_name = document.get_filename()
+        if not isinstance(file_name, str) or not file_name.strip() or len(file_name) > 255 or any(char in file_name for char in ("/", "\\", "\0")):
+            raise NodeApiError(400, "file_name_invalid", "The intake file name is invalid.")
+        content = document.get_payload(decode=True) or b""
+        if not content:
+            raise NodeApiError(422, "empty_file", "Empty files are rejected by the File Intake Layer.")
+        if len(content) > MAX_QUERY_UPLOAD_BYTES:
+            raise NodeApiError(413, "upload_too_large", "The upload exceeds the local query-upload limit.")
+        declared_size = fields.get("source_file_size")
+        if declared_size is not None:
+            try:
+                if int(declared_size) != len(content):
+                    raise NodeApiError(422, "source_size_mismatch", "The declared source size does not match the uploaded bytes.")
+            except ValueError as exc:
+                raise NodeApiError(400, "source_size_invalid", "The declared source size is invalid.") from exc
+        return task_id, file_name, content
+
     @app.get("/api/v1/node/handshake")
     async def handshake(request: Request) -> dict[str, Any]:
         auth(request)
@@ -849,6 +1016,35 @@ def create_app(service: NodeApiService) -> FastAPI:
     async def health(request: Request) -> dict[str, Any]:
         auth(request)
         return service.health()
+
+    @app.post("/api/v1/intake/query-upload", status_code=200)
+    async def query_upload(request: Request) -> dict[str, Any]:
+        subject = auth(request)
+        task_id, file_name, content = await multipart_document(request)
+        return service.query_upload(subject, task_id=task_id, file_name=file_name, content=content)
+
+    @app.get("/api/v1/intake/{preview_ref}/preview")
+    async def safe_intake_preview(preview_ref: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.safe_preview(preview_ref)
+
+    @app.get("/api/v1/artifacts/{artifact_id}/preview")
+    async def artifact_preview(artifact_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.artifact_preview(artifact_id)
+
+    @app.get("/api/v1/artifacts/{artifact_id}/download")
+    async def artifact_download(artifact_id: str, request: Request) -> Response:
+        auth(request)
+        result = service.artifact_download(artifact_id)
+        return Response(
+            content=result.content,
+            media_type=result.media_type,
+            headers={
+                "X-AirBench-Artifact-Hash": result.content_hash,
+                "X-AirBench-Ledger-Event-Ref": result.ledger_event_ref,
+            },
+        )
 
     @app.post("/api/v1/tasks", status_code=201)
     async def create_task(request: Request) -> dict[str, Any]:
@@ -884,6 +1080,11 @@ def create_app(service: NodeApiService) -> FastAPI:
     async def task_review(task_id: str, request: Request) -> dict[str, Any]:
         auth(request)
         return service.review(task_id)
+
+    @app.get("/api/v1/tasks/{task_id}/artifact-review")
+    async def task_artifact_review(task_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.artifact_review(task_id)
 
     @app.post("/api/v1/tasks/{task_id}/authorize", status_code=202)
     async def authorize_task(task_id: str, request: Request) -> dict[str, Any]:
@@ -1046,6 +1247,141 @@ def _label(payload: dict[str, Any], default: str) -> str:
     return default
 
 
+def _execution_sources(payload: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    sources = [payload]
+    for name in ("team", "plan", "assignment", "reservation", "lease", "barrier", "handoff"):
+        nested = payload.get(name)
+        if isinstance(nested, dict):
+            sources.append(nested)
+    return tuple(sources)
+
+
+def _execution_text(payload: dict[str, Any], *keys: str) -> str | None:
+    for source in _execution_sources(payload):
+        for key in keys:
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return _bounded_text(value.strip(), 512)
+    return None
+
+
+def _worker_projection(payload: dict[str, Any], *, role: str, label: str, status: str) -> dict[str, Any]:
+    result: dict[str, Any] = {"role": role, "label": label, "status": status}
+    fields = (
+        ("team_id", "teamId"),
+        ("assignment_id", "assignmentId"),
+        ("worker_id", "workerId"),
+        ("resource_lease_id", "resourceLeaseId"),
+    )
+    for source_key, wire_key in fields:
+        value = _execution_text(payload, source_key)
+        if value is not None:
+            result[wire_key] = value
+    return result
+
+
+def _execution_projection(event: LedgerEventEnvelope) -> dict[str, Any]:
+    payload = event.payload
+    status_by_event = {
+        "team.created": "created",
+        "team.execution.started": "running",
+        "team.execution.completed": "completed",
+        "team.execution.failed": "failed",
+        "team.execution.cancelled": "cancelled",
+        "lifecycle.intercepted": "intercepted",
+        "lifecycle.blocked": "blocked",
+        "worker.assigned": "assigned",
+        "worker.failed": "failed",
+        "worker.handoff": "submitted",
+        "worker.handoff.rejected": "rejected",
+        "worker.handoff.late": "late",
+        "worker.resource_reserved": "reserved",
+        "worker.preempted": "preempted",
+        "worker.cancelled": "cancelled",
+        "team.resource_plan.created": "created",
+        "team.resource_plan.admitted": "admitted",
+        "team.resource_plan.queued": "queued",
+        "team.resource_plan.degraded_needs_review": "needs_review",
+        "team.resource_plan.rejected": "rejected",
+        "team.resource_plan.released": "released",
+        "team.resource_plan.cancelled": "cancelled",
+        "resource.plan.admitted": "admitted",
+        "resource.plan.queued": "queued",
+        "execution.mode.selected": "selected",
+        "execution.mode.changed": "changed",
+        "join_barrier.waiting": "waiting",
+        "join_barrier.completed": "completed",
+        "join_barrier.resolved": "resolved",
+        "barrier.waiting": "waiting",
+        "barrier.completed": "completed",
+        "resource.exhaustion.detected": "exhausted",
+        "resource.recovered": "recovered",
+        "resource.queue.updated": "queued",
+        "resource.lease.granted": "granted",
+        "resource.lease.activated": "active",
+        "resource.lease.released": "released",
+        "resource.lease.expired": "expired",
+        "resource.lease.cancelled": "cancelled",
+        "resource.lease.failed": "failed",
+        "resource.admission.degraded": "degraded",
+        "background.work.yielded": "yielded",
+    }
+    result: dict[str, Any] = {
+        "status": _execution_text(payload, "status") or status_by_event.get(event.event_type, "recorded"),
+        "summary": _execution_text(payload, "summary", "reason", "failure_code", "admission_reason", "outcome")
+        or f"Node recorded {event.event_type}.",
+    }
+    fields = (
+        ("execution_mode", "executionMode"),
+        ("team_id", "teamId"),
+        ("plan_id", "planId"),
+        ("assignment_id", "assignmentId"),
+        ("worker_id", "workerId"),
+        ("role", "role"),
+        ("label", "label"),
+        ("barrier_id", "barrierId"),
+        ("resource_lease_id", "resourceLeaseId"),
+        ("hardware_profile_ref", "hardwareProfileRef"),
+        ("model_target_id", "modelTargetId"),
+        ("qualification_id", "qualificationId"),
+    )
+    aliases = {
+        "execution_mode": ("execution_mode", "admitted_mode", "mode"),
+        "team_id": ("team_id",),
+        "plan_id": ("plan_id",),
+        "assignment_id": ("assignment_id", "destination_assignment_id"),
+        "worker_id": ("worker_id", "source_worker_id"),
+        "role": ("role",),
+        "label": ("label", "stage", "capability"),
+        "barrier_id": ("barrier_id",),
+        "resource_lease_id": ("resource_lease_id", "lease_id"),
+        "hardware_profile_ref": ("hardware_profile_ref", "hardware_profile_id"),
+        "model_target_id": ("model_target_id",),
+        "qualification_id": ("qualification_id",),
+    }
+    for source_key, wire_key in fields:
+        value = _execution_text(payload, *aliases[source_key])
+        if value is not None:
+            result[wire_key] = value
+
+    dependencies: list[str] = []
+    for source in _execution_sources(payload):
+        for key in ("dependency_ids", "required_predecessor_assignment_ids", "missing_assignment_ids", "assignment_ids"):
+            candidate = _string_list(source.get(key))
+            if candidate:
+                dependencies = candidate[:100]
+                break
+        if dependencies:
+            break
+    if dependencies:
+        result["dependencyIds"] = dependencies
+
+    queue_position = payload.get("queue_position")
+    if type(queue_position) is int and 0 <= queue_position <= 2**31 - 1:
+        result["queuePosition"] = queue_position
+    return result
+
+
 def _provenance_ref(provenance: dict[str, Any], event: LedgerEventEnvelope) -> dict[str, Any]:
     source_ref = str(provenance.get("source_ref", "ledger:" + event.event_id))
     return {
@@ -1067,8 +1403,17 @@ def _confidence(value: Any) -> float:
 
 def _input_manifest_ref(events: list[LedgerEventEnvelope]) -> str:
     created = next((event for event in events if event.event_type == "task.created"), None)
-    value = created.payload.get("input_manifest_ref") if created else None
-    return value if isinstance(value, str) else ""
+    task_payload = created.payload.get("task") if created else None
+    refs = task_payload.get("input_manifest_refs") if isinstance(task_payload, dict) else None
+    if isinstance(refs, list) and refs and isinstance(refs[0], str):
+        return refs[0]
+    # Query-upload is committed only after task.created and is linked to the
+    # same task by the File Intake Layer's evidence event. This keeps the
+    # upload-before-execution handoff visible without letting the API mutate
+    # the task envelope or invent a second parser path.
+    intake = next((event for event in reversed(events) if event.event_type == "evidence.created"), None)
+    intake_id = intake.payload.get("intake_id") if intake else None
+    return intake_id if isinstance(intake_id, str) else ""
 
 
 def _string_list(value: Any) -> list[str]:
@@ -1080,7 +1425,13 @@ def _string_list(value: Any) -> list[str]:
 def _resource_plan_values(payload: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
+    # Scheduler decision events carry the authoritative TeamResourcePlan
+    # under ``plan``.  Older/manual Node fixtures may expose the same fields
+    # directly or under ``resource_plan``.  Project all three wire shapes
+    # without weakening the typed plan contract at the API boundary.
     nested = payload.get("resource_plan")
+    if not isinstance(nested, dict):
+        nested = payload.get("plan")
     source = nested if isinstance(nested, dict) else payload
     values: dict[str, Any] = {}
     admission = source.get("admission")

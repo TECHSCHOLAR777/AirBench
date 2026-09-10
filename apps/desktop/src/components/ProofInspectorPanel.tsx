@@ -1,5 +1,6 @@
 import { AppIcon } from "./AppIcon";
 import type { ArtifactPreview, DownloadReceipt } from "../features/intake/intakeBridge";
+import type { NodeArtifactReview } from "../generated/core_contracts";
 import {
   artifactDownloadBoundaryState,
   artifactPreviewBoundaryState,
@@ -20,6 +21,7 @@ export type ArtifactLifecycleState = "ready" | "superseded" | "reference_only";
 
 interface ProofInspectorPanelProps {
   selection: ProofSelection | null;
+  artifactReview: NodeArtifactReview | null;
   artifactPreview: ArtifactPreview | null;
   artifactPreviewState: ArtifactPreviewState;
   artifactPreviewError: string | null;
@@ -30,7 +32,8 @@ interface ProofInspectorPanelProps {
 }
 
 export function ProofInspectorPanel({
-  selection,
+    selection,
+    artifactReview,
   artifactPreview,
   artifactPreviewState,
   artifactPreviewError,
@@ -50,6 +53,7 @@ export function ProofInspectorPanel({
     {!selection && <EmptyInspector />}
     {selection && <InspectorSelection
       selection={selection}
+      artifactReview={artifactReview}
       artifactPreview={artifactPreview}
       artifactPreviewState={artifactPreviewState}
       artifactPreviewError={artifactPreviewError}
@@ -75,6 +79,7 @@ type InspectorSelectionProps = Omit<ProofInspectorPanelProps, "selection"> & {
 
 function InspectorSelection({
   selection,
+  artifactReview,
   artifactPreview,
   artifactPreviewState,
   artifactPreviewError,
@@ -112,14 +117,32 @@ function InspectorSelection({
       />
       : <ArtifactLifecycleBoundary state={artifactLifecycleState} />)}
 
+    {selection.kind === "artifact" && artifactReview?.artifactId === selection.artifactId && <ArtifactReviewPanel review={artifactReview} />}
+
     <ProofDetails details={details} />
 
     {sourcePreviewNotice && <div className="proof-contract-note"><AppIcon name="document" size={15} /><span>{sourcePreviewNotice}</span></div>}
 
     {(selection.kind === "evidence" || selection.kind === "fact") && <div className="proof-contract-note"><AppIcon name="review" size={15} /><span>Conflict status and reviewer-note actions are not supplied by the current Node evidence contract. This view cannot declare a record conflict-free or edit an existing fact.</span></div>}
 
-    {selection.kind === "artifact" && <div className="proof-contract-note"><AppIcon name="review" size={15} /><span>Artifact status, verification, deterministic values, and approval authority have not been supplied by the current Node preview contract.</span></div>}
+    {selection.kind === "artifact" && !artifactReview && <div className="proof-contract-note"><AppIcon name="review" size={15} /><span>The Node has not supplied a review projection for this artifact. Approval, verification, and deterministic-value status remain unavailable.</span></div>}
   </div>;
+}
+
+function ArtifactReviewPanel({ review }: { review: NodeArtifactReview }) {
+  return <section className="proof-artifact-review" aria-label="Node artifact review">
+    <div className="proof-artifact-review-head"><div><span className="proof-artifact-review-kicker">DELIVERABLE RECORD</span><strong>{review.status.replaceAll("_", " ")}</strong></div><span className={`proof-review-badge proof-review-badge-${review.approvalState}`}>{review.approvalState.replaceAll("_", " ")}</span></div>
+    <dl className="proof-artifact-review-grid">
+      <div><dt>Verification</dt><dd>{review.verificationStatus}</dd></div>
+      <div><dt>Structure</dt><dd>{review.structuralCheck}</dd></div>
+      <div><dt>Visual check</dt><dd>{review.visualCheck}</dd></div>
+      <div><dt>Confidence</dt><dd>{Math.round(review.confidence * 100)}%</dd></div>
+      <div><dt>Format</dt><dd>{review.fileFormat.toUpperCase()}</dd></div>
+      <div><dt>Size</dt><dd>{review.byteSize.toLocaleString()} bytes</dd></div>
+    </dl>
+    {review.approvalBlockingReasons.length > 0 && <div className="proof-artifact-review-blockers" role="status"><strong>Review still required</strong><ul>{review.approvalBlockingReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></div>}
+    <div className="proof-artifact-review-provenance"><span>Provenance retained</span><small>{review.sourceRefs.length} source reference{review.sourceRefs.length === 1 ? "" : "s"} / {review.evidenceRefs.length} evidence / {review.verificationRefs.length} verification / {review.deterministicValueRefs.length} deterministic value binding{review.deterministicValueRefs.length === 1 ? "" : "s"}</small><small>Template {review.templateId} v{review.templateVersion} / ledger {review.ledgerEventRef}</small></div>
+  </section>;
 }
 
 function ArtifactPreviewPanel({ preview, state, error, downloadState, downloadReceipt, onDownload }: {

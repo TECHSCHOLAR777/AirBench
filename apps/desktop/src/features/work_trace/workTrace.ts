@@ -1,4 +1,4 @@
-import type { TaskPlanReview } from "../../generated/core_contracts";
+import type { NodeExecutionEventPayload, NodeRouteTrace, NodeRouteTraceEntry, TaskPlanReview } from "../../generated/core_contracts";
 import type { EvidenceRef, TaskEvent, TaskProjection } from "../../platform/events/protocol";
 
 export type WorkTraceStageId = "plan" | "execution" | "evidence" | "verification" | "review" | "artifacts" | "outcome";
@@ -19,6 +19,12 @@ export interface WorkTraceActivity {
   label: string;
   summary: string;
   artifactId: string | null;
+  context: WorkTraceContextField[];
+}
+
+export interface WorkTraceContextField {
+  label: string;
+  value: string;
 }
 
 export interface WorkTraceStage {
@@ -43,7 +49,7 @@ export interface WorkTraceEvidenceRecord {
 }
 
 export interface WorkTraceRouting {
-  state: "plan_context" | "not_supplied";
+  state: "plan_context" | "route_context" | "not_supplied";
   executionMode: string | null;
   hardwareProfileRef: string | null;
   hardwareReason: string | null;
@@ -51,9 +57,10 @@ export interface WorkTraceRouting {
   planLedgerEventRef: string | null;
   planVersionHash: string | null;
   policyVersionHash: string | null;
-  selectedTarget: null;
-  fallbackReason: null;
-  policyReason: null;
+  selectedTarget: string | null;
+  fallbackReason: string | null;
+  policyReason: string | null;
+  routeEntries: NodeRouteTraceEntry[];
 }
 
 export type WorkTraceArtifactState = "ready" | "superseded" | "reference_only";
@@ -64,16 +71,34 @@ export interface WorkTraceArtifactRecord {
   latestEvent: WorkTraceActivity | null;
 }
 
+export interface WorkTraceTeamAssignment {
+  assignmentId: string;
+  dependencies: string[];
+}
+
+export interface WorkTraceTeamPlan {
+  state: "not_supplied" | "planned";
+  teamId: string | null;
+  executionMode: TaskPlanReview["execution_mode"];
+  executionModeLabel: string;
+  executionModeDetail: string;
+  concurrencyCeiling: number;
+  assignments: WorkTraceTeamAssignment[];
+  capabilityLanes: Array<{ role: string; capability: string }>;
+  planLedgerEventRef: string | null;
+}
+
 export interface WorkTrace {
   activity: WorkTraceActivity[];
   latestActivity: WorkTraceActivity | null;
   stages: WorkTraceStage[];
-  execution: { workers: WorkTraceActivity[]; tools: WorkTraceActivity[] };
+  execution: { workers: WorkTraceActivity[]; tools: WorkTraceActivity[]; coordination: WorkTraceActivity[] };
   evidence: { records: WorkTraceEvidenceRecord[]; events: WorkTraceActivity[] };
   verification: { events: WorkTraceActivity[]; latest: WorkTraceActivity | null };
   review: { events: WorkTraceActivity[]; questions: string[] };
   artifacts: { events: WorkTraceActivity[]; ids: string[]; records: WorkTraceArtifactRecord[] };
   routing: WorkTraceRouting;
+  team: WorkTraceTeamPlan;
 }
 
 const stageOrder: Array<{ id: WorkTraceStageId; label: string }> = [
@@ -86,7 +111,7 @@ const stageOrder: Array<{ id: WorkTraceStageId; label: string }> = [
   { id: "outcome", label: "Outcome" },
 ];
 
-export function buildWorkTrace(projection: TaskProjection, plan: TaskPlanReview | null): WorkTrace {
+export function buildWorkTrace(projection: TaskProjection, plan: TaskPlanReview | null, routeTrace: NodeRouteTrace | null = null): WorkTrace {
   // Event delivery is normally ordered by TaskEventSynchronizer. Keep the trace
   // deterministic even when a fixture or a future transport adapter provides a
   // defensively valid but unsorted projection.
@@ -96,6 +121,7 @@ export function buildWorkTrace(projection: TaskProjection, plan: TaskPlanReview 
   const execution = {
     workers: activity.filter((item) => item.eventType === "worker.started" || item.eventType === "worker.completed"),
     tools: activity.filter((item) => item.eventType === "tool.started" || item.eventType === "tool.completed"),
+    coordination: activity.filter((item) => item.stage === "execution" && item.eventType !== "worker.started" && item.eventType !== "worker.completed" && item.eventType !== "tool.started" && item.eventType !== "tool.completed"),
   };
   const evidenceEvents = activity.filter((item) => item.stage === "evidence");
   const verificationEvents = activity.filter((item) => item.stage === "verification");
@@ -103,7 +129,8 @@ export function buildWorkTrace(projection: TaskProjection, plan: TaskPlanReview 
   const artifactEvents = activity.filter((item) => item.stage === "artifacts");
   const artifactRecords = buildArtifactRecords(projection.artifactRefs, artifactEvents);
   const records = projection.evidence.map(toEvidenceRecord);
-  const routing = routingFromPlan(plan);
+  const routing = routingFromPlan(plan, routeTrace);
+  const team = teamPlanFromPlan(plan);
   const stages = stageOrder.map(({ id, label }) => {
     const events = activity.filter((item) => item.stage === id);
     return {
@@ -125,6 +152,7 @@ export function buildWorkTrace(projection: TaskProjection, plan: TaskPlanReview 
     review: { events: reviewEvents, questions: [...projection.unresolvedQuestions] },
     artifacts: { events: artifactEvents, ids: [...projection.artifactRefs], records: artifactRecords },
     routing,
+    team,
   };
 }
 
@@ -164,7 +192,55 @@ function toTraceActivity(event: TaskEvent): WorkTraceActivity {
     label: eventLabel(event),
     summary: eventSummary(event),
     artifactId: event.eventType === "artifact.ready" || event.eventType === "artifact.superseded" ? event.payload.artifactId : null,
+    context: activityContext(event),
   };
+}
+
+function activityContext(event: TaskEvent): WorkTraceContextField[] {
+  if (event.eventType === "worker.started" || event.eventType === "worker.completed" || event.eventType === "tool.started" || event.eventType === "tool.completed") {
+    return [
+      { label: "Role", value: event.payload.role },
+      { label: "Record", value: event.payload.label },
+    ];
+  }
+  if (!isExecutionEvent(event)) return [];
+
+  const payload = event.payload;
+  const fields: Array<[string, string | number | null | undefined]> = [
+    ["Team", payload.teamId],
+    ["Assignment", payload.assignmentId],
+    ["Worker", payload.workerId],
+    ["Role", payload.role],
+    ["Barrier", payload.barrierId],
+    ["Resource lease", payload.resourceLeaseId],
+    ["Mode", payload.executionMode],
+    ["Hardware", payload.hardwareProfileRef],
+    ["Model target", payload.modelTargetId],
+    ["Qualification", payload.qualificationId],
+    ["Queue position", payload.queuePosition],
+  ];
+  if (payload.dependencyIds && payload.dependencyIds.length > 0) fields.push(["Dependencies", payload.dependencyIds.join(", ")]);
+  return fields.filter((field): field is [string, string | number] => {
+    const value = field[1];
+    return value !== undefined && value !== null && String(value).trim().length > 0;
+  }).map(([label, value]) => ({ label, value: String(value) }));
+}
+
+function isExecutionEvent(event: TaskEvent): event is Extract<TaskEvent, { payload: NodeExecutionEventPayload }> {
+  return event.eventType !== "unknown"
+    && event.eventType !== "evidence.added"
+    && event.eventType !== "evidence.revised"
+    && event.eventType !== "verification.completed"
+    && event.eventType !== "verification.failed"
+    && event.eventType !== "approval.required"
+    && event.eventType !== "approval.recorded"
+    && event.eventType !== "approval.returned"
+    && event.eventType !== "artifact.ready"
+    && event.eventType !== "artifact.superseded"
+    && event.eventType !== "ledger.written"
+    && event.eventType !== "ledger.verification_changed"
+    && event.eventType !== "node.connection_changed"
+    && event.eventType !== "node.sovereignty_changed";
 }
 
 function toEvidenceRecord(evidence: EvidenceRef): WorkTraceEvidenceRecord {
@@ -182,8 +258,9 @@ function toEvidenceRecord(evidence: EvidenceRef): WorkTraceEvidenceRecord {
   };
 }
 
-function routingFromPlan(plan: TaskPlanReview | null): WorkTraceRouting {
-  if (!plan) {
+function routingFromPlan(plan: TaskPlanReview | null, routeTrace: NodeRouteTrace | null): WorkTraceRouting {
+  const routeEntries = routeTrace?.entries.map((entry) => ({ ...entry })) ?? [];
+  if (!plan && !routeTrace) {
     return {
       state: "not_supplied",
       executionMode: null,
@@ -196,20 +273,78 @@ function routingFromPlan(plan: TaskPlanReview | null): WorkTraceRouting {
       selectedTarget: null,
       fallbackReason: null,
       policyReason: null,
+      routeEntries,
     };
   }
+  const latestSelectedTarget = [...routeEntries].reverse().find((entry) => entry.selectedTarget)?.selectedTarget ?? null;
+  const fallbackEntry = [...routeEntries].reverse().find((entry) => entry.fallbackTarget || entry.eventType === "routing.fallback.selected" || entry.eventType === "fallback.selected");
+  const policyEntry = [...routeEntries].reverse().find((entry) => entry.decisionSource || entry.ruleOrThreshold || entry.reason);
+  const fallbackReason = fallbackEntry ? [fallbackEntry.fallbackTarget, fallbackEntry.reason].filter(Boolean).join(" / ") || "Fallback was recorded by the Node." : null;
+  const policyReason = policyEntry ? [policyEntry.decisionSource, policyEntry.ruleOrThreshold, policyEntry.reason].filter(Boolean).join(" / ") || "Routing policy context was recorded by the Node." : null;
   return {
-    state: "plan_context",
+    state: routeTrace ? "route_context" : "plan_context",
+    executionMode: plan?.execution_mode ?? null,
+    hardwareProfileRef: plan?.hardware_profile_ref ?? null,
+    hardwareReason: plan?.hardware_reason ?? null,
+    capabilityLanes: plan ? { ...plan.worker_capabilities } : {},
+    planLedgerEventRef: plan?.ledger_event_ref ?? null,
+    planVersionHash: plan?.plan_version_hash ?? null,
+    policyVersionHash: plan?.policy_version_hash ?? null,
+    selectedTarget: latestSelectedTarget,
+    fallbackReason,
+    policyReason,
+    routeEntries,
+  };
+}
+
+function teamPlanFromPlan(plan: TaskPlanReview | null): WorkTraceTeamPlan {
+  if (!plan) {
+    return {
+      state: "not_supplied",
+      teamId: null,
+      executionMode: "not_selected",
+      executionModeLabel: "Execution mode not supplied",
+      executionModeDetail: "The Node has not supplied a team plan for this task.",
+      concurrencyCeiling: 0,
+      assignments: [],
+      capabilityLanes: [],
+      planLedgerEventRef: null,
+    };
+  }
+
+  const modeCopy: Record<TaskPlanReview["execution_mode"], { label: string; detail: string }> = {
+    parallel: {
+      label: "Parallel team",
+      detail: `The Node admitted up to ${plan.concurrency_ceiling} concurrent worker lane${plan.concurrency_ceiling === 1 ? "" : "s"}.`,
+    },
+    pipelined: {
+      label: "Pipelined team",
+      detail: "The Node may advance independent work while dependent stages wait for recorded handoffs.",
+    },
+    serial_virtual_team: {
+      label: "Serial virtual team",
+      detail: "The logical team is retained, while the Node schedules one worker turn at a time for the available hardware.",
+    },
+    not_selected: {
+      label: "Execution mode pending",
+      detail: "The Node has not admitted a runnable execution mode.",
+    },
+  };
+  const selectedMode = modeCopy[plan.execution_mode];
+
+  return {
+    state: "planned",
+    teamId: plan.team_id,
     executionMode: plan.execution_mode,
-    hardwareProfileRef: plan.hardware_profile_ref,
-    hardwareReason: plan.hardware_reason,
-    capabilityLanes: { ...plan.worker_capabilities },
+    executionModeLabel: selectedMode.label,
+    executionModeDetail: selectedMode.detail,
+    concurrencyCeiling: plan.concurrency_ceiling,
+    assignments: plan.assignments.map((assignmentId) => ({
+      assignmentId,
+      dependencies: [...(plan.dependency_graph[assignmentId] ?? [])],
+    })),
+    capabilityLanes: Object.entries(plan.worker_capabilities).map(([role, capability]) => ({ role, capability })),
     planLedgerEventRef: plan.ledger_event_ref,
-    planVersionHash: plan.plan_version_hash,
-    policyVersionHash: plan.policy_version_hash,
-    selectedTarget: null,
-    fallbackReason: null,
-    policyReason: null,
   };
 }
 
@@ -224,6 +359,48 @@ function stageForEvent(event: TaskEvent): WorkTraceStageId | "system" {
     case "worker.completed":
     case "tool.started":
     case "tool.completed":
+    case "team.created":
+    case "team.execution.started":
+    case "team.execution.completed":
+    case "team.execution.failed":
+    case "team.execution.cancelled":
+    case "lifecycle.intercepted":
+    case "lifecycle.blocked":
+    case "worker.assigned":
+    case "worker.failed":
+    case "worker.handoff":
+    case "worker.handoff.rejected":
+    case "worker.handoff.late":
+    case "worker.resource_reserved":
+    case "worker.preempted":
+    case "worker.cancelled":
+    case "team.resource_plan.created":
+    case "team.resource_plan.admitted":
+    case "team.resource_plan.queued":
+    case "team.resource_plan.degraded_needs_review":
+    case "team.resource_plan.rejected":
+    case "team.resource_plan.released":
+    case "team.resource_plan.cancelled":
+    case "resource.plan.admitted":
+    case "resource.plan.queued":
+    case "execution.mode.selected":
+    case "execution.mode.changed":
+    case "join_barrier.waiting":
+    case "join_barrier.completed":
+    case "join_barrier.resolved":
+    case "barrier.waiting":
+    case "barrier.completed":
+    case "resource.exhaustion.detected":
+    case "resource.recovered":
+    case "resource.queue.updated":
+    case "resource.lease.granted":
+    case "resource.lease.activated":
+    case "resource.lease.released":
+    case "resource.lease.expired":
+    case "resource.lease.cancelled":
+    case "resource.lease.failed":
+    case "resource.admission.degraded":
+    case "background.work.yielded":
       return "execution";
     case "evidence.added":
     case "evidence.revised":
@@ -251,9 +428,9 @@ function stageForEvent(event: TaskEvent): WorkTraceStageId | "system" {
 }
 
 function toneForEvent(event: TaskEvent): WorkTraceTone {
-  if (event.eventType === "verification.failed" || event.eventType === "approval.returned" || event.eventType === "task.blocked" || event.eventType === "task.failed" || event.eventType === "task.stopped") return "attention";
-  if (event.eventType === "worker.started" || event.eventType === "tool.started" || event.eventType === "task.resumed") return "active";
-  if (event.eventType === "worker.completed" || event.eventType === "tool.completed" || event.eventType === "verification.completed" || event.eventType === "approval.recorded" || event.eventType === "artifact.ready" || event.eventType === "task.completed") return "success";
+  if (event.eventType === "verification.failed" || event.eventType === "approval.returned" || event.eventType === "task.blocked" || event.eventType === "task.failed" || event.eventType === "task.stopped" || event.eventType === "team.execution.failed" || event.eventType === "team.resource_plan.rejected" || event.eventType === "worker.failed" || event.eventType === "worker.handoff.rejected" || event.eventType === "worker.handoff.late" || event.eventType === "resource.exhaustion.detected" || event.eventType === "lifecycle.blocked" || event.eventType === "lifecycle.intercepted" || event.eventType === "resource.lease.failed") return "attention";
+  if (event.eventType === "worker.started" || event.eventType === "tool.started" || event.eventType === "task.resumed" || event.eventType === "team.execution.started" || event.eventType === "worker.assigned" || event.eventType === "join_barrier.waiting" || event.eventType === "barrier.waiting" || event.eventType === "team.resource_plan.queued" || event.eventType === "resource.plan.queued" || event.eventType === "resource.queue.updated" || event.eventType === "resource.lease.activated") return "active";
+  if (event.eventType === "worker.completed" || event.eventType === "tool.completed" || event.eventType === "verification.completed" || event.eventType === "approval.recorded" || event.eventType === "artifact.ready" || event.eventType === "task.completed" || event.eventType === "team.execution.completed" || event.eventType === "team.resource_plan.admitted" || event.eventType === "resource.plan.admitted" || event.eventType === "join_barrier.completed" || event.eventType === "barrier.completed" || event.eventType === "resource.recovered" || event.eventType === "resource.lease.released") return "success";
   return "neutral";
 }
 
@@ -286,6 +463,48 @@ function eventLabel(event: TaskEvent): string {
     "ledger.verification_changed": "Ledger verification changed",
     "node.connection_changed": "Node connection changed",
     "node.sovereignty_changed": "Node sovereignty changed",
+    "team.created": "Team created",
+    "team.execution.started": "Team execution started",
+    "team.execution.completed": "Team execution completed",
+    "team.execution.failed": "Team execution failed",
+    "team.execution.cancelled": "Team execution cancelled",
+    "lifecycle.intercepted": "Execution intercepted",
+    "lifecycle.blocked": "Execution blocked",
+    "worker.assigned": "Worker assigned",
+    "worker.failed": "Worker failed",
+    "worker.handoff": "Worker handoff recorded",
+    "worker.handoff.rejected": "Worker handoff rejected",
+    "worker.handoff.late": "Worker handoff late",
+    "worker.resource_reserved": "Worker resources reserved",
+    "worker.preempted": "Worker preempted",
+    "worker.cancelled": "Worker cancelled",
+    "team.resource_plan.created": "Resource plan created",
+    "team.resource_plan.admitted": "Resource plan admitted",
+    "team.resource_plan.queued": "Resource plan queued",
+    "team.resource_plan.degraded_needs_review": "Resource plan needs review",
+    "team.resource_plan.rejected": "Resource plan rejected",
+    "team.resource_plan.released": "Resource plan released",
+    "team.resource_plan.cancelled": "Resource plan cancelled",
+    "resource.plan.admitted": "Resource plan admitted",
+    "resource.plan.queued": "Resource plan queued",
+    "execution.mode.selected": "Execution mode selected",
+    "execution.mode.changed": "Execution mode changed",
+    "join_barrier.waiting": "Join barrier waiting",
+    "join_barrier.completed": "Join barrier completed",
+    "join_barrier.resolved": "Join barrier resolved",
+    "barrier.waiting": "Barrier waiting",
+    "barrier.completed": "Barrier completed",
+    "resource.exhaustion.detected": "Resource exhaustion detected",
+    "resource.recovered": "Resources recovered",
+    "resource.queue.updated": "Resource queue updated",
+    "resource.lease.granted": "Resource lease granted",
+    "resource.lease.activated": "Resource lease activated",
+    "resource.lease.released": "Resource lease released",
+    "resource.lease.expired": "Resource lease expired",
+    "resource.lease.cancelled": "Resource lease cancelled",
+    "resource.lease.failed": "Resource lease failed",
+    "resource.admission.degraded": "Resource admission degraded",
+    "background.work.yielded": "Background work yielded",
     unknown: "Unknown Node event",
   };
   return labels[event.eventType];
@@ -328,9 +547,57 @@ function eventSummary(event: TaskEvent): string {
     case "node.connection_changed":
     case "node.sovereignty_changed":
       return event.payload.summary;
+    case "team.created":
+    case "team.execution.started":
+    case "team.execution.completed":
+    case "team.execution.failed":
+    case "team.execution.cancelled":
+    case "lifecycle.intercepted":
+    case "lifecycle.blocked":
+    case "worker.assigned":
+    case "worker.failed":
+    case "worker.handoff":
+    case "worker.handoff.rejected":
+    case "worker.handoff.late":
+    case "worker.resource_reserved":
+    case "worker.preempted":
+    case "worker.cancelled":
+    case "team.resource_plan.created":
+    case "team.resource_plan.admitted":
+    case "team.resource_plan.queued":
+    case "team.resource_plan.degraded_needs_review":
+    case "team.resource_plan.rejected":
+    case "team.resource_plan.released":
+    case "team.resource_plan.cancelled":
+    case "resource.plan.admitted":
+    case "resource.plan.queued":
+    case "execution.mode.selected":
+    case "execution.mode.changed":
+    case "join_barrier.waiting":
+    case "join_barrier.completed":
+    case "join_barrier.resolved":
+    case "barrier.waiting":
+    case "barrier.completed":
+    case "resource.exhaustion.detected":
+    case "resource.recovered":
+    case "resource.queue.updated":
+    case "resource.lease.granted":
+    case "resource.lease.activated":
+    case "resource.lease.released":
+    case "resource.lease.expired":
+    case "resource.lease.cancelled":
+    case "resource.lease.failed":
+    case "resource.admission.degraded":
+    case "background.work.yielded":
+      return executionSummary(event.payload);
     case "unknown":
       return "The Node returned an event this desktop cannot safely interpret.";
   }
+}
+
+function executionSummary(payload: NodeExecutionEventPayload): string {
+  const details = [payload.teamId, payload.assignmentId, payload.workerId, payload.barrierId, payload.executionMode].filter(Boolean);
+  return details.length > 0 ? `${payload.summary} [${details.join(" · ")}]` : payload.summary;
 }
 
 function stageState(stage: WorkTraceStageId, events: WorkTraceActivity[], projection: TaskProjection, plan: TaskPlanReview | null): WorkTraceState {

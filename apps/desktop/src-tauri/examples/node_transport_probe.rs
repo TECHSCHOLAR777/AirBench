@@ -1,8 +1,12 @@
+use airbench_desktop_lib::intake::{
+    download_artifact_to_path, fetch_artifact_preview_from_profile,
+};
 use airbench_desktop_lib::node_transport::{
-    connect_node_profile, create_task_profile, fetch_task_events_profile, fetch_task_plan_profile,
+    connect_node_profile, create_task_profile, fetch_task_artifact_review_profile,
+    fetch_task_events_profile, fetch_task_plan_profile, fetch_task_route_trace_profile,
     fetch_task_snapshot_profile, send_task_command_profile, NodeCommandEnvelope, NodeProfile,
 };
-use std::{env, fs};
+use std::{env, fs, path::PathBuf};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,6 +33,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             fetch_task_plan_profile(profile, task_id)
                 .await
                 .map(|plan| serde_json::to_value(plan).expect("serialize task plan"))
+        }
+        "route-trace" => {
+            let task_id = args.next().ok_or("expected a task id")?;
+            fetch_task_route_trace_profile(profile, task_id)
+                .await
+                .map(|trace| serde_json::to_value(trace).expect("serialize route trace"))
+        }
+        "artifact-review" => {
+            let task_id = args.next().ok_or("expected a task id")?;
+            fetch_task_artifact_review_profile(profile, task_id)
+                .await
+                .map(|review| serde_json::to_value(review).expect("serialize artifact review"))
+        }
+        "artifact-preview" => {
+            let artifact_id = args.next().ok_or("expected an artifact id")?;
+            fetch_artifact_preview_from_profile(profile, artifact_id)
+                .await
+                .map(|preview| serde_json::to_value(preview).expect("serialize artifact preview"))
+        }
+        "artifact-download" => {
+            let artifact_id = args.next().ok_or("expected an artifact id")?;
+            let output_path = args.next().ok_or("expected an output path")?;
+            download_artifact_to_path(profile, artifact_id, PathBuf::from(output_path))
+                .await
+                .map(|receipt| serde_json::to_value(receipt).expect("serialize download receipt"))
         }
         "create" => {
             let command_path = args.next().ok_or("expected a command JSON path")?;

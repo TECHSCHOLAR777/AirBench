@@ -15,7 +15,9 @@ export type NodeTaskStatus = "accepted" | "planning" | "running" | "needs_review
 
 export const LEDGER_EVENT_TYPES = [
   "artifact.checked",
+  "artifact.downloaded",
   "artifact.integrity.verified",
+  "artifact.previewed",
   "artifact.staged",
   "authority.decided",
   "backend.airgap_startup.checked",
@@ -175,6 +177,29 @@ export interface NodeWorkerEventPayload {
   role: string;
   label: string;
   status: string;
+  teamId?: string | null;
+  assignmentId?: string | null;
+  workerId?: string | null;
+  resourceLeaseId?: string | null;
+}
+
+export interface NodeExecutionEventPayload {
+  status: string;
+  summary: string;
+  executionMode?: string | null;
+  teamId?: string | null;
+  planId?: string | null;
+  assignmentId?: string | null;
+  workerId?: string | null;
+  role?: string | null;
+  label?: string | null;
+  barrierId?: string | null;
+  dependencyIds?: Array<string>;
+  resourceLeaseId?: string | null;
+  queuePosition?: number | null;
+  hardwareProfileRef?: string | null;
+  modelTargetId?: string | null;
+  qualificationId?: string | null;
 }
 
 export interface NodeEvidenceEventPayload {
@@ -666,6 +691,37 @@ export interface NodeFactRef extends NodeWireContractEnvelope {
   supersededBy: string | null;
 }
 
+export interface NodeRouteTraceEntry extends NodeWireContractEnvelope {
+  sequence: number;
+  eventType: string;
+  occurredAt: string;
+  actor: string;
+  clearanceContext: Clearance;
+  ledgerEventRef: string;
+  payloadHash: string;
+  requestId?: string | null;
+  workerId?: string | null;
+  role?: string | null;
+  taskKind?: string | null;
+  requiredCapability?: string | null;
+  selectedTarget?: string | null;
+  decisionSource?: string | null;
+  ruleOrThreshold?: string | null;
+  qualificationCertificate?: string | null;
+  fallbackTarget?: string | null;
+  reason?: string | null;
+  status?: string | null;
+  eligibleTargets?: Array<string>;
+}
+
+export interface NodeRouteTrace extends NodeWireContractEnvelope {
+  taskId: string;
+  nodeIdentity: string;
+  protocolVersion: string;
+  clearanceContext: Clearance;
+  entries: Array<NodeRouteTraceEntry>;
+}
+
 export interface NodeTaskSnapshot extends NodeWireContractEnvelope {
   taskId: string;
   snapshotId: string;
@@ -682,6 +738,40 @@ export interface NodeTaskSnapshot extends NodeWireContractEnvelope {
   unresolvedQuestions: Array<string>;
   nodeConnectionRef: string;
   ledgerHeadRef: string;
+}
+
+export interface NodeArtifactReview extends NodeWireContractEnvelope {
+  taskId: string;
+  artifactId: string;
+  nodeIdentity: string;
+  protocolVersion: string;
+  clearanceContext: Clearance;
+  title: string;
+  mediaType: string;
+  fileFormat: string;
+  templateId: string;
+  templateVersion: string;
+  contentHash: string;
+  byteSize: number;
+  status: string;
+  verificationStatus: string;
+  structuralCheck: string;
+  visualCheck: string;
+  approvalState: string;
+  approvalBlockingReasons: Array<string>;
+  sourceRefs: Array<string>;
+  evidenceRefs: Array<string>;
+  verificationRefs: Array<string>;
+  deterministicValueRefs: Array<string>;
+  confidence: number;
+  clearance: Clearance;
+  taint: Taint;
+  derivation: Record<string, unknown>;
+  previewRef: string;
+  downloadRef: string;
+  ledgerEventRef: string;
+  artifactSequence: number;
+  createdAt: string;
 }
 
 export interface NodeTaskEvent extends NodeWireContractEnvelope {

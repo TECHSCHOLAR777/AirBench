@@ -266,11 +266,14 @@ function approvedProfilePayload(profile: ApprovedNodeProfileReference | Approved
 export function uploadSelectedQueryFile(
   profile: ApprovedNodeProfileReference | ApprovedNodeProfile,
   selectionId: string,
+  taskId: string,
 ): Promise<IntakeManifest> {
   const approved = approvedProfilePayload(profile);
+  if (!taskId.trim() || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(taskId)) throw new Error("The task identifier is invalid for File Intake.");
   return invoke<unknown>("upload_selected_query_file", {
     profileId: approved.profile_id,
     selection_id: selectionId,
+    task_id: taskId,
   }).then((value) => validateIntakeManifest(value, validateClearanceContext(profile)));
 }
 

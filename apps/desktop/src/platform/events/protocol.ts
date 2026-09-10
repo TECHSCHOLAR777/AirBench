@@ -3,6 +3,7 @@ import type {
   Clearance as CoreClearance,
   NodeApprovalEventPayload,
   NodeArtifactEventPayload,
+  NodeExecutionEventPayload,
   NodeEvidenceEventPayload,
   NodeEvidenceRef,
   NodeFactRef,
@@ -36,11 +37,13 @@ export type TaskSnapshot = NodeTaskSnapshot;
 export type TaskEventBase = Omit<NodeTaskEvent, "eventType" | "payload">;
 type LifecycleEventType = "task.accepted" | "plan.created" | "plan.revised" | "plan.approved" | "task.paused" | "task.resumed" | "task.blocked" | "task.failed" | "task.stopped" | "task.completed";
 type WorkerEventType = "worker.started" | "worker.completed" | "tool.started" | "tool.completed";
+type ExecutionEventType = "team.created" | "team.execution.started" | "team.execution.completed" | "team.execution.failed" | "team.execution.cancelled" | "lifecycle.intercepted" | "lifecycle.blocked" | "worker.assigned" | "worker.failed" | "worker.handoff" | "worker.handoff.rejected" | "worker.handoff.late" | "worker.resource_reserved" | "worker.preempted" | "worker.cancelled" | "team.resource_plan.created" | "team.resource_plan.admitted" | "team.resource_plan.queued" | "team.resource_plan.degraded_needs_review" | "team.resource_plan.rejected" | "team.resource_plan.released" | "team.resource_plan.cancelled" | "resource.plan.admitted" | "resource.plan.queued" | "execution.mode.selected" | "execution.mode.changed" | "join_barrier.waiting" | "join_barrier.completed" | "join_barrier.resolved" | "barrier.waiting" | "barrier.completed" | "resource.exhaustion.detected" | "resource.recovered" | "resource.queue.updated" | "resource.lease.granted" | "resource.lease.activated" | "resource.lease.released" | "resource.lease.expired" | "resource.lease.cancelled" | "resource.lease.failed" | "resource.admission.degraded" | "background.work.yielded";
 type SummaryEventType = "ledger.written" | "ledger.verification_changed" | "node.connection_changed" | "node.sovereignty_changed";
 
 export type TaskEvent =
   | (TaskEventBase & { eventType: LifecycleEventType; payload: NodeLifecycleEventPayload })
   | (TaskEventBase & { eventType: WorkerEventType; payload: NodeWorkerEventPayload })
+  | (TaskEventBase & { eventType: ExecutionEventType; payload: NodeExecutionEventPayload })
   | (TaskEventBase & { eventType: "evidence.added" | "evidence.revised"; payload: NodeEvidenceEventPayload })
   | (TaskEventBase & { eventType: "verification.completed" | "verification.failed"; payload: NodeVerificationEventPayload })
   | (TaskEventBase & { eventType: "approval.required" | "approval.recorded" | "approval.returned"; payload: NodeApprovalEventPayload })
@@ -135,8 +138,18 @@ export function normalizeTaskEvent(event: NodeTaskEvent): TaskEvent {
   if (WORKER_EVENT_TYPES.has(event.eventType)) {
     const candidate = payload as Partial<NodeWorkerEventPayload>;
     if (typeof candidate.role === "string" && typeof candidate.label === "string" && typeof candidate.status === "string") {
-      return { ...base, eventType: event.eventType as WorkerEventType, payload: { role: candidate.role, label: candidate.label, status: candidate.status } };
+      const workerPayload: NodeWorkerEventPayload = { role: candidate.role, label: candidate.label, status: candidate.status };
+      for (const [sourceKey, wireKey] of [["teamId", "teamId"], ["assignmentId", "assignmentId"], ["workerId", "workerId"], ["resourceLeaseId", "resourceLeaseId"]] as const) {
+        const value = candidate[sourceKey];
+        if (typeof value === "string") workerPayload[wireKey] = value;
+      }
+      return { ...base, eventType: event.eventType as WorkerEventType, payload: workerPayload };
     }
+  }
+  if (EXECUTION_EVENT_TYPES.has(event.eventType as ExecutionEventType)) {
+    const candidate = payload as Partial<NodeExecutionEventPayload>;
+    const executionPayload = normalizeExecutionPayload(candidate);
+    if (executionPayload) return { ...base, eventType: event.eventType as ExecutionEventType, payload: executionPayload };
   }
   if (event.eventType === "evidence.added" || event.eventType === "evidence.revised") {
     const candidate = payload as Partial<NodeEvidenceEventPayload>;
@@ -190,7 +203,32 @@ function isEvidenceRef(value: unknown): value is EvidenceRef {
 
 const LIFECYCLE_EVENT_TYPES = new Set(["task.accepted", "plan.created", "plan.revised", "plan.approved", "task.paused", "task.resumed", "task.blocked", "task.failed", "task.stopped", "task.completed"]);
 const WORKER_EVENT_TYPES = new Set(["worker.started", "worker.completed", "tool.started", "tool.completed"]);
+const EXECUTION_EVENT_TYPES = new Set<ExecutionEventType>(["team.created", "team.execution.started", "team.execution.completed", "team.execution.failed", "team.execution.cancelled", "lifecycle.intercepted", "lifecycle.blocked", "worker.assigned", "worker.failed", "worker.handoff", "worker.handoff.rejected", "worker.handoff.late", "worker.resource_reserved", "worker.preempted", "worker.cancelled", "team.resource_plan.created", "team.resource_plan.admitted", "team.resource_plan.queued", "team.resource_plan.degraded_needs_review", "team.resource_plan.rejected", "team.resource_plan.released", "team.resource_plan.cancelled", "resource.plan.admitted", "resource.plan.queued", "execution.mode.selected", "execution.mode.changed", "join_barrier.waiting", "join_barrier.completed", "join_barrier.resolved", "barrier.waiting", "barrier.completed", "resource.exhaustion.detected", "resource.recovered", "resource.queue.updated", "resource.lease.granted", "resource.lease.activated", "resource.lease.released", "resource.lease.expired", "resource.lease.cancelled", "resource.lease.failed", "resource.admission.degraded", "background.work.yielded"]);
 const SUMMARY_EVENT_TYPES = new Set(["ledger.written", "ledger.verification_changed", "node.connection_changed", "node.sovereignty_changed"]);
+
+function normalizeExecutionPayload(candidate: Partial<NodeExecutionEventPayload>): NodeExecutionEventPayload | null {
+  if (typeof candidate.status !== "string" || typeof candidate.summary !== "string") return null;
+  const payload: NodeExecutionEventPayload = { status: candidate.status, summary: candidate.summary };
+  const stringFields = [
+    ["executionMode", "executionMode"], ["teamId", "teamId"], ["planId", "planId"], ["assignmentId", "assignmentId"],
+    ["workerId", "workerId"], ["role", "role"], ["label", "label"], ["barrierId", "barrierId"], ["resourceLeaseId", "resourceLeaseId"],
+    ["hardwareProfileRef", "hardwareProfileRef"], ["modelTargetId", "modelTargetId"], ["qualificationId", "qualificationId"],
+  ] as const;
+  for (const [sourceKey, wireKey] of stringFields) {
+    const value = candidate[sourceKey];
+    if (value !== undefined && value !== null && typeof value !== "string") return null;
+    if (typeof value === "string") payload[wireKey] = value;
+  }
+  if (candidate.dependencyIds !== undefined) {
+    if (!Array.isArray(candidate.dependencyIds) || candidate.dependencyIds.some((item) => typeof item !== "string")) return null;
+    payload.dependencyIds = [...candidate.dependencyIds];
+  }
+  if (candidate.queuePosition !== undefined && candidate.queuePosition !== null) {
+    if (!Number.isInteger(candidate.queuePosition) || candidate.queuePosition < 0) return null;
+    payload.queuePosition = candidate.queuePosition;
+  }
+  return payload;
+}
 
 export function applyEvent(projection: TaskProjection, event: TaskEvent): ProjectionResult {
   if (event.taskId !== projection.taskId) {

@@ -1,6 +1,7 @@
 use airbench_desktop_lib::intake::{
     download_artifact_to_path, fetch_artifact_preview_from_profile,
     fetch_safe_preview_from_profile, upload_query_file_from_path,
+    upload_query_file_from_path_for_task,
 };
 use airbench_desktop_lib::node_transport::NodeProfile;
 use std::{env, fs, path::PathBuf};
@@ -21,8 +22,12 @@ async fn run() -> Result<String, Box<dyn std::error::Error>> {
     let profile_path = args.next().ok_or("expected profile JSON path")?;
     let input_path = PathBuf::from(args.next().ok_or("expected input path")?);
     let output_path = PathBuf::from(args.next().ok_or("expected output path")?);
+    let task_id = args.next();
     let profile: NodeProfile = serde_json::from_str(&fs::read_to_string(profile_path)?)?;
-    let manifest = upload_query_file_from_path(profile.clone(), input_path).await?;
+    let manifest = match task_id {
+        Some(task_id) => upload_query_file_from_path_for_task(profile.clone(), input_path, task_id).await?,
+        None => upload_query_file_from_path(profile.clone(), input_path).await?,
+    };
     let preview = fetch_safe_preview_from_profile(
         profile.clone(),
         manifest.preview_ref.clone(),
