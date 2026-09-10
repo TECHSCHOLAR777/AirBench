@@ -226,15 +226,15 @@ FE-VAL-2, FE-VAL-3, and FE-VAL-4 can be developed in parallel after the typed fi
 
 ## GitHub issue numbers
 
-The six validation issues are open in `TECHSCHOLAR777/AirBench` and have the `frontend`, `validation`, and `P1` labels:
+The six validation tracks are maintained in this document. FE-VAL-1, FE-VAL-5, and FE-VAL-6 are consolidated into packaged release issue #124; FE-VAL-2, FE-VAL-3, and FE-VAL-4 remain independent GitHub issues:
 
 | Reference | GitHub issue | State |
 | --- | --- | --- |
-| FE-VAL-1 | [#64](https://github.com/TECHSCHOLAR777/AirBench/issues/64) | Open |
+| FE-VAL-1 | [#124](https://github.com/TECHSCHOLAR777/AirBench/issues/124) | Open, consolidated release gate |
 | FE-VAL-2 | [#65](https://github.com/TECHSCHOLAR777/AirBench/issues/65) | Open |
 | FE-VAL-3 | [#66](https://github.com/TECHSCHOLAR777/AirBench/issues/66) | Open |
 | FE-VAL-4 | [#67](https://github.com/TECHSCHOLAR777/AirBench/issues/67) | Open |
-| FE-VAL-5 | [#68](https://github.com/TECHSCHOLAR777/AirBench/issues/68) | Open |
-| FE-VAL-6 | [#69](https://github.com/TECHSCHOLAR777/AirBench/issues/69) | Open |
+| FE-VAL-5 | [#124](https://github.com/TECHSCHOLAR777/AirBench/issues/124) | Open, consolidated release gate |
+| FE-VAL-6 | [#124](https://github.com/TECHSCHOLAR777/AirBench/issues/124) | Open, consolidated release gate |
 
 The issue definitions remain versioned in this file so the repository and GitHub descriptions do not drift.

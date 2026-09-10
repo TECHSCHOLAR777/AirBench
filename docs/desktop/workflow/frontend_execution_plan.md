@@ -16,7 +16,7 @@ The local desktop foundation already covers the initial shell and connection pat
 - #73, #74, #75, #76, #77, and #78 provide the Tauri shell, approved Node profile path, typed task create and plan commands, cursor-aware task projection, and a non-optimistic stop request.
 - #106, #107, and #110 provide the Obsidian Signal and Ledger Paper shell, compact Launchpad, audit-safe Live Work Trace, local workspace command menu, and truthful empty task workspace state.
 - #81 and #82 now also provide truthful pre-contract gateways for Review, Artifacts, History, and Audit. They do not confuse an absent Node query with an empty queue, library, history, or ledger.
-- #64 through #68 have local fixtures or static checks. They remain open until their production evidence gates are met.
+- #65 through #67 have local fixtures or real Python Node checks. They remain open until their production evidence gates are met. The packaged release evidence formerly split across #64, #68, #69, and #85 is consolidated in #124.
 
 The Tauri debug shell may be used for local smoke tests. It is not evidence of a packaged installer, WebDriver flow, or full no-egress proof.
 
@@ -60,14 +60,11 @@ These are parallel only after the shared generated contracts are accepted. They 
 
 | Issue | Work that can proceed now | Final blocker |
 | --- | --- | --- |
-| #64 FE-VAL-1 | bundle configuration, local resource manifest, static offline checks | clean Windows image and offline WebView2 installer evidence |
 | #65 FE-VAL-2 | fixture-based approved-profile and trust behavior | packaged run against the real Node identity path |
 | #66 FE-VAL-3 | deterministic projection, duplicate, gap, replay, and resync tests | packaged reconnect evidence against a live authoritative event stream |
 | #67 FE-VAL-4 | native picker, safe preview, hash and clearance tests | real File Intake and artifact service plus negative corpus and packaged evidence |
-| #68 FE-VAL-5 | CSP, capability, local-assets, and blocked-resource regression checks | OS-level network capture with the approved internal allowlist |
-| #69 FE-VAL-6 | isolate and fix the WebDriver bootstrap failure without changing product behavior | executable fixtures from #64 through #68 and packaged flow evidence |
+| #124 FE-RELEASE-01 | offline WebView2, provisioned WebDriver, packaged critical flow, accessibility smoke, and independent no-egress capture | clean supported release environment with #123 and the independent transport/intake evidence |
 | #84 FE-DEV-12 and #111 FE-REF-06 | component failure, explicit recovery guidance, keyboard, contrast, reduced-motion, and static visual-baseline harness work | all first-release screens and packaged desktop evidence |
-| #85 FE-DEV-13 | integration checklist and synthetic fixture preparation | the complete first-release path and all validation evidence |
 
 ## Shared contract queue
 
@@ -85,9 +82,9 @@ The React client must never call the corresponding Python routes directly. Every
 1. The view-only proof inspector and current safe source-preview pathway for #79 and #109 are implemented. #80 remains open for the real artifact-review projection. Preview state, download state, and artifact approval state stay separate.
 2. Add a truthful unavailable question-card state for #108, without a response input or false action.
 3. Add focused failure, keyboard, contrast, reduced-motion, and no-egress tests as the components land. This contributes to #84 and #111 but does not close either issue.
-4. Diagnose #69 in a separate validation worktree or branch so its build tooling does not block user-visible work.
+4. Keep the packaged-driver and release harness work isolated from user-visible work; its acceptance is tracked in #124.
 5. Extend shared Node contracts only after their owner accepts the field definitions and compatibility tests. Then implement #81, #82, #83, full #108, and full #80 in parallel by disjoint directory.
-6. Run the serial packaged validation path #64 through #69, #84, #85, and #111 after the functional work is integrated.
+6. Run the serial packaged validation path #65 through #67, #84, #111, and #124 after the functional work is integrated.
 7. Run #123 before packaged release work so the first local desktop vertical slice is proven against the real Python Node.
 
 ## Completion evidence

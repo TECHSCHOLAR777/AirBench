@@ -34,7 +34,7 @@ The current local validation slice, [#111](https://github.com/TECHSCHOLAR777/Air
 | [FE-DEV-10, #82](https://github.com/TECHSCHOLAR777/AirBench/issues/82) | Task History and Audit Ledger | Parallel records |
 | [FE-DEV-11, #83](https://github.com/TECHSCHOLAR777/AirBench/issues/83) | Node and settings administration | Parallel records |
 | [FE-DEV-12, #84](https://github.com/TECHSCHOLAR777/AirBench/issues/84) | Recovery, accessibility, and hardening | Serial release gate |
-| [FE-DEV-13, #85](https://github.com/TECHSCHOLAR777/AirBench/issues/85) | Packaged desktop end-to-end integration | Serial release gate |
+| [FE-RELEASE-01, #124](https://github.com/TECHSCHOLAR777/AirBench/issues/124) | Packaged sovereign desktop acceptance | Serial release gate; supersedes #64, #68, #69, and #85 |
 
 Future frontend capabilities are tracked separately in [FE-FUT-01 through FE-FUT-05](https://github.com/TECHSCHOLAR777/AirBench/issues/86), and must not displace the first inspection-report vertical slice.
 
@@ -65,15 +65,15 @@ Future frontend capabilities are tracked separately in [FE-FUT-01 through FE-FUT
 
 ## Validation issue map
 
-The six validation issues are tracked in GitHub and map to `docs/desktop/validation/frontend_validation_plan.md`:
+The six validation tracks are tracked in GitHub and map to `docs/desktop/validation/frontend_validation_plan.md`. FE-VAL-1, FE-VAL-5, and FE-VAL-6 now share the consolidated packaged release gate #124; FE-VAL-2, FE-VAL-3, and FE-VAL-4 retain their independent transport and intake gates:
 
 | Track | Scope |
 | --- | --- |
-| [FE-VAL-1](https://github.com/TECHSCHOLAR777/AirBench/issues/64) | Offline Tauri installation, bundled WebView2, and offline startup |
+| FE-VAL-1, [#124](https://github.com/TECHSCHOLAR777/AirBench/issues/124) | Offline Tauri installation, bundled WebView2, and offline startup |
 | [FE-VAL-2](https://github.com/TECHSCHOLAR777/AirBench/issues/65) | Secure local and remote AirBench Node connection |
 | [FE-VAL-3](https://github.com/TECHSCHOLAR777/AirBench/issues/66) | Reconnectable sequence-numbered task-event streaming |
 | [FE-VAL-4](https://github.com/TECHSCHOLAR777/AirBench/issues/67) | Scanned-document intake, safe artifact preview, and download |
-| [FE-VAL-5](https://github.com/TECHSCHOLAR777/AirBench/issues/68) | Network-monitor and no-external-contact proof |
-| [FE-VAL-6](https://github.com/TECHSCHOLAR777/AirBench/issues/69) | Tauri WebDriver desktop integration and multiremote evidence |
+| FE-VAL-5, [#124](https://github.com/TECHSCHOLAR777/AirBench/issues/124) | Network-monitor and no-external-contact proof |
+| FE-VAL-6, [#124](https://github.com/TECHSCHOLAR777/AirBench/issues/124) | Tauri WebDriver desktop integration and multiremote evidence |
 
 The IDs are stable design references. GitHub issue numbers are recorded in the issue index or in the milestone tracker when created.
