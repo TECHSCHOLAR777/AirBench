@@ -17,6 +17,8 @@ Environment variables (all required unless a config file is supplied):
   AIRBENCH_PORT                Bind port (default ``8765``).
   AIRBENCH_LEDGER_PATH         Path for the SQLite ledger (omit for in-memory).
   AIRBENCH_SIGNING_KEY_PATH    Path to the 32-byte HMAC-SHA256 signing key file (optional).
+  AIRBENCH_BUNDLE_MANIFEST_PATH Path to the signed offline bundle manifest (optional).
+  AIRBENCH_BUNDLE_ROOT          Root directory used to resolve manifest asset paths (optional).
 """
 
 from __future__ import annotations
@@ -40,6 +42,7 @@ from contracts import (
 )
 from contracts.models import NODE_PROTOCOL_VERSION
 from .api import NodeApiConfig, NodeApiService, create_app
+from .bundle import BundleManifest, StartupVerifier
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +64,8 @@ class NodeServerConfig:
     port: int = 8765
     ledger_path: str | None = None
     signing_key_path: str | None = None
+    bundle_manifest_path: str | None = None
+    bundle_root: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("node_identity", "bearer_token", "domain_pack_ref", "subject"):
@@ -109,6 +114,8 @@ class NodeServerConfig:
             port=port,
             ledger_path=os.environ.get("AIRBENCH_LEDGER_PATH", "").strip() or None,
             signing_key_path=os.environ.get("AIRBENCH_SIGNING_KEY_PATH", "").strip() or None,
+            bundle_manifest_path=os.environ.get("AIRBENCH_BUNDLE_MANIFEST_PATH", "").strip() or None,
+            bundle_root=os.environ.get("AIRBENCH_BUNDLE_ROOT", "").strip() or None,
         )
 
     @classmethod
@@ -146,6 +153,8 @@ class NodeServerConfig:
             port=int(parsed.get("port", 8765)),
             ledger_path=str(parsed["ledger_path"]) if parsed.get("ledger_path") else None,
             signing_key_path=str(parsed["signing_key_path"]) if parsed.get("signing_key_path") else None,
+            bundle_manifest_path=str(parsed["bundle_manifest_path"]) if parsed.get("bundle_manifest_path") else None,
+            bundle_root=str(parsed["bundle_root"]) if parsed.get("bundle_root") else None,
         )
 
 
@@ -226,6 +235,40 @@ def run_startup_checks(config: NodeServerConfig) -> StartupCheckResult:
     except Exception as exc:  # pragma: no cover
         result.add("protocol.version", "failed", str(exc))
         failed = True
+
+    # 5. Offline bundle integrity. A configured bundle is a deployment
+    # boundary: it must be present, signed, and fully verified before the
+    # process is allowed to bind.
+    if config.bundle_manifest_path:
+        manifest_path = Path(config.bundle_manifest_path)
+        signing_key: bytes | None = None
+        if config.signing_key_path:
+            try:
+                signing_key = Path(config.signing_key_path).read_bytes()
+            except OSError as exc:
+                result.add("bundle.manifest", "failed", f"could not read signing key: {exc}")
+                failed = True
+        else:
+            result.add("bundle.signature", "failed", "a signing key is required when bundle verification is configured")
+            failed = True
+        try:
+            manifest = BundleManifest.from_file(manifest_path)
+            bundle_root = Path(config.bundle_root) if config.bundle_root else manifest_path.parent
+            verification = StartupVerifier(
+                manifest,
+                bundle_root=bundle_root,
+                signing_key=signing_key,
+            ).verify()
+            if verification.passed:
+                result.add("bundle.manifest", "ok", f"verified {manifest.bundle_id} {manifest.bundle_version}")
+            else:
+                result.add("bundle.manifest", "failed", json.dumps(verification.to_dict(), sort_keys=True))
+                failed = True
+        except (OSError, TypeError, ValueError) as exc:
+            result.add("bundle.manifest", "failed", str(exc))
+            failed = True
+    else:
+        result.add("bundle.manifest", "ok", "not configured")
 
     result.passed = not failed
     return result
