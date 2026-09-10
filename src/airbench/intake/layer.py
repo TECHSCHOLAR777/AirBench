@@ -253,6 +253,8 @@ class IntakeStore(Protocol):
 
     def manifest_artifact_ref(self, intake_id: str) -> str: ...
 
+    def read_source(self, intake_id: str) -> bytes: ...
+
     def stage(
         self,
         manifest: IntakeManifest,
@@ -327,6 +329,25 @@ class LocalIntakeStore:
 
     def manifest_artifact_ref(self, intake_id: str) -> str:
         return self._ref(intake_id, "manifest")
+
+    def read_source(self, intake_id: str) -> bytes:
+        """Return a verified source artifact without introducing a parser.
+
+        The manifest is loaded first so the source is revalidated against the
+        committed identity and ledger evidence before any caller receives its
+        bytes. Consumers must still treat the result as untrusted data.
+        """
+        manifest = self.load(intake_id)
+        if manifest is None:
+            raise IntakeError("storage_not_found", "the intake source does not exist")
+        source_path = self._intakes_root / intake_id / "source.bin"
+        try:
+            content = source_path.read_bytes()
+        except OSError as exc:
+            raise IntakeError("storage_corrupt", "stored intake source cannot be read") from exc
+        if _sha256(content) != manifest.source_hash:
+            raise IntakeError("storage_corrupt", "stored intake source hash does not match")
+        return content
 
     def load(self, intake_id: str) -> IntakeManifest | None:
         self._validate_intake_id(intake_id)

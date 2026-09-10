@@ -15,7 +15,7 @@ The six tracks are independent enough to develop in parallel after the shared co
 | FE-VAL-1 | Offline installer and WebView2 | None | Signed or hashed installer, offline startup log, blocked network capture | Blocks FE-VAL-6 release run |
 | FE-VAL-2 | Local and remote Node connection | Contract fixture and FE-VAL-1 shell | Trust handshake, endpoint identity, local and internal-remote logs | Blocks FE-VAL-3 end-to-end |
 | FE-VAL-3 | Sequence-numbered event stream | Contract fixture, FE-VAL-2 transport | Replay, gap, duplicate, reconnect, and resync evidence | Blocks integrated live task |
-| FE-VAL-4 | Scanned intake and artifact preview | File Intake fixture and Node artifact contract | Intake manifest, source hash, safe preview, clearance-aware download | Blocks integrated inspection demo |
+| FE-VAL-4 | Scanned intake and artifact preview | File Intake fixture and Node artifact contract | Task-bound intake manifest, source hash, safe preview, clearance-aware source download | Blocks integrated inspection demo |
 | FE-VAL-5 | No-egress proof | FE-VAL-1 bundle and FE-VAL-2 transport | Network monitor capture, deny logs, blocked navigation/resource test | Must pass before any user data demo |
 | FE-VAL-6 | Tauri WebDriver desktop test | FE-VAL-1 shell, FE-VAL-2 and FE-VAL-3 fixtures | Desktop test report, IPC mocks, backend logs, multiremote evidence | Final release gate |
 
@@ -127,16 +127,17 @@ Prove the end-to-end multimodal user path without creating a second parser or an
 
 ### Test cases
 
-1. Select a scanned PDF through the native picker.
-2. Send it to the File Intake Layer with the correct query-upload switch.
-3. Display the returned intake manifest, source hash, page count, OCR or vision status, clearance, and taint.
-4. Open a safe page or image preview with exact source-region reference.
-5. Display an evidence item with source, confidence, clearance, derivation, and ledger reference.
-6. Display a generated Word or PDF artifact preview from the Node.
-7. Download an allowed artifact and record the download command.
-8. Block download for insufficient clearance.
-9. Test a malicious or instruction-bearing document and confirm that it remains data.
-10. Test corrupted, oversized, unsupported, and partially uploaded files.
+1. Create a task through the Node and receive its authoritative task ID.
+2. Select a scanned PDF through the native picker.
+3. Send it to the File Intake Layer with the correct query-upload switch and task ID.
+4. Display the returned intake manifest, source hash, page count, OCR or vision status, clearance, and taint.
+5. Open a safe page or image preview with exact source-region reference.
+6. Display an evidence item with source, confidence, clearance, derivation, and ledger reference.
+7. Display a generated Word or PDF artifact preview from the Node only when a real Deliverable Engine artifact exists.
+8. Download an allowed source or output artifact and record the download command and hash.
+9. Block download for insufficient clearance.
+10. Test a malicious or instruction-bearing document and confirm that it remains data.
+11. Test corrupted, oversized, unsupported, and partially uploaded files.
 
 ### Evidence
 
@@ -151,7 +152,7 @@ Prove the end-to-end multimodal user path without creating a second parser or an
 
 ### Pass criteria
 
-Every file uses the File Intake Layer. The UI displays safe preview artifacts, preserves provenance and clearance, does not execute content, and cannot download unauthorized material.
+Every file uses the File Intake Layer and is bound to an existing Node task. The UI displays safe source previews, preserves provenance and clearance, does not execute content, and cannot download unauthorized material. Passing this track does not by itself prove that a generated approval-note artifact exists; that requires a separate Deliverable Engine and artifact-review acceptance path.
 
 ## 7. FE-VAL-5: Network-monitor proof of no external contact
 

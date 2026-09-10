@@ -13,12 +13,14 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
+from email import policy
+from email.parser import BytesParser
 from threading import RLock
 from typing import Any, Protocol
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from contracts import (
     AuthorizationError,
@@ -48,11 +50,14 @@ from contracts import (
 )
 from contracts.ids import stable_id
 from contracts.provenance.ledger import LedgerError
+from .intake_gateway import NodeArtifactDownload, NodeIntakeError, NodeIntakeGateway
 
 
 PROTOCOL_VERSION = NODE_PROTOCOL_VERSION
 PROTOCOL_COMPATIBILITY_ID = NODE_PROTOCOL_COMPATIBILITY_ID
 MAX_JSON_BODY_BYTES = 1_048_576
+MAX_QUERY_UPLOAD_BYTES = 100 * 1024 * 1024
+MAX_MULTIPART_BODY_BYTES = MAX_QUERY_UPLOAD_BYTES + 64 * 1024
 MAX_EVENT_BATCH = 128
 MAX_EVIDENCE_ITEMS = 1_000
 MAX_ROUTE_ITEMS = 1_000
@@ -116,9 +121,10 @@ class NodeApiConfig:
 class NodeApiService:
     """Owns API authentication and projections, not task authority."""
 
-    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig):
+    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None):
         self.orchestrator = orchestrator
         self.config = config
+        self.intake_gateway = intake_gateway
         self._ledger: LedgerView = orchestrator.store
         self._lock = RLock()
 
@@ -163,6 +169,48 @@ class NodeApiService:
                 }
             except Exception as exc:
                 raise NodeApiError(503, "ledger_unavailable", "The local ledger could not be verified.") from exc
+
+    def query_upload(self, subject: str, *, task_id: str, file_name: str, content: bytes) -> dict[str, Any]:
+        with self._lock:
+            gateway = self._require_intake_gateway()
+            try:
+                return gateway.query_upload(
+                    subject=subject,
+                    task_id=task_id,
+                    file_name=file_name,
+                    content=content,
+                )
+            except NodeIntakeError as exc:
+                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
+    def safe_preview(self, preview_ref: str) -> dict[str, Any]:
+        with self._lock:
+            gateway = self._require_intake_gateway()
+            try:
+                return gateway.preview(preview_ref=preview_ref)
+            except NodeIntakeError as exc:
+                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
+    def artifact_preview(self, artifact_id: str) -> dict[str, Any]:
+        with self._lock:
+            gateway = self._require_intake_gateway()
+            try:
+                return gateway.artifact_preview(artifact_id=artifact_id)
+            except NodeIntakeError as exc:
+                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
+    def artifact_download(self, artifact_id: str) -> NodeArtifactDownload:
+        with self._lock:
+            gateway = self._require_intake_gateway()
+            try:
+                return gateway.download(artifact_id=artifact_id)
+            except NodeIntakeError as exc:
+                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
+    def _require_intake_gateway(self) -> NodeIntakeGateway:
+        if self.intake_gateway is None:
+            raise NodeApiError(503, "intake_unavailable", "The local File Intake service is not configured.")
+        return self.intake_gateway
 
     def create_task(self, subject: str, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -865,6 +913,77 @@ def create_app(service: NodeApiService) -> FastAPI:
             raise NodeApiError(400, "json_object_required", "The request body must be a JSON object.")
         return value
 
+    async def multipart_document(request: Request) -> tuple[str, str, bytes]:
+        """Decode only multipart framing; document interpretation stays in M7."""
+        content_type = request.headers.get("content-type", "")
+        if not content_type.lower().startswith("multipart/form-data"):
+            raise NodeApiError(400, "multipart_required", "The intake request must be multipart form data.")
+        declared_length = request.headers.get("content-length")
+        if declared_length is not None:
+            try:
+                if int(declared_length) > MAX_MULTIPART_BODY_BYTES:
+                    raise NodeApiError(413, "upload_too_large", "The upload exceeds the local query-upload limit.")
+            except ValueError as exc:
+                raise NodeApiError(400, "content_length_invalid", "The upload content length is invalid.") from exc
+        data = bytearray()
+        async for chunk in request.stream():
+            data.extend(chunk)
+            if len(data) > MAX_MULTIPART_BODY_BYTES:
+                raise NodeApiError(413, "upload_too_large", "The upload exceeds the local query-upload limit.")
+        try:
+            raw_message = (
+                b"Content-Type: " + content_type.encode("utf-8")
+                + b"\r\nMIME-Version: 1.0\r\n\r\n" + bytes(data)
+            )
+            message = BytesParser(policy=policy.default).parsebytes(raw_message)
+        except (UnicodeEncodeError, ValueError) as exc:
+            raise NodeApiError(400, "multipart_invalid", "The intake multipart envelope is invalid.") from exc
+        if not message.is_multipart():
+            raise NodeApiError(400, "multipart_invalid", "The intake request did not contain multipart parts.")
+
+        fields: dict[str, str] = {}
+        documents = []
+        for part in message.iter_parts():
+            if part.get_content_disposition() != "form-data":
+                continue
+            name = part.get_param("name", header="content-disposition")
+            if not isinstance(name, str) or not name:
+                raise NodeApiError(400, "multipart_field_invalid", "The intake multipart field name is invalid.")
+            if name == "document":
+                documents.append(part)
+                continue
+            if name in fields:
+                raise NodeApiError(400, "multipart_field_duplicate", "The intake multipart field was repeated.")
+            value = part.get_payload(decode=True) or b""
+            try:
+                fields[name] = value.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise NodeApiError(400, "multipart_field_invalid", "The intake multipart field is not valid text.") from exc
+        if fields.get("intake_mode") != "query_upload":
+            raise NodeApiError(400, "intake_mode_invalid", "The intake mode must be query_upload.")
+        task_id = fields.get("task_id")
+        if not isinstance(task_id, str) or not TASK_ID_RE.fullmatch(task_id):
+            raise NodeApiError(409, "task_required", "Create the task through the Node before sending query-upload material.")
+        if len(documents) != 1:
+            raise NodeApiError(400, "document_part_invalid", "Exactly one document part is required.")
+        document = documents[0]
+        file_name = document.get_filename()
+        if not isinstance(file_name, str) or not file_name.strip() or len(file_name) > 255 or any(char in file_name for char in ("/", "\\", "\0")):
+            raise NodeApiError(400, "file_name_invalid", "The intake file name is invalid.")
+        content = document.get_payload(decode=True) or b""
+        if not content:
+            raise NodeApiError(422, "empty_file", "Empty files are rejected by the File Intake Layer.")
+        if len(content) > MAX_QUERY_UPLOAD_BYTES:
+            raise NodeApiError(413, "upload_too_large", "The upload exceeds the local query-upload limit.")
+        declared_size = fields.get("source_file_size")
+        if declared_size is not None:
+            try:
+                if int(declared_size) != len(content):
+                    raise NodeApiError(422, "source_size_mismatch", "The declared source size does not match the uploaded bytes.")
+            except ValueError as exc:
+                raise NodeApiError(400, "source_size_invalid", "The declared source size is invalid.") from exc
+        return task_id, file_name, content
+
     @app.get("/api/v1/node/handshake")
     async def handshake(request: Request) -> dict[str, Any]:
         auth(request)
@@ -874,6 +993,35 @@ def create_app(service: NodeApiService) -> FastAPI:
     async def health(request: Request) -> dict[str, Any]:
         auth(request)
         return service.health()
+
+    @app.post("/api/v1/intake/query-upload", status_code=200)
+    async def query_upload(request: Request) -> dict[str, Any]:
+        subject = auth(request)
+        task_id, file_name, content = await multipart_document(request)
+        return service.query_upload(subject, task_id=task_id, file_name=file_name, content=content)
+
+    @app.get("/api/v1/intake/{preview_ref}/preview")
+    async def safe_intake_preview(preview_ref: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.safe_preview(preview_ref)
+
+    @app.get("/api/v1/artifacts/{artifact_id}/preview")
+    async def artifact_preview(artifact_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.artifact_preview(artifact_id)
+
+    @app.get("/api/v1/artifacts/{artifact_id}/download")
+    async def artifact_download(artifact_id: str, request: Request) -> Response:
+        auth(request)
+        result = service.artifact_download(artifact_id)
+        return Response(
+            content=result.content,
+            media_type=result.media_type,
+            headers={
+                "X-AirBench-Artifact-Hash": result.content_hash,
+                "X-AirBench-Ledger-Event-Ref": result.ledger_event_ref,
+            },
+        )
 
     @app.post("/api/v1/tasks", status_code=201)
     async def create_task(request: Request) -> dict[str, Any]:
@@ -1227,8 +1375,17 @@ def _confidence(value: Any) -> float:
 
 def _input_manifest_ref(events: list[LedgerEventEnvelope]) -> str:
     created = next((event for event in events if event.event_type == "task.created"), None)
-    value = created.payload.get("input_manifest_ref") if created else None
-    return value if isinstance(value, str) else ""
+    task_payload = created.payload.get("task") if created else None
+    refs = task_payload.get("input_manifest_refs") if isinstance(task_payload, dict) else None
+    if isinstance(refs, list) and refs and isinstance(refs[0], str):
+        return refs[0]
+    # Query-upload is committed only after task.created and is linked to the
+    # same task by the File Intake Layer's evidence event. This keeps the
+    # upload-before-execution handoff visible without letting the API mutate
+    # the task envelope or invent a second parser path.
+    intake = next((event for event in reversed(events) if event.event_type == "evidence.created"), None)
+    intake_id = intake.payload.get("intake_id") if intake else None
+    return intake_id if isinstance(intake_id, str) else ""
 
 
 def _string_list(value: Any) -> list[str]:

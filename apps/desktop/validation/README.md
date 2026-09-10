@@ -8,6 +8,8 @@ The fixture never prints bearer tokens or private keys. Generated certificates, 
 
 The Rust credential-store example uses the Windows Credential Manager through the `keyring` crate. The desktop webview receives only a credential reference, never the secret.
 
+`validate-python-node-transport.ps1` starts the real Python `NodeApiService` with a temporary local `FileIntakeLayer` store. Its intake probe creates a Node task first, sends a task-bound query upload through the Rust bridge, reads the Node-generated safe source preview, and verifies a hash-preserving download plus ledger references. This validates source intake and preview/download integration; it does not claim OCR or vision for scans unless a qualified adapter is configured, and it does not fabricate a final approval-note artifact.
+
 `validate-node-transport.ps1` and `validate-python-node-transport.ps1` build into
 a disposable `CARGO_TARGET_DIR` under each temporary run directory. This is
 intentional: Cargo dependency artifacts
