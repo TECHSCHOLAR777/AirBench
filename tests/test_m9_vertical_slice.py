@@ -10,13 +10,12 @@ from pathlib import Path
 import pytest
 import yaml
 from PIL import Image
-from io import BytesIO
 
 from airbench.m9 import RefineryPack, RefineryVerticalSlice, SignedPackError
 import airbench.m9.vertical_slice as vertical_slice
 from airbench.intake.vision import LocalVisionAdapter, VisionResult, static_text_extractor
 from airbench.intake.layer import RenderedPage
-from contracts import Clearance, EventLedger, HardwareProfile, HandoffSubmission
+from contracts import EventLedger, HardwareProfile, HandoffSubmission
 from pypdf import PdfWriter
 
 
