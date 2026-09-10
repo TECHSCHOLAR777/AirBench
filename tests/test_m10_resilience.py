@@ -501,8 +501,9 @@ class TestAuditView(unittest.TestCase):
     def test_audit_view_chain_fails_on_tampered_hash(self) -> None:
         from scripts.run_m10_audit_view import run_audit
         events = self._make_events()
-        # Tamper the first event's hash
-        events[0]["event_hash"] = "0" * 64
+        # Break the chain: set event[1]'s previous_event_hash to a wrong value
+        # (the verifier checks that previous_event_hash == prior event's event_hash)
+        events[1]["previous_event_hash"] = "0" * 64
         with tempfile.TemporaryDirectory() as tmpdir:
             path = self._write_jsonl(tmpdir, events)
             report = run_audit(path)
