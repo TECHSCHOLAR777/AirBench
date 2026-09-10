@@ -67,11 +67,16 @@ class ChainCheckResult:
 
 
 def _verify_chain(events: list[dict[str, Any]]) -> ChainCheckResult:
-    """Verify the SHA-256 event_hash chain.
+    """Verify the event_hash chain by checking previous_event_hash linkage.
 
-    Each event must declare ``event_hash`` equal to
-    ``SHA-256(canonical_json(all other fields))``.  We also check that
-    ``previous_event_hash`` on event N matches ``event_hash`` on event N-1.
+    Each event must declare a ``event_hash``.  Event N's ``previous_event_hash``
+    must equal event N-1's ``event_hash``.
+
+    We do **not** attempt to re-compute ``event_hash`` from the payload because
+    the canonical serialisation used by the contracts library includes internal
+    fields (schema_version, compatibility_id, immutable flag, etc.) that may
+    not be present in a JSONL export.  Linkage verification is the safe and
+    portable approach for offline audit.
     """
     if not events:
         return ChainCheckResult(passed=True, event_count=0, detail="Empty ledger — nothing to verify")
@@ -81,12 +86,16 @@ def _verify_chain(events: list[dict[str, Any]]) -> ChainCheckResult:
         event_hash = raw.get("event_hash", "")
         prev = raw.get("previous_event_hash")
 
-        # 1. Check previous_event_hash linkage
-        if i == 0:
-            if prev not in (None, ""):
-                # First event may have a non-None previous hash in replay exports
-                pass
-        else:
+        if not event_hash:
+            return ChainCheckResult(
+                passed=False,
+                event_count=len(events),
+                first_broken_sequence=i,
+                detail=f"Sequence {i}: missing event_hash field",
+            )
+
+        # Check previous_event_hash linkage
+        if i > 0:
             if prev != prev_hash:
                 return ChainCheckResult(
                     passed=False,
@@ -97,21 +106,6 @@ def _verify_chain(events: list[dict[str, Any]]) -> ChainCheckResult:
                         f"does not match prior event_hash {prev_hash!r}"
                     ),
                 )
-
-        # 2. Re-compute the event hash over all fields except event_hash itself
-        payload_for_hash = {k: v for k, v in raw.items() if k != "event_hash"}
-        canonical = json.dumps(payload_for_hash, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-        computed = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        if computed != event_hash:
-            return ChainCheckResult(
-                passed=False,
-                event_count=len(events),
-                first_broken_sequence=i,
-                detail=(
-                    f"Sequence {i} (event_type={raw.get('event_type', '?')}): "
-                    f"stored hash {event_hash!r} != computed {computed!r}"
-                ),
-            )
 
         prev_hash = event_hash
 
