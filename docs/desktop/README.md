@@ -6,7 +6,7 @@ The frontend is not a second orchestrator, model client, parser, calculator, or 
 
 ## Implementation status
 
-The first frontend runtime now lives in the repository's `apps/desktop/` directory. It is a Tauri 2 desktop shell with a React and TypeScript presentation layer. The shell exposes the native-approved Node profile catalog, wires the Rust-owned handshake and connection controller into the Node settings screen, and submits an outcome-first task manifest through the typed Node command boundary. The Home screen shows the Node acceptance receipt, ledger reference, and sequence without pretending that command acceptance is task completion. Full event-driven task state, real Python Node integration, and packaged production evidence remain downstream work.
+The first frontend runtime now lives in the repository's `apps/desktop/` directory. It is a Tauri 2 desktop shell with a React and TypeScript presentation layer. The shell exposes the native-approved Node profile catalog, wires the Rust-owned handshake and connection controller into the Node settings screen, and submits an outcome-first task manifest through the typed Node command boundary. The local path now creates a Node task before sending a task-bound query upload through the single File Intake Layer, then re-reads the authoritative snapshot and safe source preview. Full event-driven execution, a real generated deliverable, and packaged production evidence remain downstream work.
 
 The implementation order is tracked by the development issues below. The validation issues remain evidence gates and are not replaced by a rendered mockup.
 
@@ -14,20 +14,22 @@ The P1 command-center refactor is tracked separately in [#105](https://github.co
 
 The next P1 slice, [#106](https://github.com/TECHSCHOLAR777/AirBench/issues/106), replaces the static task form with a progressive Launchpad. It preserves the typed task-create envelope, routes files only to File Intake, keeps Auto route Node-controlled, and deliberately withholds a manual model preference until the Node provides a qualified, clearance-filtered catalog. See `design/fe_ref_02_launchpad.md` for the exact product and contract boundary.
 
-The current P1 slice, [#110](https://github.com/TECHSCHOLAR777/AirBench/issues/110), turns the existing authoritative task snapshot, plan, and ordered events into an audit-safe Live Work Trace. It makes plan, work, evidence, verification, review, artifacts, outcome, and technical metadata readable without exposing raw model reasoning, raw event payloads, or invented activity. Exact selected targets, fallback records, pause and resume, and question responses remain absent until the Node supplies typed contracts. See `design/fe_ref_03_live_work_trace.md`.
+The completed P1 slice, [#110](https://github.com/TECHSCHOLAR777/AirBench/issues/110), turns the existing authoritative task snapshot, plan, and ordered events into an audit-safe Live Work Trace. It makes plan, work, evidence, verification, review, artifacts, outcome, and technical metadata readable without exposing raw model reasoning, raw event payloads, or invented activity. Exact selected targets, fallback records, pause and resume, and question responses remain absent until the Node supplies typed contracts. The next gate is the local vertical run in [#123](https://github.com/TECHSCHOLAR777/AirBench/issues/123). See `design/fe_ref_03_live_work_trace.md`.
+
+The current integration gate is [#123](https://github.com/TECHSCHOLAR777/AirBench/issues/123). It is deliberately narrower than final packaging: the desktop must exercise task creation, task-bound File Intake, plan and authorization, live Node events, a real Deliverable Engine output, review, and controlled download against the real Python Node on the local workstation. Fixture, OCR, target-model, network-monitor, WebView2, and WebDriver evidence must remain clearly separated.
 
 The current local validation slice, [#111](https://github.com/TECHSCHOLAR777/AirBench/issues/111), adds a versioned semantic UI baseline and executable preflight for both themes, critical task states, accessibility hooks, and local-resource regressions. It does not replace packaged visual, WebDriver, network-capture, or screen-reader evidence. See `validation/fe_ref_06_validation.md`.
 
 | Development issue | Outcome | Lane |
 | --- | --- | --- |
-| [FE-DEV-01, #73](https://github.com/TECHSCHOLAR777/AirBench/issues/73) | Secure Tauri shell | Parallel foundation |
+| [FE-DEV-01, #73](https://github.com/TECHSCHOLAR777/AirBench/issues/73) | Secure Tauri shell | Implementation closed; packaged proof in validation gates |
 | [FE-DEV-02, #74](https://github.com/TECHSCHOLAR777/AirBench/issues/74) | Typed Node protocol and event projection | Serialized contract |
-| [FE-DEV-03, #75](https://github.com/TECHSCHOLAR777/AirBench/issues/75) | Trusted Node connection and profile selection | Serial critical path |
-| [FE-DEV-04, #76](https://github.com/TECHSCHOLAR777/AirBench/issues/76) | Home, task creation, and File Intake handoff | Serial critical path |
-| [FE-DEV-05, #77](https://github.com/TECHSCHOLAR777/AirBench/issues/77) | Task Plan Review | Node projection and approval slice implemented; production plan/admission gate remains |
-| [FE-DEV-06, #78](https://github.com/TECHSCHOLAR777/AirBench/issues/78) | Live Task Workspace | First server-authoritative workspace slice implemented locally; production event and packaged evidence gates remain |
-| [FE-DEV-07, #79](https://github.com/TECHSCHOLAR777/AirBench/issues/79) | Evidence and safe preview | Serial critical path |
-| [FE-DEV-08, #80](https://github.com/TECHSCHOLAR777/AirBench/issues/80) | Artifact Review and approval | Serial critical path |
+| [FE-DEV-03, #75](https://github.com/TECHSCHOLAR777/AirBench/issues/75) | Trusted Node connection and profile selection | Implementation closed; target and packaged proof remain |
+| [FE-DEV-04, #76](https://github.com/TECHSCHOLAR777/AirBench/issues/76) | Home, task creation, and File Intake handoff | Implementation closed; local vertical integration in #123 |
+| [FE-DEV-05, #77](https://github.com/TECHSCHOLAR777/AirBench/issues/77) | Task Plan Review | Implementation closed; real plan/admission gate remains |
+| [FE-DEV-06, #78](https://github.com/TECHSCHOLAR777/AirBench/issues/78) | Live Task Workspace | Implementation closed; live execution and packaged evidence remain |
+| [FE-DEV-07, #79](https://github.com/TECHSCHOLAR777/AirBench/issues/79) | Evidence and safe preview | Implementation closed; qualified scan and vertical evidence remain |
+| [FE-DEV-08, #80](https://github.com/TECHSCHOLAR777/AirBench/issues/80) | Artifact Review and approval | Open; requires real Deliverable Engine artifact contract |
 | [FE-DEV-09, #81](https://github.com/TECHSCHOLAR777/AirBench/issues/81) | Review Queue and Artifact Library | Parallel records |
 | [FE-DEV-10, #82](https://github.com/TECHSCHOLAR777/AirBench/issues/82) | Task History and Audit Ledger | Parallel records |
 | [FE-DEV-11, #83](https://github.com/TECHSCHOLAR777/AirBench/issues/83) | Node and settings administration | Parallel records |

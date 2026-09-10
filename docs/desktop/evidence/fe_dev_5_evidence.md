@@ -1,6 +1,6 @@
 # FE-DEV-05 evidence record
 
-Status: the typed plan projection and approval transport slice is implemented locally. Issue #77 remains open for a real orchestrator-generated plan, real hardware admission, full plan revision flow, and packaged desktop evidence.
+Status: the typed plan projection and approval transport slice is implemented and closed. Issue #123 remains open for a real orchestrator-generated executing plan, full revision flow, and local vertical evidence; packaged and target qualification gates remain separate.
 
 ## Delivered slice
 

@@ -66,4 +66,4 @@ The current evidence contract does not provide conflict status or reviewer-note 
 - A selected evidence, finding, or source preview is refreshed from the latest task projection before rendering. Removed or hash-changed records are cleared instead of leaving stale provenance in view. The inspector is internally scrollable on tall desktop proof panels and collapses into the page flow at narrower widths.
 - The current local frontend suite passes 23 test files and 123 tests; the production build, generated-contract check, authored UI accessibility check, source no-egress check, and Tauri configuration check pass.
 - No Rust or backend files are changed by this slice.
-- Full issue closure still requires the Node-owned artifact review projection, verification evidence, approval commands, and packaged desktop validation described in the frontend execution plan.
+- The evidence and proof-inspector implementation tickets are closed. Full artifact-review closure still requires the Node-owned Deliverable Engine projection, verification evidence, approval commands, and local vertical validation in #80 and #123. Packaged desktop validation remains a separate release gate.
