@@ -7,8 +7,8 @@ import { NodeConnectionController, type NodeConnectionView } from "../platform/n
 import type { ApprovedNodeProfileReference } from "../platform/node/nodeConnection";
 import { listApprovedNodeProfiles } from "../platform/node/profileBridge";
 import { downloadVerifiedArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, type ArtifactPreview, type DownloadReceipt, type IntakeManifest, type SafePreview } from "../features/intake/intakeBridge";
-import { createTask, fetchTaskPlan, fetchTaskRouteTrace, fetchTaskSnapshot, sendTaskCommand, type CreateTaskResponse } from "../platform/node/nodeCommands";
-import type { NodeCommandResult, NodeRouteTrace, TaskPlanReview } from "../generated/core_contracts";
+import { createTask, fetchTaskArtifactReview, fetchTaskPlan, fetchTaskRouteTrace, fetchTaskSnapshot, sendTaskCommand, type CreateTaskResponse } from "../platform/node/nodeCommands";
+import type { NodeArtifactReview, NodeCommandResult, NodeRouteTrace, TaskPlanReview } from "../generated/core_contracts";
 import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan, canCancelTask } from "../features/tasks/taskComposer";
 import { planRecoveryGuidance } from "../features/tasks/planRecovery";
 import { commandOutcomeGuidance, shouldRefreshTaskAfterCommand } from "../features/tasks/commandOutcome";
@@ -85,6 +85,7 @@ function App() {
   const [taskControlResult, setTaskControlResult] = useState<NodeCommandResult | null>(null);
   const [controllingTask, setControllingTask] = useState(false);
   const [taskArtifactPreview, setTaskArtifactPreview] = useState<ArtifactPreview | null>(null);
+  const [taskArtifactReview, setTaskArtifactReview] = useState<NodeArtifactReview | null>(null);
   const [taskArtifactPreviewState, setTaskArtifactPreviewState] = useState<ArtifactPreviewState>("idle");
   const [taskArtifactPreviewError, setTaskArtifactPreviewError] = useState<string | null>(null);
   const [taskArtifactDownloadState, setTaskArtifactDownloadState] = useState<"idle" | "downloading" | "downloaded" | "failed">("idle");
@@ -349,6 +350,7 @@ function App() {
   const inspectTaskArtifact = async (artifactId: string) => {
     const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
     setTaskArtifactPreview(null);
+    setTaskArtifactReview(null);
     setTaskArtifactPreviewError(null);
     setTaskArtifactDownloadState("idle");
     setTaskArtifactDownloadReceipt(null);
@@ -358,13 +360,21 @@ function App() {
       return;
     }
     setTaskArtifactPreviewState("loading");
-    try {
-      const preview = await fetchArtifactPreview(profile, artifactId);
-      setTaskArtifactPreview(preview);
+    const [previewResult, reviewResult] = await Promise.allSettled([
+      fetchArtifactPreview(profile, artifactId),
+      taskProjection ? fetchTaskArtifactReview(profile, taskProjection.taskId) : Promise.reject(new Error("The current task is not available.")),
+    ]);
+    if (previewResult.status === "fulfilled") {
+      setTaskArtifactPreview(previewResult.value);
       setTaskArtifactPreviewState("ready");
-    } catch {
+    } else {
       setTaskArtifactPreviewState("failed");
       setTaskArtifactPreviewError("The approved Node did not return a safe preview for this artifact.");
+    }
+    if (reviewResult.status === "fulfilled" && reviewResult.value.artifactId === artifactId) {
+      setTaskArtifactReview(reviewResult.value);
+    } else {
+      setTaskArtifactReview(null);
     }
   };
 
@@ -378,7 +388,8 @@ function App() {
     setTaskArtifactDownloadState("downloading");
     setTaskArtifactDownloadReceipt(null);
     try {
-      const receipt = await downloadVerifiedArtifact(profile, artifactId, `airbench-artifact-${artifactId}.bin`);
+      const extension = taskArtifactReview?.artifactId === artifactId ? taskArtifactReview.fileFormat : "bin";
+      const receipt = await downloadVerifiedArtifact(profile, artifactId, `airbench-artifact-${artifactId}.${extension}`);
       setTaskArtifactDownloadReceipt(receipt);
       setTaskArtifactDownloadState("downloaded");
     } catch {
@@ -468,6 +479,7 @@ function App() {
     setPlanReview(null);
     setPlanApprovalResult(null);
     setTaskArtifactPreview(null);
+    setTaskArtifactReview(null);
     setTaskArtifactPreviewState("idle");
     setTaskArtifactPreviewError(null);
     setTaskArtifactDownloadState("idle");
@@ -633,7 +645,7 @@ function App() {
         <div className="content-wrap">
           {state.screen === "home" && <HomeView outcomeInputRef={outcomeInputRef} currentTask={taskProjection} taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} planSynchronized={taskCommandReady} notice={notice} canStart={canStart} creatingTask={creatingTask} nodeConnected={nodeConnected} nodeLabel={nodeLabel} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onCancelTask={stopTask} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={openConnectionHelp} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} />}
           {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesState("idle"); }} onHome={() => selectScreen("home")} />}
-          {state.screen === "tasks" && (taskProjection ? <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} routeTrace={taskRouteTrace} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={openNewTask} onOpenNode={() => selectScreen("node")} /> : <TaskEmptyView nodeConnected={nodeConnected} onNewTask={openNewTask} onOpenNode={() => selectScreen("node")} />)}
+          {state.screen === "tasks" && (taskProjection ? <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} routeTrace={taskRouteTrace} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactReview={taskArtifactReview} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={openNewTask} onOpenNode={() => selectScreen("node")} /> : <TaskEmptyView nodeConnected={nodeConnected} onNewTask={openNewTask} onOpenNode={() => selectScreen("node")} />)}
           {isRecordGatewayDestination(state.screen) && <RecordGatewayView destination={state.screen} nodeConnected={nodeConnected} currentTask={taskProjection} onHome={() => selectScreen("home")} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} />}
         </div>
       </main>
@@ -832,7 +844,7 @@ function ProfileCard({ profile, busy, onConnect }: { profile: ApprovedNodeProfil
   return <article className="profile-card"><div><div className="profile-name">{profile.displayName}</div><div className="profile-meta">{profile.transport === "loopback" ? "Local workstation" : "Internal network"} <span aria-hidden="true">•</span> {profile.clearanceContext} clearance</div><div className="profile-trust">Pinned identity: {profile.nodeIdentity}</div></div><button type="button" className="primary-button" onClick={onConnect} disabled={busy}>{busy ? "Checking..." : "Connect"}</button></article>;
 }
 
-function TaskWorkspaceView({ projection, syncState, plan, routeTrace, approval, approving, controlResult, controlling, sourcePreview, artifactPreview, artifactPreviewState, artifactPreviewError, artifactDownloadState, artifactDownloadReceipt, onStop, onRefresh, onApprovePlan, onInspectArtifact, onDownloadArtifact, onHome, onOpenNode }: { projection: TaskProjection; syncState: EventSyncState | null; plan: TaskPlanReview | null; routeTrace: NodeRouteTrace | null; approval: NodeCommandResult | null; approving: boolean; controlResult: NodeCommandResult | null; controlling: boolean; sourcePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; artifactPreviewState: ArtifactPreviewState; artifactPreviewError: string | null; artifactDownloadState: "idle" | "downloading" | "downloaded" | "failed"; artifactDownloadReceipt: DownloadReceipt | null; onStop: () => Promise<void>; onRefresh: () => Promise<void>; onApprovePlan: () => Promise<void>; onInspectArtifact: (artifactId: string) => Promise<void>; onDownloadArtifact: (artifactId: string) => Promise<void>; onHome: () => void; onOpenNode: () => void }) {
+function TaskWorkspaceView({ projection, syncState, plan, routeTrace, approval, approving, controlResult, controlling, sourcePreview, artifactReview, artifactPreview, artifactPreviewState, artifactPreviewError, artifactDownloadState, artifactDownloadReceipt, onStop, onRefresh, onApprovePlan, onInspectArtifact, onDownloadArtifact, onHome, onOpenNode }: { projection: TaskProjection; syncState: EventSyncState | null; plan: TaskPlanReview | null; routeTrace: NodeRouteTrace | null; approval: NodeCommandResult | null; approving: boolean; controlResult: NodeCommandResult | null; controlling: boolean; sourcePreview: SafePreview | null; artifactReview: NodeArtifactReview | null; artifactPreview: ArtifactPreview | null; artifactPreviewState: ArtifactPreviewState; artifactPreviewError: string | null; artifactDownloadState: "idle" | "downloading" | "downloaded" | "failed"; artifactDownloadReceipt: DownloadReceipt | null; onStop: () => Promise<void>; onRefresh: () => Promise<void>; onApprovePlan: () => Promise<void>; onInspectArtifact: (artifactId: string) => Promise<void>; onDownloadArtifact: (artifactId: string) => Promise<void>; onHome: () => void; onOpenNode: () => void }) {
   const syncLabel: Record<string, string> = { idle: "Not synchronized", syncing: "Checking Node", connected: "Connected and current", reconnecting: "Reconnecting", replaying: "Replaying events", blocked: "Blocked by protocol or policy" };
   const statusLabel: Record<string, string> = { accepted: "Accepted", planning: "Planning", running: "Running", needs_review: "Needs review", completed: "Completed", blocked: "Blocked", failed: "Failed", stopped: "Stopped" };
   const syncStatus = syncState?.status ?? "idle";
@@ -873,7 +885,7 @@ function TaskWorkspaceView({ projection, syncState, plan, routeTrace, approval, 
       <section className="worktrace-detail-card"><div className="worktrace-detail-head"><div><h2>Waiting for you</h2><p>Only Node-reported questions appear here.</p></div><span>{trace.review.questions.length} waiting</span></div>{trace.review.questions.length === 0 ? <div className="worktrace-empty">The Node has not reported a question requiring your response.</div> : <ul className="worktrace-question-list">{trace.review.questions.map((question, index) => <li key={`${question}-${index}`}><AppIcon name="review" size={16} /><span>{question}</span></li>)}</ul>}<p className="worktrace-contract-note">A response control will appear only after the Node provides a sequence-aware answer command and ledger transition.</p></section>
       <section className="worktrace-detail-card"><div className="worktrace-detail-head"><div><h2>Artifacts</h2><p>References returned by the Node, not locally generated files.</p></div><span>{trace.artifacts.records.length} records</span></div>{trace.artifacts.records.length === 0 ? <div className="worktrace-empty">No artifact reference has been supplied by the Node yet.</div> : <ul className="worktrace-artifact-list">{trace.artifacts.records.map((artifact) => <li key={artifact.artifactId}><button className="proof-record-button" type="button" onClick={() => { if (artifact.state !== "superseded") inspectArtifact(artifact.artifactId); }} disabled={artifact.state === "superseded"} aria-label={`${artifact.artifactId}, ${artifact.state === "superseded" ? "superseded" : artifact.state === "ready" ? "ready" : "reference only"}`}><AppIcon name="document" size={16} /><span className="artifact-record-name">{artifact.artifactId}</span><span className={`artifact-record-state artifact-record-state-${artifact.state}`}>{artifact.state === "reference_only" ? "Reference only" : artifact.state === "superseded" ? "Superseded" : "Ready"}</span><small>{artifact.latestEvent ? `Node recorded ${artifact.latestEvent.label} at sequence ${artifact.latestEvent.sequence}.` : "No lifecycle event is present in this task cursor."}{artifact.state === "superseded" ? " Preview and download are unavailable for superseded records." : " Inspect Node preview"}</small></button></li>)}</ul>}<p className="worktrace-contract-note">Status is derived from ordered Node events. Approval, verification, version comparison, and clarification remain unavailable until the Node supplies those contracts.</p></section>
     </div>
-    <ProofInspectorPanel selection={proofSelection} artifactPreview={artifactPreview} artifactPreviewState={artifactPreviewState} artifactPreviewError={artifactPreviewError} artifactLifecycleState={selectedArtifactLifecycleState} downloadState={artifactDownloadState} downloadReceipt={artifactDownloadReceipt} onDownloadArtifact={(artifactId: string) => { void onDownloadArtifact(artifactId); }} />
+    <ProofInspectorPanel selection={proofSelection} artifactReview={artifactReview} artifactPreview={artifactPreview} artifactPreviewState={artifactPreviewState} artifactPreviewError={artifactPreviewError} artifactLifecycleState={selectedArtifactLifecycleState} downloadState={artifactDownloadState} downloadReceipt={artifactDownloadReceipt} onDownloadArtifact={(artifactId: string) => { void onDownloadArtifact(artifactId); }} />
     </div>
     {plan && <PlanReviewCard plan={plan} loading={false} approval={approval} approving={approving} synchronized={maySendConsequentialCommand(projection, syncStatus)} currentTaskSequence={projection.lastAppliedSequence} taskStatus={projection.status} onApprove={onApprovePlan} onCancel={onStop} />}
     {controlResult && <CommandOutcomeBlock action="Stop request" result={controlResult} />}

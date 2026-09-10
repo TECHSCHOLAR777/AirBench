@@ -16,6 +16,7 @@ const MAX_TASK_ID_BYTES: usize = 128;
 const CORE_SCHEMA_VERSION: &str = "1.0";
 const CORE_COMPATIBILITY_ID: &str = "airbench-core-contracts";
 const NODE_PROTOCOL_COMPATIBILITY_ID: &str = "airbench-node-protocol";
+const MAX_NODE_REFERENCE_BYTES: usize = 256;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -165,6 +166,44 @@ pub struct TaskPlanReview {
     pub ledger_event_ref: Option<String>,
     pub failure_code: Option<String>,
     pub failure_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskArtifactReview {
+    pub schema_version: String,
+    pub compatibility_id: String,
+    pub task_id: String,
+    pub artifact_id: String,
+    pub node_identity: String,
+    pub protocol_version: String,
+    pub clearance_context: String,
+    pub title: String,
+    pub media_type: String,
+    pub file_format: String,
+    pub template_id: String,
+    pub template_version: String,
+    pub content_hash: String,
+    pub byte_size: u64,
+    pub status: String,
+    pub verification_status: String,
+    pub structural_check: String,
+    pub visual_check: String,
+    pub approval_state: String,
+    pub approval_blocking_reasons: Vec<String>,
+    pub source_refs: Vec<String>,
+    pub evidence_refs: Vec<String>,
+    pub verification_refs: Vec<String>,
+    pub deterministic_value_refs: Vec<String>,
+    pub confidence: f64,
+    pub clearance: String,
+    pub taint: String,
+    pub derivation: Value,
+    pub preview_ref: String,
+    pub download_ref: String,
+    pub ledger_event_ref: String,
+    pub artifact_sequence: u64,
+    pub created_at: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -616,6 +655,10 @@ fn task_route_trace_path(task_id: &str) -> Result<String, NodeTransportError> {
     Ok(format!("{}/route-trace", task_snapshot_path(task_id)?))
 }
 
+fn task_artifact_review_path(task_id: &str) -> Result<String, NodeTransportError> {
+    Ok(format!("{}/artifact-review", task_snapshot_path(task_id)?))
+}
+
 fn command_path(command: &NodeCommandEnvelope) -> Result<String, NodeTransportError> {
     let task_id = command.task_id.as_deref().ok_or_else(|| {
         NodeTransportError::CommandSchemaInvalid(
@@ -656,6 +699,63 @@ fn validate_node_response_identity(
     if clearance_context != profile.clearance_context {
         return Err(NodeTransportError::ClearanceMismatch(
             "The Node response clearance context does not match the approved profile.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_node_reference(reference: &str, label: &str) -> Result<(), NodeTransportError> {
+    if reference.is_empty()
+        || reference.len() > MAX_NODE_REFERENCE_BYTES
+        || reference.contains("..")
+        || !reference
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+    {
+        return Err(NodeTransportError::EventSchemaInvalid(format!(
+            "The Node {label} reference is invalid."
+        )));
+    }
+    Ok(())
+}
+
+fn clearance_rank(value: &str) -> Option<u8> {
+    match value {
+        "public" => Some(0),
+        "internal" => Some(1),
+        "restricted" => Some(2),
+        "secret" => Some(3),
+        _ => None,
+    }
+}
+
+fn validate_clearance_for_profile(
+    value: &str,
+    approved_context: &str,
+    label: &str,
+) -> Result<(), NodeTransportError> {
+    let Some(value_rank) = clearance_rank(value) else {
+        return Err(NodeTransportError::EventSchemaInvalid(format!(
+            "The Node {label} clearance is invalid."
+        )));
+    };
+    let Some(context_rank) = clearance_rank(approved_context) else {
+        return Err(NodeTransportError::ClearanceMismatch(
+            "The approved Node profile clearance is invalid.".to_string(),
+        ));
+    };
+    if value_rank > context_rank {
+        return Err(NodeTransportError::ClearanceMismatch(format!(
+            "The Node {label} exceeds the approved profile clearance."
+        )));
+    }
+    Ok(())
+}
+
+fn validate_taint(value: &str) -> Result<(), NodeTransportError> {
+    if !matches!(value, "clean" | "untrusted" | "contaminated") {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The Node returned an invalid taint value.".to_string(),
         ));
     }
     Ok(())
@@ -755,6 +855,129 @@ pub async fn fetch_task_plan_profile(
         .into());
     }
     Ok(plan)
+}
+
+pub async fn fetch_task_artifact_review_profile(
+    profile: NodeProfile,
+    task_id: String,
+) -> Result<TaskArtifactReview, String> {
+    let path = task_artifact_review_path(&task_id).map_err(String::from)?;
+    let review: TaskArtifactReview = request_json(&profile, Method::GET, &path, None)
+        .await
+        .map_err(|error| NodeTransportError::SnapshotFailed(error.to_string()).to_string())?;
+    validate_artifact_review(&profile, &task_id, &review).map_err(String::from)?;
+    Ok(review)
+}
+
+fn validate_artifact_review(
+    profile: &NodeProfile,
+    task_id: &str,
+    review: &TaskArtifactReview,
+) -> Result<(), NodeTransportError> {
+    if review.task_id != task_id {
+        return Err(NodeTransportError::SnapshotFailed(
+            "The Node artifact review task identity does not match the request.".to_string(),
+        ));
+    }
+    validate_node_response_identity(
+        profile,
+        &review.node_identity,
+        &review.protocol_version,
+        &review.clearance_context,
+    )
+    .map_err(|error| error)?;
+    validate_node_wire_compatibility(&review.compatibility_id)?;
+    if review.schema_version != profile.protocol_version {
+        return Err(NodeTransportError::ProtocolMismatch(
+            "The Node artifact review schema is not compatible with this application.".to_string(),
+        ));
+    }
+    validate_node_reference(&review.artifact_id, "artifact")?;
+    validate_node_reference(&review.preview_ref, "preview")?;
+    validate_node_reference(&review.download_ref, "download")?;
+    validate_node_reference(&review.ledger_event_ref, "ledger event")?;
+    validate_sha256_hex(&review.content_hash, "artifact hash")?;
+    if review.title.trim().is_empty()
+        || review.title.len() > 255
+        || review.title.contains('\0')
+        || review.media_type.trim().is_empty()
+        || review.file_format.trim().is_empty()
+        || review.template_id.trim().is_empty()
+        || review.template_version.trim().is_empty()
+        || review.created_at.trim().is_empty()
+    {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The Node artifact review metadata is incomplete.".to_string(),
+        ));
+    }
+    if review.byte_size == 0 || review.byte_size > 100 * 1024 * 1024 {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The Node artifact review size is outside the supported limit.".to_string(),
+        ));
+    }
+    if !(0.0..=1.0).contains(&review.confidence) || !review.confidence.is_finite() {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The Node artifact review confidence is invalid.".to_string(),
+        ));
+    }
+    if !matches!(
+        review.status.as_str(),
+        "staged" | "verified_draft" | "needs_review" | "approved" | "returned" | "rejected" | "superseded"
+    ) || !matches!(
+        review.verification_status.as_str(),
+        "not_run" | "passed" | "failed" | "needs_review" | "unavailable"
+    ) || !matches!(
+        review.structural_check.as_str(),
+        "not_required" | "passed" | "failed"
+    ) || !matches!(
+        review.visual_check.as_str(),
+        "not_required" | "passed" | "failed" | "unavailable"
+    ) || !matches!(
+        review.approval_state.as_str(),
+        "not_ready" | "pending" | "approved" | "returned" | "rejected" | "unavailable"
+    )
+    {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The Node artifact review status is not supported.".to_string(),
+        ));
+    }
+    validate_clearance_for_profile(&review.clearance, &profile.clearance_context, "artifact")?;
+    validate_clearance_for_profile(
+        &review.clearance_context,
+        &profile.clearance_context,
+        "artifact review context",
+    )?;
+    validate_taint(&review.taint)?;
+    if review.taint == "contaminated"
+        || review.source_refs.is_empty()
+        || review.evidence_refs.is_empty()
+        || review.verification_refs.is_empty()
+        || review
+            .source_refs
+            .iter()
+            .chain(review.evidence_refs.iter())
+            .chain(review.verification_refs.iter())
+            .any(|item| item.trim().is_empty() || item.len() > MAX_NODE_REFERENCE_BYTES)
+    {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The Node artifact review provenance is incomplete or unsafe.".to_string(),
+        ));
+    }
+    if review.approval_state == "pending" && review.status == "approved" {
+        return Err(NodeTransportError::EventSchemaInvalid(
+            "The Node artifact review has contradictory approval state.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_sha256_hex(value: &str, label: &str) -> Result<(), NodeTransportError> {
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(NodeTransportError::EventSchemaInvalid(format!(
+            "The Node {label} is not a valid SHA-256 digest."
+        )));
+    }
+    Ok(())
 }
 
 pub async fn fetch_task_route_trace_profile(
@@ -1233,6 +1456,16 @@ pub async fn fetch_task_plan(
 ) -> Result<TaskPlanReview, String> {
     let profile = approved_profile_by_id(&app, &profile_id)?;
     fetch_task_plan_profile(profile, task_id).await
+}
+
+#[tauri::command]
+pub async fn fetch_task_artifact_review(
+    app: tauri::AppHandle,
+    profile_id: String,
+    task_id: String,
+) -> Result<TaskArtifactReview, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    fetch_task_artifact_review_profile(profile, task_id).await
 }
 
 #[tauri::command]

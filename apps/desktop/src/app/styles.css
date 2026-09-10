@@ -716,6 +716,22 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .proof-artifact-blocks p { margin: 0; color: var(--ink-soft); font-size: 10px; line-height: 1.5; white-space: pre-wrap; }
 .proof-artifact-actions { display: grid; gap: 7px; padding-top: 3px; }
 .proof-artifact-actions small { color: var(--faint); font-family: var(--font-mono); font-size: 8px; line-height: 1.45; overflow-wrap: anywhere; }
+.proof-artifact-review { display: grid; gap: 10px; padding: 11px; background: color-mix(in srgb, var(--surface-raised) 78%, var(--accent) 4%); border: 1px solid color-mix(in srgb, var(--trust) 26%, var(--line)); border-radius: var(--radius-sm); }
+.proof-artifact-review-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.proof-artifact-review-head > div { display: grid; gap: 3px; }
+.proof-artifact-review-kicker { color: var(--faint); font-size: 8px; font-weight: 730; letter-spacing: .06em; text-transform: uppercase; }
+.proof-artifact-review-head strong { color: var(--ink-soft); font-size: 11px; text-transform: capitalize; }
+.proof-review-badge { padding: 4px 7px; color: var(--trust); background: var(--trust-soft); border: 1px solid color-mix(in srgb, var(--trust) 30%, var(--line)); border-radius: 999px; font-size: 8px; font-weight: 730; text-transform: capitalize; }
+.proof-review-badge-pending { color: var(--attention-ink); background: var(--attention-soft); border-color: color-mix(in srgb, var(--attention) 30%, var(--line)); }
+.proof-artifact-review-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 0; }
+.proof-artifact-review-grid div { display: grid; gap: 2px; min-width: 0; padding-top: 7px; border-top: 1px solid var(--line); }
+.proof-artifact-review-grid dt { color: var(--faint); font-size: 8px; text-transform: uppercase; }
+.proof-artifact-review-grid dd { margin: 0; color: var(--ink-soft); font-size: 10px; overflow-wrap: anywhere; }
+.proof-artifact-review-blockers { display: grid; gap: 5px; padding: 8px; color: var(--attention-ink); background: var(--attention-soft); border: 1px solid color-mix(in srgb, var(--attention) 26%, var(--line)); border-radius: 8px; font-size: 9px; line-height: 1.4; }
+.proof-artifact-review-blockers ul { display: grid; gap: 3px; margin: 0; padding-left: 16px; }
+.proof-artifact-review-provenance { display: grid; gap: 3px; padding-top: 7px; border-top: 1px solid var(--line); }
+.proof-artifact-review-provenance span { color: var(--trust); font-size: 9px; font-weight: 700; }
+.proof-artifact-review-provenance small { color: var(--faint); font-family: var(--font-mono); font-size: 8px; line-height: 1.4; overflow-wrap: anywhere; }
 .proof-preview-state { display: grid; gap: 7px; padding: 11px; color: var(--muted); background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 10px; line-height: 1.5; }
 .proof-preview-state-blocked { color: var(--danger-ink); background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 30%, var(--line)); }
 .proof-preview-state > p, .proof-preview-state > small { margin: 0; color: var(--muted); }
