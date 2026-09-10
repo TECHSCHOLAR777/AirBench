@@ -49,6 +49,7 @@ CONTRACT_NAMES = (
     "NodeRouteTraceEntry",
     "NodeRouteTrace",
     "NodeTaskSnapshot",
+    "NodeArtifactReview",
     "NodeTaskEvent",
     "NodeTaskEventBatch",
 )
