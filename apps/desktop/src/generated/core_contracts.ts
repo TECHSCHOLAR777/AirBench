@@ -15,7 +15,9 @@ export type NodeTaskStatus = "accepted" | "planning" | "running" | "needs_review
 
 export const LEDGER_EVENT_TYPES = [
   "artifact.checked",
+  "artifact.downloaded",
   "artifact.integrity.verified",
+  "artifact.previewed",
   "artifact.staged",
   "authority.decided",
   "backend.airgap_startup.checked",
@@ -736,6 +738,40 @@ export interface NodeTaskSnapshot extends NodeWireContractEnvelope {
   unresolvedQuestions: Array<string>;
   nodeConnectionRef: string;
   ledgerHeadRef: string;
+}
+
+export interface NodeArtifactReview extends NodeWireContractEnvelope {
+  taskId: string;
+  artifactId: string;
+  nodeIdentity: string;
+  protocolVersion: string;
+  clearanceContext: Clearance;
+  title: string;
+  mediaType: string;
+  fileFormat: string;
+  templateId: string;
+  templateVersion: string;
+  contentHash: string;
+  byteSize: number;
+  status: string;
+  verificationStatus: string;
+  structuralCheck: string;
+  visualCheck: string;
+  approvalState: string;
+  approvalBlockingReasons: Array<string>;
+  sourceRefs: Array<string>;
+  evidenceRefs: Array<string>;
+  verificationRefs: Array<string>;
+  deterministicValueRefs: Array<string>;
+  confidence: number;
+  clearance: Clearance;
+  taint: Taint;
+  derivation: Record<string, unknown>;
+  previewRef: string;
+  downloadRef: string;
+  ledgerEventRef: string;
+  artifactSequence: number;
+  createdAt: string;
 }
 
 export interface NodeTaskEvent extends NodeWireContractEnvelope {
