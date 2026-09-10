@@ -283,7 +283,7 @@ class AssetCheckResult:
     asset_id: str
     path: str
     status: str
-    """``ok`` | ``missing`` | ``hash_mismatch`` | ``not_required_ok``"""
+    """``ok`` | ``missing`` | ``hash_mismatch`` | ``invalid_path`` | ``not_required_ok``"""
     expected_hash: str | None
     actual_hash: str | None
     detail: str = ""
@@ -368,9 +368,15 @@ class StartupVerifier:
     def _resolve(self, asset: AssetRecord) -> Path:
         """Resolve an asset path, optionally relative to bundle_root."""
         p = Path(asset.path)
-        if not p.is_absolute() and self.bundle_root is not None:
-            p = self.bundle_root / p
-        return p
+        if self.bundle_root is None:
+            return p.resolve()
+        root = self.bundle_root.resolve()
+        resolved = (p if p.is_absolute() else root / p).resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise ValueError(f"Asset path escapes bundle root: {asset.path!r}") from exc
+        return resolved
 
     def _hash_file(self, path: Path) -> str | None:
         """Return lower-case hex SHA-256 of a file, or ``None`` if unreadable."""
@@ -392,7 +398,19 @@ class StartupVerifier:
         all_passed = True
 
         for asset in self.manifest.assets:
-            resolved = self._resolve(asset)
+            try:
+                resolved = self._resolve(asset)
+            except ValueError as exc:
+                asset_results.append(AssetCheckResult(
+                    asset_id=asset.asset_id,
+                    path=asset.path,
+                    status="invalid_path",
+                    expected_hash=asset.expected_hash,
+                    actual_hash=None,
+                    detail=str(exc),
+                ))
+                all_passed = False
+                continue
             if not resolved.exists():
                 if asset.required:
                     asset_results.append(AssetCheckResult(
