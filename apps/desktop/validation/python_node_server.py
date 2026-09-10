@@ -10,21 +10,56 @@ import argparse
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+# ``python_node_server.py`` lives at apps/desktop/validation.  Keep the
+# validation process rooted at the repository so its imports and pack-owned
+# template path do not accidentally resolve to apps/apps/....
+ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "src"))
 
 import uvicorn  # noqa: E402
 
+from airbench.delivery import LocalArtifactStore  # noqa: E402
 from airbench.intake import FileIntakeLayer, LocalIntakeStore  # noqa: E402
-from airbench.node.api import NodeApiConfig, NodeApiService, create_app  # noqa: E402
+from airbench.node.api import NodeApiConfig, NodeApiService, NodeApiError, create_app  # noqa: E402
+from airbench.node.deliverable_gateway import LocalDeliverableGateway  # noqa: E402
 from airbench.node.intake_gateway import LocalNodeIntakeGateway  # noqa: E402
 from contracts import Clearance, EventLedger, Orchestrator  # noqa: E402
+from local_task_run import LocalTaskExecutionCoordinator, LocalTaskRunError  # noqa: E402
+
+
+class ValidationNodeService(NodeApiService):
+    """Real Node API with an explicit local validation execution composition."""
+
+    def __init__(self, *args, execution: LocalTaskExecutionCoordinator, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._execution = execution
+
+    def authorize(self, subject: str, task_id: str, payload: dict[str, object]) -> dict[str, object]:
+        result = super().authorize(subject, task_id, payload)
+        try:
+            self._execution.prepare(task_id)
+        except LocalTaskRunError as exc:
+            if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
+                self.orchestrator.transition(task_id, "task.failed", {"failure_code": "local_validation_prepare_failed"})
+            raise NodeApiError(409, "validation_prepare_failed", "The local validation Node could not prepare an admitted plan from the committed intake.") from exc
+        return result
+
+    def approve_plan(self, subject: str, task_id: str, payload: dict[str, object]) -> dict[str, object]:
+        result = super().approve_plan(subject, task_id, payload)
+        try:
+            self._execution.execute(task_id)
+        except LocalTaskRunError as exc:
+            if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
+                self.orchestrator.transition(task_id, "task.failed", {"failure_code": "local_validation_execution_failed"})
+            raise NodeApiError(503, "validation_execution_failed", "The approved local validation plan did not produce a verified draft.") from exc
+        return result
 
 
 def build_app(args: argparse.Namespace):
     ledger = EventLedger()
     orchestrator = Orchestrator(ledger)
     intake_store = LocalIntakeStore(args.intake_root)
+    artifact_store = LocalArtifactStore(Path(args.intake_root).parent / "artifacts")
     intake_layer = FileIntakeLayer(ledger, store=intake_store)
     intake_gateway = LocalNodeIntakeGateway(
         layer=intake_layer,
@@ -32,7 +67,15 @@ def build_app(args: argparse.Namespace):
         ledger=ledger,
         clearance_context=Clearance.restricted,
     )
-    service = NodeApiService(
+    execution = LocalTaskExecutionCoordinator(
+        orchestrator=orchestrator,
+        ledger=ledger,
+        intake_store=intake_store,
+        artifact_root=artifact_store.root,
+        workspace_root=Path(args.intake_root).parent / "workspaces",
+        template_path=ROOT / "apps" / "desktop" / "validation" / "deliverable_templates.yaml",
+    )
+    service = ValidationNodeService(
         orchestrator,
         NodeApiConfig(
             node_identity=args.node_identity,
@@ -46,6 +89,14 @@ def build_app(args: argparse.Namespace):
             require_orchestrator_authorization=False,
         ),
         intake_gateway=intake_gateway,
+        deliverable_gateway=LocalDeliverableGateway(
+            ledger=ledger,
+            artifact_store=artifact_store,
+            node_identity=args.node_identity,
+            protocol_version="0.1",
+            clearance_context=Clearance.restricted,
+        ),
+        execution=execution,
     )
     return create_app(service)
 

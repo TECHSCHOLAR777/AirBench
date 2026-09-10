@@ -1425,7 +1425,13 @@ def _string_list(value: Any) -> list[str]:
 def _resource_plan_values(payload: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
+    # Scheduler decision events carry the authoritative TeamResourcePlan
+    # under ``plan``.  Older/manual Node fixtures may expose the same fields
+    # directly or under ``resource_plan``.  Project all three wire shapes
+    # without weakening the typed plan contract at the API boundary.
     nested = payload.get("resource_plan")
+    if not isinstance(nested, dict):
+        nested = payload.get("plan")
     source = nested if isinstance(nested, dict) else payload
     values: dict[str, Any] = {}
     admission = source.get("admission")

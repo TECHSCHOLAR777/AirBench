@@ -142,9 +142,10 @@ class NodeIntakeApiTests(unittest.TestCase):
         self.assertEqual(download.content, content)
         self.assertEqual(download.headers["x-airbench-artifact-hash"], expected_hash)
         self.assertTrue(download.headers["x-airbench-ledger-event-ref"])
+        self.assertEqual(self.orchestrator.state(self.task.task_id), "created")
         self.assertEqual(len(self.ledger.events), 5)
         self.assertEqual([event.event_type for event in self.ledger.events], [
-            "task.created", "evidence.created", "artifact.checked", "artifact.checked", "artifact.checked",
+            "task.created", "evidence.created", "artifact.previewed", "artifact.previewed", "artifact.downloaded",
         ])
 
     def test_scan_without_qualified_ocr_does_not_claim_ready_processing(self):

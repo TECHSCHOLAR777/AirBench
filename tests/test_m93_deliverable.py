@@ -126,6 +126,17 @@ def test_render_writes_a_real_docx_and_appends_provenance_events(tmp_path: Path,
     assert b"{{total}}" not in document_xml
 
 
+def test_render_accepts_orchestrator_uuid_task_identity(tmp_path: Path):
+    ledger = EventLedger()
+    task_id = "12345678-1234-5678-1234-567812345678"
+    _task_event(ledger, task_id)
+
+    artifact = _engine(tmp_path, ledger).render(_request(task_id=task_id, value=_value()))
+
+    assert artifact.task_id == task_id
+    assert artifact.path.is_file()
+
+
 def test_same_idempotency_key_replays_without_duplicate_artifact_events(tmp_path: Path, ledger: EventLedger):
     engine = _engine(tmp_path, ledger)
     request = _request(value=_value())
