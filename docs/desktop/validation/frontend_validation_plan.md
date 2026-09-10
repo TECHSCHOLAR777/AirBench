@@ -6,18 +6,20 @@ Status: validation design and issue decomposition. Execution begins when the cor
 
 These validations prove that the frontend can be shipped as a sovereign desktop application, not merely rendered in a browser. They cover packaging, trust, task streaming, multimodal document work, no-egress behavior, and desktop-level integration.
 
+The release evidence is intentionally consolidated. FE-VAL-1, FE-VAL-5, and FE-VAL-6 are stable validation track names, but their packaged acceptance is now recorded in GitHub issue #124. FE-VAL-2, FE-VAL-3, and FE-VAL-4 remain independent because their transport and File Intake criteria can be validated before the packaged release run.
+
 The six tracks are independent enough to develop in parallel after the shared contract and shell fixture are established. The final desktop flow is serialized because it integrates all six boundaries.
 
 ## 2. Validation matrix
 
 | Track | GitHub reference | Can start after | Main evidence | Final dependency |
 | --- | --- | --- | --- | --- |
-| FE-VAL-1 | Offline installer and WebView2 | None | Signed or hashed installer, offline startup log, blocked network capture | Blocks FE-VAL-6 release run |
+| FE-VAL-1 | Offline installer and WebView2 | None | Signed or hashed installer, offline startup log, blocked network capture | Evidence recorded in #124 |
 | FE-VAL-2 | Local and remote Node connection | Contract fixture and FE-VAL-1 shell | Trust handshake, endpoint identity, local and internal-remote logs | Blocks FE-VAL-3 end-to-end |
 | FE-VAL-3 | Sequence-numbered event stream | Contract fixture, FE-VAL-2 transport | Replay, gap, duplicate, reconnect, and resync evidence | Blocks integrated live task |
 | FE-VAL-4 | Scanned intake and artifact preview | File Intake fixture and Node artifact contract | Task-bound intake manifest, source hash, safe preview, clearance-aware source download | Blocks integrated inspection demo |
-| FE-VAL-5 | No-egress proof | FE-VAL-1 bundle and FE-VAL-2 transport | Network monitor capture, deny logs, blocked navigation/resource test | Must pass before any user data demo |
-| FE-VAL-6 | Tauri WebDriver desktop test | FE-VAL-1 shell, FE-VAL-2 and FE-VAL-3 fixtures | Desktop test report, IPC mocks, backend logs, multiremote evidence | Final release gate |
+| FE-VAL-5 | No-egress proof | FE-VAL-1 bundle and FE-VAL-2 transport | Network monitor capture, deny logs, blocked navigation/resource test | Evidence recorded in #124 |
+| FE-VAL-6 | Tauri WebDriver desktop test | FE-VAL-1 shell, FE-VAL-2 and FE-VAL-3 fixtures | Desktop test report, IPC mocks, backend logs, multiremote evidence | Evidence recorded in #124 |
 
 ## 3. FE-VAL-1: Offline Tauri installation and bundled WebView2
 
@@ -222,17 +224,16 @@ The shipped desktop application completes the critical workflows under WebDriver
 
 ### Parallel after contract fixture
 
-- FE-VAL-1 packaging and offline runtime.
 - FE-VAL-2 connection fixture.
 - FE-VAL-3 event store and reconnect fixture.
 - FE-VAL-4 intake and preview fixture.
-- FE-VAL-5 static no-egress review and network policy fixture.
+- Static portions of FE-VAL-1 and FE-VAL-5.
 
 ### Serial integration
 
-- FE-VAL-6 final desktop integration depends on FE-VAL-1 and the executable fixtures from FE-VAL-2 through FE-VAL-5.
-- The final inspection-report demonstration is run only after FE-VAL-4 and FE-VAL-5 pass.
-- Production readiness is not declared until all six tracks have evidence.
+- #124 is the final packaged integration gate and depends on the executable fixtures from FE-VAL-2 through FE-VAL-4, the local vertical slice #123, and the hardening/accessibility evidence from #84 and #111.
+- The local inspection-report demonstration in #123 may proceed after FE-VAL-4 and the local static no-egress checks are ready. The packaged inspection-report demonstration in #124 requires the consolidated FE-VAL-5 evidence.
+- Production readiness is not declared until all six tracks have evidence, with FE-VAL-1, FE-VAL-5, and FE-VAL-6 recorded in #124.
 
 ## 10. Validation record format
 

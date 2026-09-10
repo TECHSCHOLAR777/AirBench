@@ -19,8 +19,8 @@ This is a new implementation handoff for issue #13. Existing solution documents 
 
 ## Verification
 
-Focused M8 tests: `.venv\Scripts\python.exe -m pytest -q tests/test_m8_frameworks.py` — 5 passed.
+Focused M8 tests: `.venv\Scripts\python.exe -m pytest -q tests/test_m8_frameworks.py` - 5 passed.
 
-Full Python suite: `.venv\Scripts\python.exe -m pytest -q` — 317 collected, 1 skipped, all remaining tests passed.
+Full Python suite: `.venv\Scripts\python.exe -m pytest -q` - 317 collected, 1 skipped, all remaining tests passed.
 
 Additional checks passed: Python `compileall`, `git diff --check`, frontend contract generation, frontend accessibility, frontend no-egress, Tauri configuration, desktop production build, and 136 frontend tests across 25 files. Desktop dependencies were installed from the checked-in lockfile solely for validation; npm reported 16 existing dependency-audit findings (3 moderate, 13 high), which are outside M8 scope and were not force-upgraded.

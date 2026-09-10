@@ -34,7 +34,7 @@ npm run create:manifest
 npm run tauri:build
 ```
 
-## Required offline evidence before closing #64
+## Required offline evidence before closing the packaged release gate #124
 
 - installer hash and application version;
 - clean supported Windows image with network disabled;
