@@ -86,7 +86,13 @@ def test_serial_run_extracts_provenance_computes_values_and_checks_docx(tmp_path
         document_text = document.read("word/document.xml").decode("utf-8")
     assert "Manual/SOP: manual://pump-sop" in document_text
     assert "Manual/SOP: manual://vibration-sop" in document_text
-    completion = next(event for event in ledger.events if event.event_type == "completion.blocked")
+    # The completion event is environment-dependent: hosts with a visual converter
+    # emit completion.ready while hosts without one emit completion.blocked.
+    # Both carry evidence_refs and both are valid; we accept either.
+    completion = next(
+        event for event in ledger.events
+        if event.event_type in {"completion.blocked", "completion.ready"}
+    )
     assert set(completion.payload["evidence_refs"]) >= {"manual://pump-sop", "manual://vibration-sop"}
     artifact_event = next(event for event in ledger.events if event.event_type == "artifact.checked")
     assert artifact_event.payload["visual_backend"] in {"microsoft_word", "libreoffice", "none"}
@@ -97,7 +103,12 @@ def test_serial_run_extracts_provenance_computes_values_and_checks_docx(tmp_path
     assert all(HandoffSubmission.from_dict(event.payload["handoff"]).packet_hash for event in handoffs)
     assert "artifact.checked" in [event.event_type for event in ledger.events]
     assert "verification.evaluator.completed" in [event.event_type for event in ledger.events]
-    assert "completion.blocked" in [event.event_type for event in ledger.events]
+    assert any(
+        event.event_type in {"completion.blocked", "completion.ready"}
+        for event in ledger.events
+    ), "expected a completion gate event (blocked or ready)"
+    # The ledger task state is always needs_review because human.review.required
+    # is unconditionally emitted after the completion gate.
     assert ledger.replay("task.m9.demo").state == "needs_review"
 
 
@@ -264,3 +275,34 @@ def test_run_from_local_image_uses_file_intake_and_typed_vision(tmp_path: Path) 
     assert "verification.completed" in event_types and "verification.evaluator.completed" in event_types
     assert "routing.decided" in event_types
     assert "fact.committed" in event_types and "tool.authorized" in event_types
+
+
+def test_file_intake_failure_appends_task_failed_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: a FileIntakeLayer.intake IntakeError must append a task.failed
+    event before re-raising so the ledger has a full failure trace."""
+    from airbench.intake.layer import IntakeError, FileIntakeLayer
+
+    # setattr replaces the unbound method, so the replacement receives self too.
+    def raise_intake_error(_self, _request):
+        raise IntakeError("test_invalid_content", "synthetic intake failure for test")
+
+    monkeypatch.setattr(FileIntakeLayer, "intake", raise_intake_error)
+
+    pack = signed_pack(tmp_path)
+    report = tmp_path / "report.txt"
+    report.write_bytes(b"dummy")
+    ledger = EventLedger()
+    with pytest.raises(IntakeError, match="synthetic intake failure"):
+        RefineryVerticalSlice(pack, ledger, artifact_dir=tmp_path / "artifacts").run_from_file(
+            task_id="task.m9.intake-fail", report_path=report
+        )
+
+    failed_events = [e for e in ledger.events if e.event_type == "task.failed"]
+    assert len(failed_events) == 1, "expected exactly one task.failed event"
+    payload = failed_events[0].payload
+    assert payload["failure_code"] == "test_invalid_content"
+    assert payload["stage"] == "file_intake"
+    assert payload["retryable"] is False
+    assert "synthetic intake failure" in payload["failure_message"]
