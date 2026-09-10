@@ -71,7 +71,7 @@ These are parallel only after the shared generated contracts are accepted. They 
 
 ## Shared contract queue
 
-The following contracts are not frontend-owned and must be introduced through the serialized protocol work in #74 with matching Python, Rust, generated TypeScript, and replay tests:
+The following contracts are not frontend-owned and must be introduced through the serialized protocol work in #74 and its follow-up contract work, with matching Python, Rust, generated TypeScript, and replay tests:
 
 1. `EvidenceProjection` with Node identity, protocol version, clearance context, integrity reference, evidence, facts, source preview references, and redaction reasons.
 2. `ArtifactReviewProjection` with version, status, verification, deterministic values, calculation references, permitted preview and download references, approval blocking reasons, and ledger identity.
