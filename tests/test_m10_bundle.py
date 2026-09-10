@@ -283,6 +283,13 @@ class TestStartupVerifier(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.asset_results[0].status, "not_required_ok")
 
+    def test_asset_path_cannot_escape_bundle_root(self) -> None:
+        result = self._make_and_verify([
+            AssetRecord("escape", "../outside.txt", "a" * 64),
+        ], signing_key=SIGNING_KEY_32, sign=True)
+        self.assertFalse(result.passed)
+        self.assertEqual(result.asset_results[0].status, "invalid_path")
+
     def test_no_signing_key_signature_valid_is_none(self) -> None:
         content = b"test"
         p, digest = self._write_asset("f.py", content)
