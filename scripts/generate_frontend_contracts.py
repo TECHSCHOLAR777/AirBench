@@ -46,7 +46,10 @@ CONTRACT_NAMES = (
     "NodeProvenanceRef",
     "NodeEvidenceRef",
     "NodeFactRef",
+    "NodeRouteTraceEntry",
+    "NodeRouteTrace",
     "NodeTaskSnapshot",
+    "NodeArtifactReview",
     "NodeTaskEvent",
     "NodeTaskEventBatch",
 )
@@ -54,6 +57,7 @@ CONTRACT_NAMES = (
 PLAIN_TYPE_NAMES = (
     "NodeLifecycleEventPayload",
     "NodeWorkerEventPayload",
+    "NodeExecutionEventPayload",
     "NodeEvidenceEventPayload",
     "NodeVerificationEventPayload",
     "NodeApprovalEventPayload",

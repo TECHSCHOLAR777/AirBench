@@ -7,9 +7,9 @@ import { NodeConnectionController, type NodeConnectionView } from "../platform/n
 import type { ApprovedNodeProfileReference } from "../platform/node/nodeConnection";
 import { listApprovedNodeProfiles } from "../platform/node/profileBridge";
 import { downloadVerifiedArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, type ArtifactPreview, type DownloadReceipt, type IntakeManifest, type SafePreview } from "../features/intake/intakeBridge";
-import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand, type CreateTaskResponse } from "../platform/node/nodeCommands";
-import type { NodeCommandResult, TaskPlanReview } from "../generated/core_contracts";
-import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan, canCancelTask } from "../features/tasks/taskComposer";
+import { createTask, fetchTaskArtifactReview, fetchTaskPlan, fetchTaskRouteTrace, fetchTaskSnapshot, sendTaskCommand, type CreateTaskResponse } from "../platform/node/nodeCommands";
+import type { NodeArtifactReview, NodeCommandResult, NodeRouteTrace, TaskPlanReview } from "../generated/core_contracts";
+import { buildApprovePlanCommand, buildAuthorizeTaskCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan, canCancelTask } from "../features/tasks/taskComposer";
 import { planRecoveryGuidance } from "../features/tasks/planRecovery";
 import { commandOutcomeGuidance, shouldRefreshTaskAfterCommand } from "../features/tasks/commandOutcome";
 import { fetchTaskEventBatch } from "../platform/events/eventTransport";
@@ -18,7 +18,7 @@ import { TaskEventLoop } from "../features/tasks/taskEventLoop";
 import { taskSyncRecovery } from "../features/tasks/syncRecovery";
 import { loadPresentationPreferences, savePresentationPreferences, type PresentationPreferences } from "../features/shell/presentationPreferences";
 import { mayLaunchFromShortcut, sourceStatus, unavailableRoutingPreference } from "../features/shell/launchpadPolicy";
-import { buildWorkTrace, formatTraceTime, type WorkTraceActivity, type WorkTraceStage } from "../features/work_trace/workTrace";
+import { buildWorkTrace, formatTraceTime, type WorkTrace, type WorkTraceActivity, type WorkTraceStage } from "../features/work_trace/workTrace";
 import { activityWindow, DEFAULT_ACTIVITY_WINDOW } from "../features/work_trace/activityWindow";
 import { buildHomeWorkSummary } from "../features/work_trace/homeWorkSummary";
 import { buildRecordGateway, type RecordGatewayDestination } from "../features/provenance/recordGateway";
@@ -28,7 +28,7 @@ import { OperatorQuestionCard } from "../components/OperatorQuestionCard";
 import { ProofInspectorPanel, type ArtifactLifecycleState, type ArtifactPreviewState } from "../components/ProofInspectorPanel";
 import { TaskEmptyView } from "../components/TaskEmptyView";
 import { NodeReadinessPanel } from "../components/NodeReadinessPanel";
-import { formatProvenanceLocation, reconcileProofSelection, type ProofSelection } from "../features/provenance/proofInspector";
+import { formatFactValue, formatProvenanceLocation, reconcileProofSelection, type ProofSelection } from "../features/provenance/proofInspector";
 import type { TaskProjection, TaskStatus } from "../platform/events/protocol";
 import { classifyIntakeFailure, intakeStateFromManifest, intakeStatusCopy, type IntakeUiState } from "../features/intake/intakeState";
 
@@ -75,6 +75,7 @@ function App() {
   const [downloadState, setDownloadState] = useState<"idle" | "downloading" | "downloaded" | "failed">("idle");
   const [downloadReceipt, setDownloadReceipt] = useState<DownloadReceipt | null>(null);
   const [taskResult, setTaskResult] = useState<CreateTaskResponse | null>(null);
+  const [taskRouteTrace, setTaskRouteTrace] = useState<NodeRouteTrace | null>(null);
   const [planReview, setPlanReview] = useState<TaskPlanReview | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
   const [planApprovalResult, setPlanApprovalResult] = useState<NodeCommandResult | null>(null);
@@ -84,6 +85,7 @@ function App() {
   const [taskControlResult, setTaskControlResult] = useState<NodeCommandResult | null>(null);
   const [controllingTask, setControllingTask] = useState(false);
   const [taskArtifactPreview, setTaskArtifactPreview] = useState<ArtifactPreview | null>(null);
+  const [taskArtifactReview, setTaskArtifactReview] = useState<NodeArtifactReview | null>(null);
   const [taskArtifactPreviewState, setTaskArtifactPreviewState] = useState<ArtifactPreviewState>("idle");
   const [taskArtifactPreviewError, setTaskArtifactPreviewError] = useState<string | null>(null);
   const [taskArtifactDownloadState, setTaskArtifactDownloadState] = useState<"idle" | "downloading" | "downloaded" | "failed">("idle");
@@ -209,6 +211,16 @@ function App() {
     return result;
   };
 
+  const refreshTaskRouteTrace = async (profile: ApprovedNodeProfileReference, taskId: string) => {
+    try {
+      setTaskRouteTrace(await fetchTaskRouteTrace(profile, taskId));
+    } catch {
+      // A transient route-read failure is non-authoritative. Keep the last
+      // valid projection visible rather than replacing proven Node data with
+      // an empty desktop guess.
+    }
+  };
+
   const connectProfile = async (profile: ApprovedNodeProfileReference) => {
     setConnectingProfileId(profile.profileId);
     setConnection({ ...controller.snapshot(), state: "connecting", profileId: profile.profileId });
@@ -246,13 +258,7 @@ function App() {
     }
   };
 
-  const uploadSelectedFile = async () => {
-    if (!selectedFile) return;
-    const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
-    if (!profile || !nodeConnected) {
-      setNotice("Connect a verified Node before sending a file to the File Intake Layer.");
-      return;
-    }
+  const uploadFileForTask = async (profile: ApprovedNodeProfileReference, selectionId: string, taskId: string) => {
     setIntakeState("uploading");
     setIntakeManifest(null);
     setSafePreview(null);
@@ -261,15 +267,15 @@ function App() {
     setDownloadReceipt(null);
     setNotice(null);
     try {
-      const manifest = await uploadSelectedQueryFile(profile, selectedFile.selection_id);
+      const manifest = await uploadSelectedQueryFile(profile, selectionId, taskId);
       setIntakeManifest(manifest);
       const manifestState = intakeStateFromManifest(manifest);
       setIntakeState(manifestState);
       if (manifestState !== "ready") {
         setNotice(manifestState === "processing"
-          ? "File Intake accepted the source, but OCR or vision is still processing. Launch remains paused until the Node supplies a completed preview."
-          : "File Intake accepted the manifest, but its processing result is incomplete. Launch remains paused until the Node supplies a complete result.");
-        return;
+          ? "File Intake accepted the source, but OCR or vision is still processing. The Node will keep the task gated until a completed preview exists."
+          : "File Intake accepted the source, but the configured OCR or vision path is unavailable. The task remains gated until the Node supplies a complete result.");
+        return manifest;
       }
       try {
         const preview = await fetchSafePreview(profile, manifest.preview_ref, manifest.source_hash);
@@ -278,17 +284,18 @@ function App() {
         const state = classifyIntakeFailure(error, true);
         setIntakeState(state);
         setNotice(intakeStatusCopy(state).detail);
-        return;
+        return manifest;
       }
       try {
         const artifact = await fetchArtifactPreview(profile, manifest.artifact_ref);
         setArtifactPreview(artifact);
       } catch {
         setArtifactPreview(null);
-        setNotice("Source accepted by File Intake. The Node artifact preview is not available yet; task launch remains governed by the intake result.");
-        return;
+        setNotice("Source accepted by File Intake. A source-artifact preview is not available yet; task execution remains governed by the Node.");
+        return manifest;
       }
       setNotice("AirBench accepted the file through the File Intake Layer. Previews are Node-generated and remain untrusted data.");
+      return manifest;
     } catch (error) {
       const state = classifyIntakeFailure(error);
       setIntakeState(state);
@@ -296,6 +303,25 @@ function App() {
       setSafePreview(null);
       setArtifactPreview(null);
       setNotice(intakeStatusCopy(state).detail);
+      throw error;
+    }
+  };
+
+  const uploadSelectedFile = async () => {
+    if (!selectedFile) return;
+    const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
+    if (!profile || !nodeConnected) {
+      setNotice("Connect a verified Node before sending a file to the File Intake Layer.");
+      return;
+    }
+    if (!taskResult) {
+      setNotice("Launch the task first so the Node can bind this source to its task ledger. File Intake will run immediately after task creation.");
+      return;
+    }
+    try {
+      await uploadFileForTask(profile, selectedFile.selection_id, taskResult.task.task_id);
+    } catch {
+      // The helper has already exposed the bounded recovery state.
     }
   };
 
@@ -324,6 +350,7 @@ function App() {
   const inspectTaskArtifact = async (artifactId: string) => {
     const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
     setTaskArtifactPreview(null);
+    setTaskArtifactReview(null);
     setTaskArtifactPreviewError(null);
     setTaskArtifactDownloadState("idle");
     setTaskArtifactDownloadReceipt(null);
@@ -333,13 +360,21 @@ function App() {
       return;
     }
     setTaskArtifactPreviewState("loading");
-    try {
-      const preview = await fetchArtifactPreview(profile, artifactId);
-      setTaskArtifactPreview(preview);
+    const [previewResult, reviewResult] = await Promise.allSettled([
+      fetchArtifactPreview(profile, artifactId),
+      taskProjection ? fetchTaskArtifactReview(profile, taskProjection.taskId) : Promise.reject(new Error("The current task is not available.")),
+    ]);
+    if (previewResult.status === "fulfilled") {
+      setTaskArtifactPreview(previewResult.value);
       setTaskArtifactPreviewState("ready");
-    } catch {
+    } else {
       setTaskArtifactPreviewState("failed");
       setTaskArtifactPreviewError("The approved Node did not return a safe preview for this artifact.");
+    }
+    if (reviewResult.status === "fulfilled" && reviewResult.value.artifactId === artifactId) {
+      setTaskArtifactReview(reviewResult.value);
+    } else {
+      setTaskArtifactReview(null);
     }
   };
 
@@ -353,7 +388,8 @@ function App() {
     setTaskArtifactDownloadState("downloading");
     setTaskArtifactDownloadReceipt(null);
     try {
-      const receipt = await downloadVerifiedArtifact(profile, artifactId, `airbench-artifact-${artifactId}.bin`);
+      const extension = taskArtifactReview?.artifactId === artifactId ? taskArtifactReview.fileFormat : "bin";
+      const receipt = await downloadVerifiedArtifact(profile, artifactId, `airbench-artifact-${artifactId}.${extension}`);
       setTaskArtifactDownloadReceipt(receipt);
       setTaskArtifactDownloadState("downloaded");
     } catch {
@@ -388,14 +424,19 @@ function App() {
     setTaskProjection(synchronizer.loadSnapshot(snapshot));
     setEventSyncState(synchronizer.state());
     const result = await synchronize(synchronizer);
-    return applyTaskSyncResult(result);
+    const applied = applyTaskSyncResult(result);
+    await refreshTaskRouteTrace(profile, applied.projection.taskId);
+    return applied;
   };
 
   const refreshTask = async () => {
     const synchronizer = synchronizerRef.current;
     if (!synchronizer) return;
+    const taskId = taskProjection?.taskId;
     const result = await synchronize(synchronizer);
     applyTaskSyncResult(result);
+    const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
+    if (profile && taskId) await refreshTaskRouteTrace(profile, taskId);
   };
 
   useEffect(() => {
@@ -434,9 +475,11 @@ function App() {
     synchronizationRef.current = null;
     synchronizationTokenRef.current = null;
     setTaskResult(null);
+    setTaskRouteTrace(null);
     setPlanReview(null);
     setPlanApprovalResult(null);
     setTaskArtifactPreview(null);
+    setTaskArtifactReview(null);
     setTaskArtifactPreviewState("idle");
     setTaskArtifactPreviewError(null);
     setTaskArtifactDownloadState("idle");
@@ -454,10 +497,48 @@ function App() {
         outputContract,
         priority,
         deadline: deadline || null,
-        inputManifestRefs: intakeManifest ? [intakeManifest.intake_id] : [],
+        inputManifestRefs: [],
       }, commandId, `idempotency.${commandId}`);
       const result = await createTask(profile, command);
       setTaskResult(result);
+      let intakeManifestForTask: IntakeManifest | null = null;
+      if (selectedFile) {
+        try {
+          intakeManifestForTask = await uploadFileForTask(profile, selectedFile.selection_id, result.task.task_id);
+        } catch {
+          // The task remains a real Node task; its intake failure is visible
+          // and execution remains gated by the Node state.
+        }
+      }
+      let synchronizedSnapshot = result.snapshot;
+      try {
+        synchronizedSnapshot = await fetchTaskSnapshot(profile, result.task.task_id);
+      } catch {
+        // The create snapshot remains the last authoritative projection.
+      }
+      const taskResultWithIntake = { ...result, snapshot: synchronizedSnapshot };
+      setTaskResult(taskResultWithIntake);
+      if (selectedFile && !intakeManifestForTask) {
+        setNotice("The Node accepted the task, but File Intake did not return a committed manifest. Authorization is paused.");
+        return;
+      }
+      const authorizationCommandId = `command.authorize.${crypto.randomUUID()}`;
+      const authorizationCommand = buildAuthorizeTaskCommand(
+        connection.authenticatedSubject,
+        result.task.task_id,
+        synchronizedSnapshot.asOfSequence,
+        "operator.authorized.local-task",
+        authorizationCommandId,
+        `idempotency.${authorizationCommandId}`,
+      );
+      try {
+        await sendTaskCommand(profile, authorizationCommand);
+        synchronizedSnapshot = await fetchTaskSnapshot(profile, result.task.task_id);
+        setTaskResult({ ...result, snapshot: synchronizedSnapshot });
+      } catch {
+        setNotice("The Node accepted the task, but did not authorize it. No plan or execution was started.");
+        return;
+      }
       setPlanLoading(true);
       try {
         const plan = await fetchTaskPlan(profile, result.task.task_id);
@@ -468,7 +549,7 @@ function App() {
       } finally {
         setPlanLoading(false);
       }
-      await syncTask(profile, result.snapshot);
+      await syncTask(profile, synchronizedSnapshot);
       selectScreen("tasks");
     } catch {
       setNotice("The Node did not accept this task. No local task state was created.");
@@ -544,7 +625,9 @@ function App() {
     }
   };
 
-  const canStart = nodeConnected && taskText.trim().length > 0 && (!selectedFile || intakeState === "ready") && !creatingTask;
+  const canStart = nodeConnected && taskText.trim().length > 0
+    && (!selectedFile || intakeState === "ready" || (!taskResult && intakeState === "idle"))
+    && !creatingTask;
   const nodeLabel = nodeConnected ? (profiles.find((profile) => profile.profileId === connection.profileId)?.displayName ?? "Node connected") : connection.state === "connecting" ? "Connecting to Node" : connection.state === "reconnecting" ? "Reconnecting to Node" : "Node not connected";
   const nodeDetail = nodeConnected ? "Verified and ready" : connection.state === "failed" || connection.state === "blocked" ? "Connection blocked" : connection.state === "reconnecting" ? "Reconnect to continue" : "Choose an approved Node";
   const sovereigntyLabel = nodeConnected && connection.sovereignty === "verified" ? "Verified internal path" : "No verified Node path";
@@ -584,7 +667,7 @@ function App() {
         <div className="content-wrap">
           {state.screen === "home" && <HomeView outcomeInputRef={outcomeInputRef} currentTask={taskProjection} taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} planSynchronized={taskCommandReady} notice={notice} canStart={canStart} creatingTask={creatingTask} nodeConnected={nodeConnected} nodeLabel={nodeLabel} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onCancelTask={stopTask} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={openConnectionHelp} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} />}
           {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesState("idle"); }} onHome={() => selectScreen("home")} />}
-          {state.screen === "tasks" && (taskProjection ? <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={openNewTask} onOpenNode={() => selectScreen("node")} /> : <TaskEmptyView nodeConnected={nodeConnected} onNewTask={openNewTask} onOpenNode={() => selectScreen("node")} />)}
+          {state.screen === "tasks" && (taskProjection ? <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} routeTrace={taskRouteTrace} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactReview={taskArtifactReview} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={openNewTask} onOpenNode={() => selectScreen("node")} /> : <TaskEmptyView nodeConnected={nodeConnected} onNewTask={openNewTask} onOpenNode={() => selectScreen("node")} />)}
           {isRecordGatewayDestination(state.screen) && <RecordGatewayView destination={state.screen} nodeConnected={nodeConnected} currentTask={taskProjection} onHome={() => selectScreen("home")} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} />}
         </div>
       </main>
@@ -675,7 +758,7 @@ function HomeView({ outcomeInputRef, currentTask, taskText, setTaskText, taskTit
       {openPanel === "sources" && <section className="launchpad-panel" id="launchpad-sources" aria-label="Sources">
         <div className="launchpad-panel-heading"><div><p className="eyebrow">SOURCES</p><h2>Bring in the material that matters</h2></div><button type="button" className="text-button" onClick={() => setOpenPanel(null)}>Done</button></div>
         {!selectedFile && <div className="launchpad-source-empty"><AppIcon name="attachment" size={19} /><div><strong>No source selected</strong><p>Every file is sent to the Node through File Intake before it can be used.</p></div><button type="button" className="secondary-button" onClick={openSourcePicker}>Choose file</button></div>}
-        {selectedFile && <div className="selected-file"><span className="file-badge">FILE</span><span><strong>{selectedFile.file_name}</strong><small>{formatBytes(selectedFile.byte_size)} / {intakeCopy.label}</small></span><div className="selected-file-actions">{intakeState === "idle" && <button type="button" className="secondary-button compact-button" onClick={onUpload}>Send to Node</button>}{intakeState === "uploading" && <button type="button" className="secondary-button compact-button" disabled>Sending...</button>}{intakeState !== "idle" && intakeState !== "uploading" && intakeState !== "ready" && intakeCopy.retryable && <button type="button" className="secondary-button compact-button" onClick={openSourcePicker}>Choose again</button>}<button type="button" className="remove-file" onClick={onRemoveFile} aria-label="Remove selected file">Remove</button></div></div>}
+        {selectedFile && <div className="selected-file"><span className="file-badge">FILE</span><span><strong>{selectedFile.file_name}</strong><small>{formatBytes(selectedFile.byte_size)} / {intakeCopy.label}</small></span><div className="selected-file-actions">{intakeState === "idle" && taskResult && <button type="button" className="secondary-button compact-button" onClick={onUpload}>Send to Node</button>}{intakeState === "idle" && !taskResult && <span className="selected-file-handoff">Sent after Launch</span>}{intakeState === "uploading" && <button type="button" className="secondary-button compact-button" disabled>Sending...</button>}{intakeState !== "idle" && intakeState !== "uploading" && intakeState !== "ready" && intakeCopy.retryable && <button type="button" className="secondary-button compact-button" onClick={openSourcePicker}>Choose again</button>}<button type="button" className="remove-file" onClick={onRemoveFile} aria-label="Remove selected file">Remove</button></div></div>}
         {selectedFile && intakeState !== "idle" && intakeState !== "ready" && <div className={`intake-status intake-status-${intakeState}`} role={intakeState === "uploading" || intakeState === "processing" ? "status" : "alert"}><strong>{intakeCopy.title}</strong><span>{intakeCopy.detail}</span><IntakeRecoveryGuidance recovery={intakeCopy.recovery} /></div>}
         <div className="launchpad-policy-note"><AppIcon name="shield" size={15} /><span>Uploaded material is untrusted data. The desktop app does not parse it or treat it as instructions.</span></div>
       </section>}
@@ -783,13 +866,13 @@ function ProfileCard({ profile, busy, onConnect }: { profile: ApprovedNodeProfil
   return <article className="profile-card"><div><div className="profile-name">{profile.displayName}</div><div className="profile-meta">{profile.transport === "loopback" ? "Local workstation" : "Internal network"} <span aria-hidden="true">•</span> {profile.clearanceContext} clearance</div><div className="profile-trust">Pinned identity: {profile.nodeIdentity}</div></div><button type="button" className="primary-button" onClick={onConnect} disabled={busy}>{busy ? "Checking..." : "Connect"}</button></article>;
 }
 
-function TaskWorkspaceView({ projection, syncState, plan, approval, approving, controlResult, controlling, sourcePreview, artifactPreview, artifactPreviewState, artifactPreviewError, artifactDownloadState, artifactDownloadReceipt, onStop, onRefresh, onApprovePlan, onInspectArtifact, onDownloadArtifact, onHome, onOpenNode }: { projection: TaskProjection; syncState: EventSyncState | null; plan: TaskPlanReview | null; approval: NodeCommandResult | null; approving: boolean; controlResult: NodeCommandResult | null; controlling: boolean; sourcePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; artifactPreviewState: ArtifactPreviewState; artifactPreviewError: string | null; artifactDownloadState: "idle" | "downloading" | "downloaded" | "failed"; artifactDownloadReceipt: DownloadReceipt | null; onStop: () => Promise<void>; onRefresh: () => Promise<void>; onApprovePlan: () => Promise<void>; onInspectArtifact: (artifactId: string) => Promise<void>; onDownloadArtifact: (artifactId: string) => Promise<void>; onHome: () => void; onOpenNode: () => void }) {
+function TaskWorkspaceView({ projection, syncState, plan, routeTrace, approval, approving, controlResult, controlling, sourcePreview, artifactReview, artifactPreview, artifactPreviewState, artifactPreviewError, artifactDownloadState, artifactDownloadReceipt, onStop, onRefresh, onApprovePlan, onInspectArtifact, onDownloadArtifact, onHome, onOpenNode }: { projection: TaskProjection; syncState: EventSyncState | null; plan: TaskPlanReview | null; routeTrace: NodeRouteTrace | null; approval: NodeCommandResult | null; approving: boolean; controlResult: NodeCommandResult | null; controlling: boolean; sourcePreview: SafePreview | null; artifactReview: NodeArtifactReview | null; artifactPreview: ArtifactPreview | null; artifactPreviewState: ArtifactPreviewState; artifactPreviewError: string | null; artifactDownloadState: "idle" | "downloading" | "downloaded" | "failed"; artifactDownloadReceipt: DownloadReceipt | null; onStop: () => Promise<void>; onRefresh: () => Promise<void>; onApprovePlan: () => Promise<void>; onInspectArtifact: (artifactId: string) => Promise<void>; onDownloadArtifact: (artifactId: string) => Promise<void>; onHome: () => void; onOpenNode: () => void }) {
   const syncLabel: Record<string, string> = { idle: "Not synchronized", syncing: "Checking Node", connected: "Connected and current", reconnecting: "Reconnecting", replaying: "Replaying events", blocked: "Blocked by protocol or policy" };
   const statusLabel: Record<string, string> = { accepted: "Accepted", planning: "Planning", running: "Running", needs_review: "Needs review", completed: "Completed", blocked: "Blocked", failed: "Failed", stopped: "Stopped" };
   const syncStatus = syncState?.status ?? "idle";
   const syncRecovery = taskSyncRecovery(syncStatus, projection, syncState?.error ?? null);
   const canStop = maySendConsequentialCommand(projection, syncStatus) && !["completed", "failed", "stopped"].includes(projection.status) && !controlling;
-  const trace = buildWorkTrace(projection, plan);
+  const trace = buildWorkTrace(projection, plan, routeTrace);
   const [proofSelection, setProofSelection] = useState<ProofSelection | null>(null);
   const [activityLimit, setActivityLimit] = useState(DEFAULT_ACTIVITY_WINDOW);
   useEffect(() => { setProofSelection(null); }, [projection.taskId]);
@@ -807,6 +890,7 @@ function TaskWorkspaceView({ projection, syncState, plan, approval, approving, c
   const visibleActivity = activityWindow(trace.activity, activityLimit);
   const visibleWorkers = activityWindow(trace.execution.workers, activityLimit);
   const visibleTools = activityWindow(trace.execution.tools, activityLimit);
+  const visibleCoordination = activityWindow(trace.execution.coordination, activityLimit);
   return <section className="workspace-view" data-testid="task-workspace" aria-label="Live task workspace">
     <div className="workspace-head"><div><p className="eyebrow">LIVE TASK</p><h1>{projection.title}</h1><p className="lead">{projection.requestSummary}</p></div><span className={`workspace-status workspace-status-${projection.status}`}>{statusLabel[projection.status] ?? projection.status}</span></div>
     <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">Task status: {statusLabel[projection.status] ?? projection.status}. Phase: {projection.phase}. Node cursor: {projection.lastAppliedSequence}.</div>
@@ -818,18 +902,18 @@ function TaskWorkspaceView({ projection, syncState, plan, approval, approving, c
     <section className="worktrace-board" aria-label="Node-backed work trace"><div className="worktrace-board-head"><div><p className="eyebrow">WORK TRACE</p><h2>What AirBench has recorded</h2><p>Each stage is derived from a Node snapshot, plan, or ordered event. Private model reasoning is not shown.</p></div><span className="workspace-count">{trace.activity.length} event{trace.activity.length === 1 ? "" : "s"}</span></div><ol className="worktrace-stage-list">{trace.stages.map((stage) => <TraceStageCard key={stage.id} stage={stage} />)}</ol></section>
     <div className="workspace-proof-layout">
     <div className="worktrace-detail-grid">
-      <section className="worktrace-detail-card"><div className="worktrace-detail-head"><div><h2>Workers and tools</h2><p>Recorded execution activity, not inferred progress.</p></div><span>{trace.execution.workers.length + trace.execution.tools.length} records</span></div><TraceActivityGroup label="Workers" items={visibleWorkers.visible} empty="No worker event has been supplied by the Node yet." /><TraceActivityGroup label="Tools and retrieval" items={visibleTools.visible} empty="No tool or retrieval event has been supplied by the current protocol." /></section>
-      <section className="worktrace-detail-card"><div className="worktrace-detail-head"><div><h2>Evidence and verification</h2><p>Source metadata remains attached to Node evidence.</p></div><span>{trace.evidence.records.length} evidence</span></div>{projection.evidence.length === 0 ? <div className="worktrace-empty">No evidence record has been supplied by the Node yet.</div> : <ul className="worktrace-evidence-list">{projection.evidence.map((item) => <li key={item.evidenceId}><button className="proof-record-button" type="button" onClick={() => setProofSelection({ kind: "evidence", evidence: item })}><strong>{item.source.sourceDocumentId}</strong><span>{formatProvenanceLocation(item.source.location)} / {Math.round(item.confidence * 100)}% confidence</span><small>{item.clearance} clearance / {item.taint} data / ledger {item.source.ledgerEventRef}</small></button></li>)}</ul>}{projection.facts.length > 0 && <div className="worktrace-facts"><span>Findings</span><ul>{projection.facts.map((fact) => <li key={fact.factId}><button className="proof-record-button" type="button" onClick={() => setProofSelection({ kind: "fact", fact })}><strong>{fact.factId}</strong><small>{fact.clearance} clearance / {fact.taint} data / ledger {fact.source.ledgerEventRef}</small></button></li>)}</ul></div>}{sourcePreview && <button className="proof-input-preview-button" type="button" onClick={() => setProofSelection({ kind: "source_preview", preview: sourcePreview })}><AppIcon name="document" size={15} /> Inspect query-upload preview</button>}{trace.verification.latest ? <div className={`worktrace-verification tone-${trace.verification.latest.tone}`}><strong>{trace.verification.latest.label}</strong><p>{trace.verification.latest.summary}</p><small>Ledger {trace.verification.latest.ledgerEventRef}</small></div> : <div className="worktrace-empty">No verification result has been supplied by the Node yet.</div>}</section>
+      <section className="worktrace-detail-card"><div className="worktrace-detail-head"><div><h2>Workers and tools</h2><p>Recorded execution activity, not inferred progress.</p></div><span>{trace.execution.workers.length + trace.execution.tools.length + trace.execution.coordination.length} records</span></div>{trace.team.state === "planned" && <TeamPlanSummary plan={trace.team} />}<TraceActivityGroup label="Team coordination" items={visibleCoordination.visible} empty="No team, barrier, handoff, or resource event has been supplied by the Node yet." /><TraceActivityGroup label="Workers" items={visibleWorkers.visible} empty="No worker event has been supplied by the Node yet." /><TraceActivityGroup label="Tools and retrieval" items={visibleTools.visible} empty="No tool or retrieval event has been supplied by the current protocol." /></section>
+      <section className="worktrace-detail-card"><div className="worktrace-detail-head"><div><h2>Evidence and verification</h2><p>Source metadata remains attached to Node evidence.</p></div><span>{trace.evidence.records.length} evidence</span></div>{projection.evidence.length === 0 ? <div className="worktrace-empty">No evidence record has been supplied by the Node yet.</div> : <ul className="worktrace-evidence-list">{projection.evidence.map((item) => <li key={item.evidenceId}><button className="proof-record-button" type="button" onClick={() => setProofSelection({ kind: "evidence", evidence: item })}><strong>{item.source.sourceDocumentId}</strong><span>{formatProvenanceLocation(item.source.location)} / {item.source.sourceVersion} / {Math.round(item.confidence * 100)}% confidence</span><small>{item.clearance} clearance / {item.taint} data / hash {item.contentHash} / ledger {item.source.ledgerEventRef}</small></button></li>)}</ul>}{projection.facts.length > 0 && <div className="worktrace-facts"><span>Findings</span><ul>{projection.facts.map((fact) => <li key={fact.factId}><button className="proof-record-button" type="button" onClick={() => setProofSelection({ kind: "fact", fact })}><strong>{fact.factId}</strong><span>{formatFactValue(fact.value, fact.unit)} / {formatProvenanceLocation(fact.source.location)}</span><small>{fact.source.sourceDocumentId} / {fact.source.sourceVersion} / {fact.clearance} clearance / {fact.taint} data / ledger {fact.source.ledgerEventRef}</small></button></li>)}</ul></div>}{sourcePreview && <button className="proof-input-preview-button" type="button" onClick={() => setProofSelection({ kind: "source_preview", preview: sourcePreview })}><AppIcon name="document" size={15} /> Inspect query-upload preview</button>}{trace.verification.latest ? <div className={`worktrace-verification tone-${trace.verification.latest.tone}`}><strong>{trace.verification.latest.label}</strong><p>{trace.verification.latest.summary}</p><small>Ledger {trace.verification.latest.ledgerEventRef}</small></div> : <div className="worktrace-empty">No verification result has been supplied by the Node yet.</div>}</section>
       <section className="worktrace-detail-card"><div className="worktrace-detail-head"><div><h2>Waiting for you</h2><p>Only Node-reported questions appear here.</p></div><span>{trace.review.questions.length} waiting</span></div>{trace.review.questions.length === 0 ? <div className="worktrace-empty">The Node has not reported a question requiring your response.</div> : <ul className="worktrace-question-list">{trace.review.questions.map((question, index) => <li key={`${question}-${index}`}><AppIcon name="review" size={16} /><span>{question}</span></li>)}</ul>}<p className="worktrace-contract-note">A response control will appear only after the Node provides a sequence-aware answer command and ledger transition.</p></section>
       <section className="worktrace-detail-card"><div className="worktrace-detail-head"><div><h2>Artifacts</h2><p>References returned by the Node, not locally generated files.</p></div><span>{trace.artifacts.records.length} records</span></div>{trace.artifacts.records.length === 0 ? <div className="worktrace-empty">No artifact reference has been supplied by the Node yet.</div> : <ul className="worktrace-artifact-list">{trace.artifacts.records.map((artifact) => <li key={artifact.artifactId}><button className="proof-record-button" type="button" onClick={() => { if (artifact.state !== "superseded") inspectArtifact(artifact.artifactId); }} disabled={artifact.state === "superseded"} aria-label={`${artifact.artifactId}, ${artifact.state === "superseded" ? "superseded" : artifact.state === "ready" ? "ready" : "reference only"}`}><AppIcon name="document" size={16} /><span className="artifact-record-name">{artifact.artifactId}</span><span className={`artifact-record-state artifact-record-state-${artifact.state}`}>{artifact.state === "reference_only" ? "Reference only" : artifact.state === "superseded" ? "Superseded" : "Ready"}</span><small>{artifact.latestEvent ? `Node recorded ${artifact.latestEvent.label} at sequence ${artifact.latestEvent.sequence}.` : "No lifecycle event is present in this task cursor."}{artifact.state === "superseded" ? " Preview and download are unavailable for superseded records." : " Inspect Node preview"}</small></button></li>)}</ul>}<p className="worktrace-contract-note">Status is derived from ordered Node events. Approval, verification, version comparison, and clarification remain unavailable until the Node supplies those contracts.</p></section>
     </div>
-    <ProofInspectorPanel selection={proofSelection} artifactPreview={artifactPreview} artifactPreviewState={artifactPreviewState} artifactPreviewError={artifactPreviewError} artifactLifecycleState={selectedArtifactLifecycleState} downloadState={artifactDownloadState} downloadReceipt={artifactDownloadReceipt} onDownloadArtifact={(artifactId: string) => { void onDownloadArtifact(artifactId); }} />
+    <ProofInspectorPanel selection={proofSelection} artifactReview={artifactReview} artifactPreview={artifactPreview} artifactPreviewState={artifactPreviewState} artifactPreviewError={artifactPreviewError} artifactLifecycleState={selectedArtifactLifecycleState} downloadState={artifactDownloadState} downloadReceipt={artifactDownloadReceipt} onDownloadArtifact={(artifactId: string) => { void onDownloadArtifact(artifactId); }} />
     </div>
     {plan && <PlanReviewCard plan={plan} loading={false} approval={approval} approving={approving} synchronized={maySendConsequentialCommand(projection, syncStatus)} currentTaskSequence={projection.lastAppliedSequence} taskStatus={projection.status} onApprove={onApprovePlan} onCancel={onStop} />}
     {controlResult && <CommandOutcomeBlock action="Stop request" result={controlResult} />}
     <section className="workspace-activity"><div className="section-heading"><div><h2>Activity</h2><p>Chronological Node records. Model reasoning traces are not exposed.</p></div><span className="workspace-count">{trace.activity.length} events</span></div>{visibleActivity.hiddenCount > 0 && <div className="workspace-activity-window" role="status"><span>Showing the latest {visibleActivity.visible.length} of {visibleActivity.totalCount} Node records. Older records remain on the Node and are not discarded.</span><button type="button" className="text-button" onClick={() => setActivityLimit((current) => current + DEFAULT_ACTIVITY_WINDOW)}>Show older recorded activity</button></div>}{trace.activity.length === 0 ? <div className="workspace-empty">The Node has not returned a new activity event yet.</div> : <ol className="activity-list">{visibleActivity.visible.map((event) => <TraceActivityRow key={`${event.eventId}-${event.sequence}`} item={event} />)}</ol>}</section>
     {projection.diagnostics.length > 0 && <section className="workspace-warning" role="alert"><strong>Task view needs attention</strong>{projection.diagnostics.map((diagnostic) => <span key={`${diagnostic.code}-${diagnostic.sequence}`}>{diagnostic.code}: {diagnostic.detail}</span>)}</section>}
-    <details className="workspace-technical"><summary>Technical trace</summary><div className="technical-trace-content"><section><h2>Routing and hardware</h2><p>{trace.routing.state === "not_supplied" ? "No Node routing record is available. The desktop cannot infer a selected target, fallback, or policy reason." : "The Node supplied plan-level capability and hardware context. Exact routing records are not present in the current task event contract."}</p><dl className="technical-trace-grid"><div><dt>Execution mode</dt><dd>{trace.routing.executionMode ?? "Not supplied"}</dd></div><div><dt>Hardware profile</dt><dd>{trace.routing.hardwareProfileRef ?? "Not supplied"}</dd></div><div><dt>Hardware reason</dt><dd>{trace.routing.hardwareReason ?? "Not supplied"}</dd></div><div><dt>Selected target</dt><dd>{trace.routing.selectedTarget ?? "Not supplied"}</dd></div><div><dt>Fallback record</dt><dd>{trace.routing.fallbackReason ?? "Not supplied"}</dd></div><div><dt>Routing policy reason</dt><dd>{trace.routing.policyReason ?? "Not supplied"}</dd></div><div><dt>Plan ledger</dt><dd>{trace.routing.planLedgerEventRef ?? "Not supplied"}</dd></div><div><dt>Plan hash</dt><dd>{trace.routing.planVersionHash ?? "Not supplied"}</dd></div><div><dt>Policy hash</dt><dd>{trace.routing.policyVersionHash ?? "Not supplied"}</dd></div></dl><div className="technical-capability-lanes"><span>Capability lanes</span>{Object.keys(trace.routing.capabilityLanes).length === 0 ? <small>None supplied by the Node.</small> : Object.entries(trace.routing.capabilityLanes).map(([worker, capability]) => <span key={worker}>{worker}: {capability}</span>)}</div></section><section><h2>Event metadata</h2>{trace.activity.length === 0 ? <p>No ordered event metadata is available in this cursor.</p> : <ol className="technical-event-list">{trace.activity.map((event) => <li key={`technical-${event.eventId}`}><strong>{event.label}</strong><dl><div><dt>Event</dt><dd>{event.eventType}</dd></div><div><dt>Sequence</dt><dd>{event.sequence}</dd></div><div><dt>Node time</dt><dd>{event.occurredAt}</dd></div><div><dt>Actor</dt><dd>{event.actor}</dd></div><div><dt>Clearance</dt><dd>{event.clearance}</dd></div><div><dt>Payload hash</dt><dd>{event.payloadHash}</dd></div><div><dt>Ledger</dt><dd>{event.ledgerEventRef}</dd></div></dl></li>)}</ol>}</section></div></details>
+    <details className="workspace-technical"><summary>Technical trace</summary><div className="technical-trace-content"><section><h2>Routing and hardware</h2><p>{trace.routing.state === "not_supplied" ? "No Node routing record is available. The desktop cannot infer a selected target, fallback, or policy reason." : trace.routing.state === "route_context" ? "The approved Node supplied the route trace below. Targets, fallback, qualification, and policy metadata are recorded facts, not desktop guesses." : "The Node supplied plan-level capability and hardware context. Exact route decisions will appear after the Node provides its route trace."}</p><dl className="technical-trace-grid"><div><dt>Execution mode</dt><dd>{trace.routing.executionMode ?? "Not supplied"}</dd></div><div><dt>Hardware profile</dt><dd>{trace.routing.hardwareProfileRef ?? "Not supplied"}</dd></div><div><dt>Hardware reason</dt><dd>{trace.routing.hardwareReason ?? "Not supplied"}</dd></div><div><dt>Selected target</dt><dd>{trace.routing.selectedTarget ?? "Not supplied"}</dd></div><div><dt>Fallback record</dt><dd>{trace.routing.fallbackReason ?? "Not supplied"}</dd></div><div><dt>Routing policy reason</dt><dd>{trace.routing.policyReason ?? "Not supplied"}</dd></div><div><dt>Plan ledger</dt><dd>{trace.routing.planLedgerEventRef ?? "Not supplied"}</dd></div><div><dt>Plan hash</dt><dd>{trace.routing.planVersionHash ?? "Not supplied"}</dd></div><div><dt>Policy hash</dt><dd>{trace.routing.policyVersionHash ?? "Not supplied"}</dd></div></dl><div className="technical-capability-lanes"><span>Capability lanes</span>{Object.keys(trace.routing.capabilityLanes).length === 0 ? <small>None supplied by the Node.</small> : Object.entries(trace.routing.capabilityLanes).map(([worker, capability]) => <span key={worker}>{worker}: {capability}</span>)}</div>{trace.routing.routeEntries.length > 0 && <><h2>Routing events</h2><ol className="technical-event-list">{trace.routing.routeEntries.map((entry) => <li key={`route-${entry.sequence}-${entry.eventType}`}><strong>{entry.eventType}</strong><dl><div><dt>Sequence</dt><dd>{entry.sequence}</dd></div><div><dt>Target</dt><dd>{entry.selectedTarget ?? "Not supplied"}</dd></div><div><dt>Fallback</dt><dd>{entry.fallbackTarget ?? "Not supplied"}</dd></div><div><dt>Decision source</dt><dd>{entry.decisionSource ?? "Not supplied"}</dd></div><div><dt>Qualification</dt><dd>{entry.qualificationCertificate ?? "Not supplied"}</dd></div><div><dt>Ledger</dt><dd>{entry.ledgerEventRef}</dd></div></dl><small className="technical-route-reason">{entry.reason ?? entry.ruleOrThreshold ?? "No additional route reason supplied."}</small></li>)}</ol></>}</section><section><h2>Event metadata</h2>{trace.activity.length === 0 ? <p>No ordered event metadata is available in this cursor.</p> : <ol className="technical-event-list">{trace.activity.map((event) => <li key={`technical-${event.eventId}`}><strong>{event.label}</strong><dl><div><dt>Event</dt><dd>{event.eventType}</dd></div><div><dt>Sequence</dt><dd>{event.sequence}</dd></div><div><dt>Node time</dt><dd>{event.occurredAt}</dd></div><div><dt>Actor</dt><dd>{event.actor}</dd></div><div><dt>Clearance</dt><dd>{event.clearance}</dd></div><div><dt>Payload hash</dt><dd>{event.payloadHash}</dd></div><div><dt>Ledger</dt><dd>{event.ledgerEventRef}</dd></div></dl></li>)}</ol>}</section></div></details>
   </section>;
 }
 
@@ -838,11 +922,23 @@ function TraceStageCard({ stage }: { stage: WorkTraceStage }) {
 }
 
 function TraceActivityGroup({ label, items, empty }: { label: string; items: WorkTraceActivity[]; empty: string }) {
-  return <div className="worktrace-activity-group"><span>{label}</span>{items.length === 0 ? <p>{empty}</p> : <ol>{items.map((item) => <li key={`${label}-${item.eventId}`} className={`tone-${item.tone}`}><strong>{item.label}</strong><small>{item.summary}</small><em>{formatTraceTime(item.occurredAt)} / ledger {item.ledgerEventRef}</em></li>)}</ol>}</div>;
+  return <div className="worktrace-activity-group"><span>{label}</span>{items.length === 0 ? <p>{empty}</p> : <ol>{items.map((item) => <li key={`${label}-${item.eventId}`} className={`tone-${item.tone}`}><strong>{item.label}</strong><small>{item.summary}</small>{item.context.length > 0 && <ul className="worktrace-activity-context">{item.context.map((field) => <li key={`${field.label}-${field.value}`}><span>{field.label}</span><strong>{field.value}</strong></li>)}</ul>}<em>{formatTraceTime(item.occurredAt)} / ledger {item.ledgerEventRef}</em></li>)}</ol>}</div>;
+}
+
+function TeamPlanSummary({ plan }: { plan: WorkTrace["team"] }) {
+  return <section className="worktrace-team-plan" aria-label="Node execution plan">
+    <div className="worktrace-team-plan-head"><div><span className="worktrace-team-plan-label">NODE EXECUTION PLAN</span><strong>{plan.executionModeLabel}</strong><p>{plan.executionModeDetail}</p></div><span className="worktrace-team-plan-ceiling">{plan.concurrencyCeiling} lane{plan.concurrencyCeiling === 1 ? "" : "s"}</span></div>
+    {plan.teamId && <small className="worktrace-team-plan-meta">Team {plan.teamId}{plan.planLedgerEventRef ? ` / ledger ${plan.planLedgerEventRef}` : ""}</small>}
+    <div className="worktrace-team-plan-grid">
+      <div><span>Planned assignments</span>{plan.assignments.length === 0 ? <p>No assignment list supplied.</p> : <ol>{plan.assignments.map((assignment) => <li key={assignment.assignmentId}><strong>{assignment.assignmentId}</strong><small>{assignment.dependencies.length > 0 ? `waits for ${assignment.dependencies.join(", ")}` : "no declared predecessor"}</small></li>)}</ol>}</div>
+      <div><span>Capability lanes</span>{plan.capabilityLanes.length === 0 ? <p>No capability lanes supplied.</p> : <ul>{plan.capabilityLanes.map((lane) => <li key={`${lane.role}-${lane.capability}`}><strong>{lane.role}</strong><small>{lane.capability}</small></li>)}</ul>}</div>
+    </div>
+    <p className="worktrace-team-plan-note">This is the Node-issued plan. Runtime status appears only in the recorded coordination and worker events below.</p>
+  </section>;
 }
 
 function TraceActivityRow({ item }: { item: WorkTraceActivity }) {
-  return <li className={`activity-row tone-${item.tone}`}><span className="activity-sequence">{item.sequence}</span><div><strong>{item.label}</strong><p>{item.summary}</p><small>{formatTraceTime(item.occurredAt)} / {item.eventType} / ledger {item.ledgerEventRef}</small></div></li>;
+  return <li className={`activity-row tone-${item.tone}`}><span className="activity-sequence">{item.sequence}</span><div><strong>{item.label}</strong><p>{item.summary}</p>{item.context.length > 0 && <ul className="worktrace-activity-context">{item.context.map((field) => <li key={`${field.label}-${field.value}`}><span>{field.label}</span><strong>{field.value}</strong></li>)}</ul>}<small>{formatTraceTime(item.occurredAt)} / {item.eventType} / ledger {item.ledgerEventRef}</small></div></li>;
 }
 
 function traceStageIcon(stage: WorkTraceStage["id"]): AppIconName {

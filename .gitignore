@@ -46,3 +46,6 @@ apps/desktop/logs/
 
 # Python Packaging
 *.egg-info/
+
+# Local paper drafts and generated LaTeX artifacts
+papers/

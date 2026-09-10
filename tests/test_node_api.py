@@ -334,8 +334,77 @@ class NodeApiTests(unittest.TestCase):
 
         route = self.request("GET", f"/api/v1/tasks/{task_id}/route-trace", headers=self.headers())
         self.assertEqual(route.status_code, 200, route.text)
-        self.assertEqual(route.json()["entries"][0]["selected_target"], "model.local.reasoner")
+        self.assertEqual(route.json()["taskId"], task_id)
+        self.assertEqual(route.json()["nodeIdentity"], "node.test.local")
+        self.assertEqual(route.json()["protocolVersion"], "0.1")
+        self.assertEqual(route.json()["clearanceContext"], "restricted")
+        self.assertEqual(route.json()["entries"][0]["selectedTarget"], "model.local.reasoner")
         self.assertNotIn("evidence.secret", evidence.text)
+
+    def test_m4_execution_events_are_structured_without_forwarding_raw_payload(self):
+        task, _ = self.create_task()
+        task_id = task["task_id"]
+        self.append_event(
+            "team.created",
+            task_id,
+            {
+                "team_id": "team.inspection-1",
+                "plan_hash": "plan-hash-1",
+                "private_instruction": "must never reach the desktop",
+            },
+        )
+        self.append_event(
+            "worker.assigned",
+            task_id,
+            {
+                "assignment": {
+                    "assignment_id": "assignment.vision-1",
+                    "worker_id": "worker.vision-1",
+                    "role": "vision",
+                    "stage": "extraction",
+                    "team_id": "team.inspection-1",
+                },
+                "private_instruction": "must never reach the desktop",
+            },
+        )
+        self.append_event(
+            "team.resource_plan.admitted",
+            task_id,
+            {
+                "plan": {
+                    "plan_id": "resource-plan-1",
+                    "team_id": "team.inspection-1",
+                    "execution_mode": "parallel",
+                    "hardware_profile_ref": "hardware.local-1",
+                },
+                "admitted_mode": "parallel",
+                "reason": "Two qualified worker lanes are available.",
+            },
+        )
+        self.append_event(
+            "join_barrier.waiting",
+            task_id,
+            {
+                "barrier": {
+                    "barrier_id": "barrier.verify-1",
+                    "required_predecessor_assignment_ids": ["assignment.vision-1"],
+                    "destination_assignment_id": "assignment.verify-1",
+                },
+                "reason": "Waiting for the vision worker handoff.",
+            },
+        )
+
+        response = self.request("GET", f"/api/v1/tasks/{task_id}/events", headers=self.headers())
+        self.assertEqual(response.status_code, 200, response.text)
+        events = response.json()["events"]
+        projected = {event["eventType"]: event for event in events if event["eventType"] != "task.accepted"}
+        self.assertEqual(projected["team.created"]["payload"]["teamId"], "team.inspection-1")
+        self.assertEqual(projected["worker.assigned"]["payload"]["assignmentId"], "assignment.vision-1")
+        self.assertEqual(projected["worker.assigned"]["payload"]["workerId"], "worker.vision-1")
+        self.assertEqual(projected["team.resource_plan.admitted"]["payload"]["executionMode"], "parallel")
+        self.assertEqual(projected["team.resource_plan.admitted"]["payload"]["hardwareProfileRef"], "hardware.local-1")
+        self.assertEqual(projected["join_barrier.waiting"]["payload"]["barrierId"], "barrier.verify-1")
+        self.assertNotIn("private_instruction", response.text)
 
     def test_invalid_clearance_and_oversized_json_fail_closed(self):
         response = self.request(

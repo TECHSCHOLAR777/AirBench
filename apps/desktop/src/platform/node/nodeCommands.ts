@@ -2,7 +2,7 @@ import { invoke } from "@airbench/tauri-invoke";
 import { CORE_CONTRACT_COMPATIBILITY_ID, CORE_CONTRACT_SCHEMA_VERSION, NODE_PROTOCOL_COMPATIBILITY_ID, NODE_PROTOCOL_VERSION } from "../../generated/core_contracts";
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 import type { Clearance, TaskSnapshot, Taint } from "../events/protocol";
-import type { NodeCommandEnvelope, NodeCommandResult, NodeEvidenceRef, NodeFactRef, NodeProvenanceRef, TaskEnvelope, TaskPlanReview } from "../../generated/core_contracts";
+import type { NodeArtifactReview, NodeCommandEnvelope, NodeCommandResult, NodeEvidenceRef, NodeFactRef, NodeProvenanceRef, NodeRouteTrace, NodeRouteTraceEntry, TaskEnvelope, TaskPlanReview } from "../../generated/core_contracts";
 
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const COMMAND_ID = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
@@ -28,6 +28,14 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
 function requireString(value: unknown, label: string): string {
   if (typeof value !== "string" || !value.trim()) throw new InvalidNodeResponse(`The Node returned an invalid ${label}.`);
   return value;
+}
+
+function requireNodeReference(value: unknown, label: string): string {
+  const result = requireString(value, label);
+  if (result.length > 256 || result.includes("..") || !/^[A-Za-z0-9._:-]+$/.test(result)) {
+    throw new InvalidNodeResponse(`The Node returned an invalid ${label} reference.`);
+  }
+  return result;
 }
 
 function optionalString(value: unknown, label: string): string | null {
@@ -345,6 +353,142 @@ export function validateTaskPlanReview(value: unknown, profile: ApprovedNodeProf
   };
 }
 
+export function validateTaskArtifactReview(value: unknown, profile: ApprovedNodeProfileReference, taskId: string): NodeArtifactReview {
+  const source = requireRecord(value, "task artifact review");
+  const envelope = requireNodeEnvelope(source, "task artifact review");
+  const responseTaskId = requireString(source.taskId, "artifact review task identity");
+  const artifactId = requireString(source.artifactId, "artifact identity");
+  const nodeIdentity = requireString(source.nodeIdentity, "artifact review Node identity");
+  const protocolVersion = requireString(source.protocolVersion, "artifact review protocol version");
+  const clearanceContext = requireClearance(source.clearanceContext);
+  if (responseTaskId !== taskId || nodeIdentity !== profile.nodeIdentity || protocolVersion !== profile.protocolVersion || clearanceContext !== profile.clearanceContext) {
+    throw new InvalidNodeResponse("The Node artifact review does not match the approved task or Node profile.");
+  }
+  if (!TASK_ID.test(responseTaskId) || !TASK_ID.test(artifactId)) throw new InvalidNodeResponse("The Node artifact review identity is invalid.");
+  const clearance = requireClearanceWithin(source.clearance, clearanceContext, "artifact");
+  const taint = requireTaint(source.taint);
+  if (taint === "contaminated") throw new InvalidNodeResponse("The Node returned a contaminated artifact review.");
+  const sourceRefs = requireStringList(source.sourceRefs, "artifact source reference");
+  const evidenceRefs = requireStringList(source.evidenceRefs, "artifact evidence reference");
+  const verificationRefs = requireStringList(source.verificationRefs, "artifact verification reference");
+  if (sourceRefs.length === 0 || evidenceRefs.length === 0 || verificationRefs.length === 0) {
+    throw new InvalidNodeResponse("The Node artifact review is missing provenance references.");
+  }
+  const contentHash = requireString(source.contentHash, "artifact content hash");
+  if (!/^[0-9a-fA-F]{64}$/.test(contentHash)) throw new InvalidNodeResponse("The Node returned an invalid artifact content hash.");
+  const status = requireString(source.status, "artifact status");
+  if (!["staged", "verified_draft", "needs_review", "approved", "returned", "rejected", "superseded"].includes(status)) throw new InvalidNodeResponse("The Node returned an unsupported artifact status.");
+  const verificationStatus = requireString(source.verificationStatus, "artifact verification status");
+  if (!["not_run", "passed", "failed", "needs_review", "unavailable"].includes(verificationStatus)) throw new InvalidNodeResponse("The Node returned an unsupported artifact verification status.");
+  const structuralCheck = requireString(source.structuralCheck, "artifact structural check");
+  if (!["not_required", "passed", "failed"].includes(structuralCheck)) throw new InvalidNodeResponse("The Node returned an unsupported structural check status.");
+  const visualCheck = requireString(source.visualCheck, "artifact visual check");
+  if (!["not_required", "passed", "failed", "unavailable"].includes(visualCheck)) throw new InvalidNodeResponse("The Node returned an unsupported visual check status.");
+  const approvalState = requireString(source.approvalState, "artifact approval state");
+  if (!["not_ready", "pending", "approved", "returned", "rejected", "unavailable"].includes(approvalState)) throw new InvalidNodeResponse("The Node returned an unsupported artifact approval state.");
+  const byteSize = requireSequence(source.byteSize, "artifact byte size");
+  if (byteSize < 1 || byteSize > 100 * 1024 * 1024) throw new InvalidNodeResponse("The Node artifact size is outside the supported limit.");
+  const confidence = requireConfidence(source.confidence, "artifact confidence");
+  return {
+    ...envelope,
+    taskId: responseTaskId,
+    artifactId,
+    nodeIdentity,
+    protocolVersion,
+    clearanceContext,
+    title: requireString(source.title, "artifact title"),
+    mediaType: requireString(source.mediaType, "artifact media type"),
+    fileFormat: requireString(source.fileFormat, "artifact format"),
+    templateId: requireString(source.templateId, "artifact template identity"),
+    templateVersion: requireString(source.templateVersion, "artifact template version"),
+    contentHash: contentHash.toLowerCase(),
+    byteSize,
+    status,
+    verificationStatus,
+    structuralCheck,
+    visualCheck,
+    approvalState,
+    approvalBlockingReasons: requireStringList(source.approvalBlockingReasons, "artifact approval blocker"),
+    sourceRefs,
+    evidenceRefs,
+    verificationRefs,
+    deterministicValueRefs: requireStringList(source.deterministicValueRefs, "deterministic value reference"),
+    confidence,
+    clearance,
+    taint,
+    derivation: requireRecord(source.derivation, "artifact derivation"),
+    previewRef: requireNodeReference(source.previewRef, "artifact preview"),
+    downloadRef: requireNodeReference(source.downloadRef, "artifact download"),
+    ledgerEventRef: requireNodeReference(source.ledgerEventRef, "artifact ledger event"),
+    artifactSequence: requireSequence(source.artifactSequence, "artifact sequence"),
+    createdAt: requireString(source.createdAt, "artifact creation time"),
+  };
+}
+
+/**
+ * Re-validates the clearance-filtered route proof before it enters the task
+ * workspace. The desktop receives selected targets and decision metadata only;
+ * it never receives the router's private request or model prompt payload.
+ */
+export function validateTaskRouteTrace(value: unknown, profile: ApprovedNodeProfileReference, taskId: string): NodeRouteTrace {
+  const source = requireRecord(value, "task routing trace");
+  const envelope = requireNodeEnvelope(source, "task routing trace");
+  const responseTaskId = requireString(source.taskId, "routing trace task identity");
+  const nodeIdentity = requireString(source.nodeIdentity, "routing trace Node identity");
+  const protocolVersion = requireString(source.protocolVersion, "routing trace protocol version");
+  const clearanceContext = requireClearance(source.clearanceContext);
+  if (responseTaskId !== taskId || nodeIdentity !== profile.nodeIdentity || protocolVersion !== profile.protocolVersion || clearanceContext !== profile.clearanceContext) {
+    throw new InvalidNodeResponse("The Node routing trace does not match the approved task or Node profile.");
+  }
+  const rawEntries = requiredField(source, "entries", "routing trace entries");
+  if (!Array.isArray(rawEntries) || rawEntries.length > 1000) throw new InvalidNodeResponse("The Node returned an invalid routing trace entry list.");
+  let previousSequence = 0;
+  const entries: NodeRouteTraceEntry[] = rawEntries.map((value, index) => {
+    const entry = requireRecord(value, `routing trace entry ${index + 1}`);
+    const entryEnvelope = requireNodeEnvelope(entry, `routing trace entry ${index + 1}`);
+    if (entryEnvelope.schemaVersion !== envelope.schemaVersion || entryEnvelope.compatibilityId !== envelope.compatibilityId) {
+      throw new InvalidNodeResponse("The Node routing trace entry envelope does not match the trace envelope.");
+    }
+    const sequence = requireSequence(entry.sequence, "routing trace sequence");
+    if (sequence < 1 || sequence <= previousSequence) throw new InvalidNodeResponse("The Node routing trace entries are not strictly ordered.");
+    previousSequence = sequence;
+    const entryClearance = requireClearance(entry.clearanceContext);
+    if (entryClearance !== profile.clearanceContext) throw new InvalidNodeResponse("The Node returned a routing trace entry above the approved clearance.");
+    const eligibleTargets = requireStringList(entry.eligibleTargets, "eligible routing target");
+    return {
+      ...entryEnvelope,
+      sequence,
+      eventType: requireString(entry.eventType, "routing trace event type"),
+      occurredAt: requireString(entry.occurredAt, "routing trace event time"),
+      actor: requireString(entry.actor, "routing trace actor"),
+      clearanceContext: entryClearance,
+      ledgerEventRef: requireString(entry.ledgerEventRef, "routing trace ledger reference"),
+      payloadHash: requireString(entry.payloadHash, "routing trace payload hash"),
+      requestId: optionalString(entry.requestId, "routing request identity"),
+      workerId: optionalString(entry.workerId, "routing worker identity"),
+      role: optionalString(entry.role, "routing worker role"),
+      taskKind: optionalString(entry.taskKind, "routing task kind"),
+      requiredCapability: optionalString(entry.requiredCapability, "routing capability"),
+      selectedTarget: optionalString(entry.selectedTarget, "selected routing target"),
+      decisionSource: optionalString(entry.decisionSource, "routing decision source"),
+      ruleOrThreshold: optionalString(entry.ruleOrThreshold, "routing rule or threshold"),
+      qualificationCertificate: optionalString(entry.qualificationCertificate, "routing qualification certificate"),
+      fallbackTarget: optionalString(entry.fallbackTarget, "routing fallback target"),
+      reason: optionalString(entry.reason, "routing decision reason"),
+      status: optionalString(entry.status, "routing decision status"),
+      eligibleTargets,
+    };
+  });
+  return {
+    ...envelope,
+    taskId: responseTaskId,
+    nodeIdentity,
+    protocolVersion,
+    clearanceContext,
+    entries,
+  };
+}
+
 function optionalResponseString(value: unknown, label: string): string | null {
   if (value === null || value === undefined) return null;
   return requireString(value, label);
@@ -442,6 +586,24 @@ export function fetchTaskPlan(profile: ApprovedNodeProfileReference, taskId: str
     profileId: profile.profileId,
     taskId,
   }).then((value) => validateTaskPlanReview(value, profile, taskId));
+}
+
+export function fetchTaskArtifactReview(profile: ApprovedNodeProfileReference, taskId: string): Promise<NodeArtifactReview> {
+  assertApprovedProfile(profile);
+  if (!TASK_ID.test(taskId)) throw new Error("The task identifier is invalid.");
+  return invoke<unknown>("fetch_task_artifact_review", {
+    profileId: profile.profileId,
+    taskId,
+  }).then((value) => validateTaskArtifactReview(value, profile, taskId));
+}
+
+export function fetchTaskRouteTrace(profile: ApprovedNodeProfileReference, taskId: string): Promise<NodeRouteTrace> {
+  assertApprovedProfile(profile);
+  if (!TASK_ID.test(taskId)) throw new Error("The task identifier is invalid.");
+  return invoke<unknown>("fetch_task_route_trace", {
+    profileId: profile.profileId,
+    taskId,
+  }).then((value) => validateTaskRouteTrace(value, profile, taskId));
 }
 
 export function createTask(profile: ApprovedNodeProfileReference, command: NodeCommandEnvelope): Promise<CreateTaskResponse> {

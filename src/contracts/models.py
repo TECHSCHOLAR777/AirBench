@@ -24,7 +24,7 @@ LEDGER_EVENT_TYPES = {
     "team.created", "worker.assigned", "worker.started", "worker.completed", "worker.failed", "worker.handoff", "worker.handoff.rejected", "worker.handoff.late",
     "model.requested", "routing.decided", "model.responded", "model.failed", "tool.requested", "tool.authorized", "tool.denied", "tool.result",
     "evidence.created", "fact.candidate", "fact.committed", "verification.completed", "retry.started", "fallback.selected",
-    "resource.plan.admitted", "resource.plan.queued", "barrier.waiting", "barrier.completed", "artifact.staged", "artifact.checked",
+    "resource.plan.admitted", "resource.plan.queued", "barrier.waiting", "barrier.completed", "artifact.staged", "artifact.checked", "artifact.previewed", "artifact.downloaded",
     "human.review.required", "human.signoff", "completion.recorded", "escalation.required",
     "index.requested", "index.completed", "index.failed",
     "retrieval.requested", "retrieval.completed", "retrieval.failed",
@@ -265,6 +265,38 @@ class NodeWorkerEventPayload:
     role: str
     label: str
     status: str
+    team_id: str | None = None
+    assignment_id: str | None = None
+    worker_id: str | None = None
+    resource_lease_id: str | None = None
+
+
+@dataclass(frozen=True)
+class NodeExecutionEventPayload:
+    """Clearance-filtered execution metadata for the desktop work trace.
+
+    This is deliberately an allowlisted projection.  The Node exposes enough
+    structure to explain deterministic team execution, admission, handoffs,
+    and barriers, but never forwards the original ledger payload or worker
+    content to the desktop.
+    """
+
+    status: str
+    summary: str
+    execution_mode: str | None = None
+    team_id: str | None = None
+    plan_id: str | None = None
+    assignment_id: str | None = None
+    worker_id: str | None = None
+    role: str | None = None
+    label: str | None = None
+    barrier_id: str | None = None
+    dependency_ids: tuple[str, ...] = ()
+    resource_lease_id: str | None = None
+    queue_position: int | None = None
+    hardware_profile_ref: str | None = None
+    model_target_id: str | None = None
+    qualification_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -349,6 +381,60 @@ class NodeFactRef(NodeWireContract):
 
 
 @dataclass(frozen=True)
+class NodeRouteTraceEntry(NodeWireContract):
+    sequence: int
+    event_type: str
+    occurred_at: str
+    actor: str
+    clearance_context: Clearance
+    ledger_event_ref: str
+    payload_hash: str
+    request_id: str | None = None
+    worker_id: str | None = None
+    role: str | None = None
+    task_kind: str | None = None
+    required_capability: str | None = None
+    selected_target: str | None = None
+    decision_source: str | None = None
+    rule_or_threshold: str | None = None
+    qualification_certificate: str | None = None
+    fallback_target: str | None = None
+    reason: str | None = None
+    status: str | None = None
+    eligible_targets: tuple[str, ...] = ()
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if type(self.sequence) is not int or self.sequence < 1:
+            issues.append(ValidationIssue("sequence", "range", "route sequence must be positive"))
+        for name in ("event_type", "occurred_at", "actor", "ledger_event_ref", "payload_hash"):
+            if not getattr(self, name).strip():
+                issues.append(ValidationIssue(name, "required", "route entry identity is required"))
+        return issues
+
+
+@dataclass(frozen=True)
+class NodeRouteTrace(NodeWireContract):
+    task_id: str
+    node_identity: str
+    protocol_version: str
+    clearance_context: Clearance
+    entries: tuple[NodeRouteTraceEntry, ...]
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        for name in ("task_id", "node_identity", "protocol_version"):
+            if not getattr(self, name).strip():
+                issues.append(ValidationIssue(name, "required", "route trace identity is required"))
+        previous = 0
+        for entry in self.entries:
+            if entry.sequence <= previous:
+                issues.append(ValidationIssue("entries", "order", "route entries must be ordered by sequence"))
+            previous = entry.sequence
+        return issues
+
+
+@dataclass(frozen=True)
 class NodeTaskSnapshot(NodeWireContract):
     task_id: str
     snapshot_id: str
@@ -373,6 +459,82 @@ class NodeTaskSnapshot(NodeWireContract):
         for name in ("task_id", "snapshot_id", "node_connection_ref", "ledger_head_ref"):
             if not getattr(self, name).strip():
                 issues.append(ValidationIssue(name, "required", "snapshot identity is required"))
+        return issues
+
+
+@dataclass(frozen=True)
+class NodeArtifactReview(NodeWireContract):
+    """Node-owned review projection for one generated deliverable.
+
+    The desktop receives this projection only after the Deliverable Engine has
+    committed the artifact and its checks to the ledger. The file bytes remain
+    behind the Node preview/download boundary, while provenance and approval
+    blockers stay visible.
+    """
+
+    task_id: str
+    artifact_id: str
+    node_identity: str
+    protocol_version: str
+    clearance_context: Clearance
+    title: str
+    media_type: str
+    file_format: str
+    template_id: str
+    template_version: str
+    content_hash: str
+    byte_size: int
+    status: str
+    verification_status: str
+    structural_check: str
+    visual_check: str
+    approval_state: str
+    approval_blocking_reasons: tuple[str, ...]
+    source_refs: tuple[str, ...]
+    evidence_refs: tuple[str, ...]
+    verification_refs: tuple[str, ...]
+    deterministic_value_refs: tuple[str, ...]
+    confidence: float
+    clearance: Clearance
+    taint: Taint
+    derivation: dict[str, Any]
+    preview_ref: str
+    download_ref: str
+    ledger_event_ref: str
+    artifact_sequence: int
+    created_at: str
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", self.content_hash):
+            issues.append(ValidationIssue("content_hash", "hash", "must be a SHA-256 hex digest"))
+        if type(self.byte_size) is not int or self.byte_size < 0:
+            issues.append(ValidationIssue("byte_size", "range", "artifact size must be non-negative"))
+        if type(self.artifact_sequence) is not int or self.artifact_sequence < 0:
+            issues.append(ValidationIssue("artifact_sequence", "range", "artifact sequence must be non-negative"))
+        if type(self.confidence) not in (int, float) or not 0 <= self.confidence <= 1:
+            issues.append(ValidationIssue("confidence", "range", "must be between 0 and 1"))
+        if self.status not in {"staged", "verified_draft", "needs_review", "approved", "returned", "rejected", "superseded"}:
+            issues.append(ValidationIssue("status", "enum", "invalid artifact status"))
+        if self.verification_status not in {"not_run", "passed", "failed", "needs_review", "unavailable"}:
+            issues.append(ValidationIssue("verification_status", "enum", "invalid artifact verification status"))
+        if self.structural_check not in {"not_required", "passed", "failed"}:
+            issues.append(ValidationIssue("structural_check", "enum", "invalid structural check status"))
+        if self.visual_check not in {"not_required", "passed", "failed", "unavailable"}:
+            issues.append(ValidationIssue("visual_check", "enum", "invalid visual check status"))
+        if self.approval_state not in {"not_ready", "pending", "approved", "returned", "rejected", "unavailable"}:
+            issues.append(ValidationIssue("approval_state", "enum", "invalid artifact approval state"))
+        if not isinstance(self.derivation, dict):
+            issues.append(ValidationIssue("derivation", "type", "artifact derivation must be an object"))
+        for name in ("title", "media_type", "file_format", "template_id", "template_version", "preview_ref", "download_ref", "ledger_event_ref", "created_at"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                issues.append(ValidationIssue(name, "required", "artifact metadata is required"))
+        for name, refs in (("source_refs", self.source_refs), ("evidence_refs", self.evidence_refs), ("verification_refs", self.verification_refs)):
+            if not refs or any(not isinstance(ref, str) or not ref.strip() for ref in refs):
+                issues.append(ValidationIssue(name, "provenance", "artifact provenance references are required"))
+        if self.taint == Taint.contaminated:
+            issues.append(ValidationIssue("taint", "security", "contaminated artifacts cannot be exposed"))
         return issues
 
 

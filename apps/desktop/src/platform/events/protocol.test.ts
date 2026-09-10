@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { maySendConsequentialCommand, CommandDeduplicator, TaskEventStore, TaskEventSynchronizer } from "./eventStore";
 import { EventTransportProtocolError, type TaskEventBatch } from "./eventTransport";
-import { applyEvent, projectionFromSnapshot, type TaskEvent, type TaskSnapshot } from "./protocol";
+import { applyEvent, normalizeTaskEvent, projectionFromSnapshot, type TaskEvent, type TaskSnapshot } from "./protocol";
+import type { NodeTaskEvent } from "../../generated/core_contracts";
 
 const snapshot: TaskSnapshot = {
   taskId: "task-1",
@@ -52,6 +53,30 @@ const batch = (events: TaskEvent[], nextSequence: number, hasMore = false): Task
 });
 
 describe("sequence-numbered task projection", () => {
+  it("normalizes structured M4 execution events and retains only allowlisted fields", () => {
+    const normalized = normalizeTaskEvent(event(5, "join_barrier.waiting", {
+      status: "waiting",
+      summary: "Waiting for the upstream worker handoff.",
+      teamId: "team-1",
+      assignmentId: "assignment-verify",
+      barrierId: "barrier-1",
+      dependencyIds: ["assignment-vision"],
+      queuePosition: 2,
+    }) as unknown as NodeTaskEvent);
+    expect(normalized).toMatchObject({
+      eventType: "join_barrier.waiting",
+      payload: {
+        status: "waiting",
+        teamId: "team-1",
+        assignmentId: "assignment-verify",
+        barrierId: "barrier-1",
+        dependencyIds: ["assignment-vision"],
+        queuePosition: 2,
+      },
+    });
+    expect(normalized.payload).not.toHaveProperty("raw");
+  });
+
   it("applies the next event and preserves the authoritative activity", () => {
     const result = applyEvent(projectionFromSnapshot(snapshot), event(5, "task.paused", { phase: "paused", status: "stopped" }));
     expect(result.kind).toBe("applied");

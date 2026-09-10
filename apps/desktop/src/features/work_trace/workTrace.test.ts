@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TaskPlanReview } from "../../generated/core_contracts";
+import type { NodeRouteTrace, TaskPlanReview } from "../../generated/core_contracts";
 import type { EvidenceRef, TaskEvent, TaskProjection } from "../../platform/events/protocol";
 import { buildWorkTrace } from "./workTrace";
 
@@ -115,7 +115,103 @@ describe("audit-safe work trace", () => {
     expect(trace.artifacts.ids).toEqual(["artifact-1"]);
     expect(trace.artifacts.records).toMatchObject([{ artifactId: "artifact-1", state: "ready" }]);
     expect(trace.routing).toMatchObject({ state: "plan_context", executionMode: "serial_virtual_team", selectedTarget: null, fallbackReason: null, policyReason: null });
+    expect(trace.team).toMatchObject({
+      state: "planned",
+      teamId: "team-1",
+      executionModeLabel: "Serial virtual team",
+      concurrencyCeiling: 2,
+      assignments: [{ assignmentId: "plan", dependencies: [] }, { assignmentId: "verify", dependencies: ["plan"] }],
+      capabilityLanes: [{ role: "planner", capability: "reasoning" }, { role: "verifier", capability: "verification" }],
+      planLedgerEventRef: "ledger-plan-1",
+    });
     expect(trace.latestActivity).toMatchObject({ eventType: "task.completed", ledgerEventRef: "ledger-12", clearance: "restricted" });
+  });
+
+  it("does not invent a team plan when the Node has not supplied one", () => {
+    const trace = buildWorkTrace(projection, null);
+
+    expect(trace.team).toEqual({
+      state: "not_supplied",
+      teamId: null,
+      executionMode: "not_selected",
+      executionModeLabel: "Execution mode not supplied",
+      executionModeDetail: "The Node has not supplied a team plan for this task.",
+      concurrencyCeiling: 0,
+      assignments: [],
+      capabilityLanes: [],
+      planLedgerEventRef: null,
+    });
+  });
+
+  it("shows M4 team coordination as recorded execution activity", () => {
+    const trace = buildWorkTrace({
+      ...projection,
+      activity: [
+        event(5, "team.created", { status: "created", summary: "Team created.", teamId: "team-1" }),
+        event(6, "worker.assigned", { status: "assigned", summary: "Vision worker assigned.", teamId: "team-1", assignmentId: "assignment-vision", workerId: "worker-vision", role: "vision" }),
+        event(7, "execution.mode.selected", { status: "selected", summary: "Parallel execution admitted.", executionMode: "parallel", hardwareProfileRef: "hardware-1" }),
+        event(8, "join_barrier.waiting", { status: "waiting", summary: "Waiting for upstream handoff.", barrierId: "barrier-1", dependencyIds: ["assignment-vision"] }),
+      ],
+    }, plan);
+
+    expect(trace.execution.coordination.map((item) => item.eventType)).toEqual([
+      "team.created", "worker.assigned", "execution.mode.selected", "join_barrier.waiting",
+    ]);
+    expect(trace.execution.coordination[1]).toMatchObject({ label: "Worker assigned", summary: "Vision worker assigned. [team-1 · assignment-vision · worker-vision]" });
+    expect(trace.execution.coordination[1].context).toEqual([
+      { label: "Team", value: "team-1" },
+      { label: "Assignment", value: "assignment-vision" },
+      { label: "Worker", value: "worker-vision" },
+      { label: "Role", value: "vision" },
+    ]);
+    expect(trace.execution.coordination[2].context).toEqual([
+      { label: "Mode", value: "parallel" },
+      { label: "Hardware", value: "hardware-1" },
+    ]);
+    expect(trace.execution.coordination[3].context).toEqual([
+      { label: "Barrier", value: "barrier-1" },
+      { label: "Dependencies", value: "assignment-vision" },
+    ]);
+    expect(trace.stages.find((stage) => stage.id === "execution")?.events).toHaveLength(4);
+  });
+
+  it("shows Node routing proof without treating a desktop guess as a decision", () => {
+    const routeTrace: NodeRouteTrace = {
+      schemaVersion: "0.1",
+      compatibilityId: "airbench-node-protocol",
+      taskId: "task-1",
+      nodeIdentity: "node-1",
+      protocolVersion: "0.1",
+      clearanceContext: "restricted",
+      entries: [{
+        schemaVersion: "0.1",
+        compatibilityId: "airbench-node-protocol",
+        sequence: 7,
+        eventType: "routing.decision",
+        occurredAt: "2026-09-07T00:00:07Z",
+        actor: "orchestrator",
+        clearanceContext: "restricted",
+        ledgerEventRef: "ledger-route-7",
+        payloadHash: "route-hash-7",
+        selectedTarget: "model.local.reasoner",
+        decisionSource: "qualified-capability-policy",
+        ruleOrThreshold: "reasoning-required",
+        qualificationCertificate: "qualification-1",
+        fallbackTarget: null,
+        reason: null,
+        status: "selected",
+        eligibleTargets: ["model.local.reasoner"],
+      }],
+    };
+
+    const trace = buildWorkTrace(projection, plan, routeTrace);
+
+    expect(trace.routing).toMatchObject({
+      state: "route_context",
+      selectedTarget: "model.local.reasoner",
+      policyReason: "qualified-capability-policy / reasoning-required",
+    });
+    expect(trace.routing.routeEntries[0]).toMatchObject({ eventType: "routing.decision", ledgerEventRef: "ledger-route-7" });
   });
 
   it("shows an explicit attention state from a Node failure without inventing completion", () => {
@@ -146,6 +242,10 @@ describe("audit-safe work trace", () => {
       payloadHash: "hash-5",
       ledgerEventRef: "ledger-5",
     });
+    expect(item.context).toEqual([
+      { label: "Role", value: "planner" },
+      { label: "Record", value: "Prepare evidence plan" },
+    ]);
     expect(item).not.toHaveProperty("payload");
   });
 

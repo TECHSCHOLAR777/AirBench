@@ -50,7 +50,7 @@ On 2026-09-07:
 - `npm run check:tauri-config`: passed.
 - `git diff --check`: passed.
 - `npm run tauri:build:webdriver`: passed, rebuilding the dedicated desktop test binary with the `wdio` feature.
-- `npm run test:desktop`: did not reach the application DOM. The embedded WDIO direct-evaluation endpoint returned HTTP 404 before the first shell assertion. The reproducible failure is recorded on [#69](https://github.com/TECHSCHOLAR777/AirBench/issues/69#issuecomment-5563772756).
+- `npm run test:desktop`: did not reach the application DOM. The embedded WDIO direct-evaluation endpoint returned HTTP 404 before the first shell assertion. The reproducible failure is recorded in the packaged release gate [#124](https://github.com/TECHSCHOLAR777/AirBench/issues/124#issuecomment-5563772756).
 
 ## Remaining gate
 

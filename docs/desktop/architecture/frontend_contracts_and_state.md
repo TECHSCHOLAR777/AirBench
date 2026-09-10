@@ -120,7 +120,43 @@ Required event families include:
 - `ledger.written` and `ledger.verification_changed`;
 - `node.connection_changed` and `node.sovereignty_changed`.
 
+The M4 execution families are projected separately from generic ledger
+entries. They include team lifecycle, worker assignment and failure, handoffs,
+join barriers, execution-mode decisions, resource-plan admission and queueing,
+resource leases, exhaustion and recovery, lifecycle interception, and
+background-work yielding. Their payload is an allowlisted
+`NodeExecutionEventPayload` containing bounded identifiers, status, summary,
+mode, queue, hardware, qualification, and dependency references. The original
+ledger payload is never forwarded to the webview. The event envelope still
+retains the source event identity, clearance context, payload hash, sequence,
+and ledger reference, so the user can inspect what the Node recorded without
+being shown private worker content or model reasoning.
+
 Unknown event types are preserved in the diagnostic stream and do not mutate the projection until a compatible schema is available.
+
+## 4.1 Routing proof projection
+
+The Node exposes routing proof through `GET /api/v1/tasks/{task_id}/route-trace`.
+This is a separate read projection because the generic task-event payload is
+deliberately clearance-filtered and does not carry the router's selected-target
+fields. `NodeRouteTrace` carries the Node wire envelope, task and Node identity,
+protocol and clearance context, and an ordered bounded list of
+`NodeRouteTraceEntry` records.
+
+Each route entry retains its sequence, event type, time, actor, ledger event
+reference, payload hash, and only allowlisted routing metadata: request or
+worker identity, capability, selected or fallback target, decision source,
+rule or threshold, qualification certificate, status, reason, and eligible
+targets. The original router request, prompt, credentials, endpoint, and raw
+ledger payload never cross this projection.
+
+Rust validates the task and Node identities, protocol compatibility, exact
+clearance, non-empty integrity references, bounded eligible targets, and
+strict sequence order. The webview validates the same envelope again before
+display. A route read failure is non-authoritative and does not change task
+state; the workspace shows the last valid projection or states that routing
+proof is unavailable. A manual task refresh re-reads both the event stream and
+the route projection so decisions made after plan approval can be inspected.
 
 ## 5. Command envelope
 
@@ -156,7 +192,7 @@ The Node returns an accepted, rejected, or needs-review result. The UI waits for
 
 ## 5.2 Live task workspace
 
-The Live Task Workspace is a presentation of the Node snapshot plus the ordered task-local event stream. It may show status, phase, worker and tool summaries, evidence and verification summaries, plan mode, hardware references, unresolved questions, and ledger references. It must not infer progress from elapsed time, client receipt order, worker count, or model output.
+The Live Task Workspace is a presentation of the Node snapshot plus the ordered task-local event stream. It may show status, phase, team coordination, worker and tool summaries, handoffs, barriers, resource admission, evidence and verification summaries, plan mode, hardware references, unresolved questions, and ledger references. It must not infer progress from elapsed time, client receipt order, worker count, or model output.
 
 The first desktop slice uses `task.cancel` for a bounded stop request. The command carries the last applied task sequence, authenticated actor, and idempotency key. The UI shows the command receipt but changes task status only after the Node emits the corresponding authoritative event. Pause, resume, and answer-question actions remain unavailable until their Node contracts and ledger transitions are defined.
 
@@ -235,7 +271,9 @@ An artifact reference contains:
 
 Preview content is data. The client accepts only typed preview formats such as sanitized text, image, PDF page, table data, slide image, or code text. It does not accept executable HTML or script-bearing document content as a trusted UI surface.
 
-The File Intake Layer is the only file interpretation boundary. The desktop picker returns a native selection token and display metadata. Rust streams that selection to the Node query-upload switch, and the UI renders the returned manifest and safe preview. The UI does not inspect bytes, infer page count, run OCR, or create a second parse path. A preview must retain source hash, source region, confidence, clearance, taint, and ledger reference. Download is a separate Node-authorized command and is denied unless the returned permission and integrity checks succeed.
+The File Intake Layer is the only file interpretation boundary. The desktop picker returns a native selection token and display metadata. The user launches a task first; Rust then streams that selection to the Node query-upload switch with the Node-issued task ID, binding the resulting evidence event to the task ledger. The UI renders the returned manifest and safe preview. The UI does not inspect bytes, infer page count, run OCR, or create a second parse path. A preview must retain source hash, source region, confidence, clearance, taint, and ledger reference. Download is a separate Node-authorized command and is denied unless the returned permission and integrity checks succeed. The intake `artifact_ref` is a committed source record for inspection and download; it is not a generated deliverable. A final Word, PDF, spreadsheet, or other output artifact requires the Deliverable Engine writer and its own verification and approval projection.
+
+The first generated-document projection is `NodeArtifactReview`. The Deliverable Engine renders a pack-declared DOCX from model prose plus named, already-verified deterministic values. It records the staged and checked artifact events, content hash, template version, bounded preview blocks, verification results, approval blockers, and complete provenance before the Node exposes the record. The Node gateway reads those committed records and verifies the local bytes against the recorded hash before returning a download. Rust and the webview validate the same identity, status, hash, size, clearance, taint, provenance, and ledger fields. This is a local DOCX slice, not proof that artifact approval actions, visual rendering, or the complete task execution path are finished.
 
 ## 10. Clearance and redaction
 

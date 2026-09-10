@@ -131,31 +131,33 @@ FE-VAL-2, FE-VAL-3, and FE-VAL-4 can be developed in parallel after the typed fi
 
 **Labels**: `frontend`, `validation`, `P1`, `security`
 
-**Dependencies**: Can develop in parallel after File Intake and artifact preview fixtures exist. Final packaged run depends on FE-VAL-1 and FE-VAL-2.
+**Dependencies**: Can develop in parallel after File Intake and artifact preview fixtures exist. The local integration path creates the Node task before sending the query upload and binds the resulting intake evidence to that task. Final packaged run depends on FE-VAL-1 and FE-VAL-2.
 
 **Work**:
 
+- create a Node-authorized task and retain its task ID;
 - select a scanned PDF through the native picker;
-- route it through the File Intake Layer query-upload switch;
+- route it through the File Intake Layer query-upload switch with that task ID;
 - render manifest, source hash, page and OCR or vision state, clearance, and taint;
 - open a safe page or image preview with source-region reference;
-- render a Node-generated Word or PDF artifact preview;
-- download only when the Node grants permission;
+- render a Node-generated Word or PDF artifact preview when the Deliverable Engine has produced a real output artifact;
+- download only when the Node grants permission, and verify the returned hash;
 - test malicious, instruction-bearing, corrupted, oversized, unsupported, and partial files.
 
 **Acceptance evidence**:
 
-- picker and intake request logs;
+- picker and task-bound intake request logs;
 - manifest and source hash;
 - safe preview fixture and screenshot;
 - provenance and clearance rendering;
 - allowed and blocked download evidence;
 - malicious-document safety result;
-- File Intake and ledger references.
+- File Intake and ledger references, including the task-created and evidence-created linkage;
+- a clear distinction between a committed source-intake record and a generated output deliverable.
 
 **Failure tests**: intake rejection, malformed preview, source hash mismatch, clearance mismatch, preview link injection, macro-bearing document, interrupted upload.
 
-**Done when**: every file uses File Intake, content remains data, previews are safe, provenance is complete, and unauthorized downloads are blocked.
+**Done when**: every file uses File Intake, content remains data, previews are safe, provenance is complete, and unauthorized downloads are blocked. The source-intake path is not counted as a generated approval-note deliverable; that remains a separate Deliverable Engine acceptance path.
 
 ## FE-VAL-5: Prove no external UI contact
 
@@ -224,15 +226,15 @@ FE-VAL-2, FE-VAL-3, and FE-VAL-4 can be developed in parallel after the typed fi
 
 ## GitHub issue numbers
 
-The six validation issues are open in `TECHSCHOLAR777/AirBench` and have the `frontend`, `validation`, and `P1` labels:
+The six validation tracks are maintained in this document. FE-VAL-1, FE-VAL-5, and FE-VAL-6 are consolidated into packaged release issue #124; FE-VAL-2, FE-VAL-3, and FE-VAL-4 remain independent GitHub issues:
 
 | Reference | GitHub issue | State |
 | --- | --- | --- |
-| FE-VAL-1 | [#64](https://github.com/TECHSCHOLAR777/AirBench/issues/64) | Open |
+| FE-VAL-1 | [#124](https://github.com/TECHSCHOLAR777/AirBench/issues/124) | Open, consolidated release gate |
 | FE-VAL-2 | [#65](https://github.com/TECHSCHOLAR777/AirBench/issues/65) | Open |
 | FE-VAL-3 | [#66](https://github.com/TECHSCHOLAR777/AirBench/issues/66) | Open |
 | FE-VAL-4 | [#67](https://github.com/TECHSCHOLAR777/AirBench/issues/67) | Open |
-| FE-VAL-5 | [#68](https://github.com/TECHSCHOLAR777/AirBench/issues/68) | Open |
-| FE-VAL-6 | [#69](https://github.com/TECHSCHOLAR777/AirBench/issues/69) | Open |
+| FE-VAL-5 | [#124](https://github.com/TECHSCHOLAR777/AirBench/issues/124) | Open, consolidated release gate |
+| FE-VAL-6 | [#124](https://github.com/TECHSCHOLAR777/AirBench/issues/124) | Open, consolidated release gate |
 
 The issue definitions remain versioned in this file so the repository and GitHub descriptions do not drift.

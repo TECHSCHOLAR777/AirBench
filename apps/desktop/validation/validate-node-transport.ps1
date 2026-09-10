@@ -4,6 +4,12 @@ $validationRoot = Split-Path -Parent $PSScriptRoot
 $tauriRoot = Join-Path $validationRoot "src-tauri"
 $runRoot = Join-Path ([IO.Path]::GetTempPath()) ("AirBenchNodeValidation-" + (Get-Date -Format "yyyyMMdd-HHmmss") + "-" + [guid]::NewGuid().ToString("N"))
 $null = New-Item -ItemType Directory -Path $runRoot -Force
+# Keep validation independent from any historical Cargo build directory. The
+# repository moved from frontend/src-tauri to apps/desktop/src-tauri, but Cargo
+# dependency artifacts can retain absolute paths and stale generated Tauri
+# permissions. A disposable target makes this probe reproducible and leaves the
+# user's existing debug cache untouched.
+$env:CARGO_TARGET_DIR = Join-Path $runRoot "cargo-target"
 $fixtureRoot = Join-Path $runRoot "fixture"
 $null = New-Item -ItemType Directory -Path $fixtureRoot -Force
 $python = (Get-Command python).Source

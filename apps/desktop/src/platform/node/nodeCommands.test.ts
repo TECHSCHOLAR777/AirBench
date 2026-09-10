@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@airbench/tauri-invoke", () => ({ invoke: invokeMock }));
 
-import { createTask, fetchTaskPlan, fetchTaskSnapshot, sendTaskCommand, validateCreateTaskResponse, validateNodeCommandResult, validateTaskPlanReview, validateTaskSnapshot } from "./nodeCommands";
+import { createTask, fetchTaskArtifactReview, fetchTaskPlan, fetchTaskRouteTrace, fetchTaskSnapshot, sendTaskCommand, validateCreateTaskResponse, validateNodeCommandResult, validateTaskArtifactReview, validateTaskPlanReview, validateTaskRouteTrace, validateTaskSnapshot } from "./nodeCommands";
 import type { NodeCommandEnvelope, NodeCommandResult } from "../../generated/core_contracts";
 import type { NodeEvidenceRef, NodeFactRef, NodeProvenanceRef, TaskEnvelope, TaskPlanReview } from "../../generated/core_contracts";
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
@@ -143,6 +143,42 @@ const plan: TaskPlanReview = {
   failure_reason: "The orchestration engine has not committed a validated plan.",
 };
 
+const artifactReview = {
+  schemaVersion: "0.1",
+  compatibilityId: "airbench-node-protocol",
+  taskId: "task-1",
+  artifactId: "artifact-1",
+  nodeIdentity: "node-1",
+  protocolVersion: "0.1",
+  clearanceContext: "restricted" as const,
+  title: "Inspection approval note",
+  mediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  fileFormat: "docx",
+  templateId: "refinery_psu_approval_note_v0",
+  templateVersion: "1.0",
+  contentHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  byteSize: 1024,
+  status: "verified_draft",
+  verificationStatus: "passed",
+  structuralCheck: "passed",
+  visualCheck: "not_required",
+  approvalState: "pending",
+  approvalBlockingReasons: [],
+  sourceRefs: ["manifest-1"],
+  evidenceRefs: ["evidence-1"],
+  verificationRefs: ["verification-1"],
+  deterministicValueRefs: ["finding_count"],
+  confidence: 0.93,
+  clearance: "restricted" as const,
+  taint: "clean" as const,
+  derivation: { finding_count: { operation: "count", input_refs: ["fact-1"] } },
+  previewRef: "artifact-1",
+  downloadRef: "artifact-1",
+  ledgerEventRef: "ledger-artifact-1",
+  artifactSequence: 12,
+  createdAt: "2026-09-06T00:00:12Z",
+};
+
 const commandResult: NodeCommandResult = {
   schema_version: "1.0",
   compatibility_id: "airbench-core-contracts",
@@ -179,10 +215,58 @@ describe("typed Node command transport", () => {
     });
   });
 
+  it("routes the Node-owned artifact review without allowing the webview to construct it", async () => {
+    invokeMock.mockResolvedValueOnce(artifactReview);
+    await expect(fetchTaskArtifactReview(profile, "task-1")).resolves.toEqual(artifactReview);
+    expect(invokeMock).toHaveBeenCalledWith("fetch_task_artifact_review", {
+      profileId: "profile-1",
+      taskId: "task-1",
+    });
+    expect(() => validateTaskArtifactReview({ ...artifactReview, taint: "contaminated" }, profile, "task-1")).toThrow("contaminated");
+    expect(() => validateTaskArtifactReview({ ...artifactReview, clearance: "secret" }, profile, "task-1")).toThrow("above the approved clearance");
+    expect(() => validateTaskArtifactReview({ ...artifactReview, sourceRefs: [] }, profile, "task-1")).toThrow("provenance");
+  });
+
   it("validates the plan response before it reaches approval or trace state", async () => {
     invokeMock.mockResolvedValueOnce(plan);
 
     await expect(fetchTaskPlan(profile, "task-1")).resolves.toEqual(plan);
+  });
+
+  it("routes and validates the clearance-filtered routing trace", async () => {
+    const routeTrace = {
+      schemaVersion: "0.1",
+      compatibilityId: "airbench-node-protocol",
+      taskId: "task-1",
+      nodeIdentity: "node-1",
+      protocolVersion: "0.1",
+      clearanceContext: "restricted",
+      entries: [{
+        schemaVersion: "0.1",
+        compatibilityId: "airbench-node-protocol",
+        sequence: 7,
+        eventType: "routing.decision",
+        occurredAt: "2026-09-06T00:00:07Z",
+        actor: "orchestrator",
+        clearanceContext: "restricted",
+        ledgerEventRef: "ledger-route-7",
+        payloadHash: "route-hash-7",
+        selectedTarget: "model.local.reasoner",
+        decisionSource: "qualified-capability-policy",
+        qualificationCertificate: "qualification-1",
+        eligibleTargets: ["model.local.reasoner"],
+      }],
+    };
+    invokeMock.mockResolvedValueOnce(routeTrace);
+
+    await expect(fetchTaskRouteTrace(profile, "task-1")).resolves.toMatchObject({
+      taskId: "task-1",
+      entries: [{ selectedTarget: "model.local.reasoner", ledgerEventRef: "ledger-route-7" }],
+    });
+    expect(invokeMock).toHaveBeenCalledWith("fetch_task_route_trace", { profileId: "profile-1", taskId: "task-1" });
+    expect(() => validateTaskRouteTrace({ ...routeTrace, entries: [{ ...routeTrace.entries[0], clearanceContext: "secret" }] }, profile, "task-1")).toThrow("above the approved clearance");
+    expect(() => validateTaskRouteTrace({ ...routeTrace, entries: [{ ...routeTrace.entries[0], compatibilityId: "foreign-route-contract" }] }, profile, "task-1")).toThrow("incompatible");
+    expect(() => validateTaskRouteTrace({ ...routeTrace, entries: [{ ...routeTrace.entries[0], sequence: 0 }] }, profile, "task-1")).toThrow("strictly ordered");
   });
 
   it("rejects a ready plan without complete authority and hardware context", () => {

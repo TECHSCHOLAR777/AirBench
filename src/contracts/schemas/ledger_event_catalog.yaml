@@ -62,6 +62,8 @@ events:
   - barrier.completed
   - artifact.staged
   - artifact.checked
+  - artifact.previewed
+  - artifact.downloaded
   - human.review.required
   - human.signoff
   - completion.recorded
