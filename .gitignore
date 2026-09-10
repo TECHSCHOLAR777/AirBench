@@ -5,8 +5,13 @@ __pycache__/
 
 # Testing
 .pytest_cache/
+.pytest-temp/
 .coverage
 htmlcov/
+
+# Acceptance run artefacts (machine-generated, not source)
+acceptance/m10_acceptance_run.json
+acceptance/m10_latency_measurements.json
 
 # Environments
 .env
