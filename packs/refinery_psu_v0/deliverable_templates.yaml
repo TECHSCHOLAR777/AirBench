@@ -1,8 +1,10 @@
 templates:
   - id: refinery_psu_approval_note_v0
+    version: "1.0"
     format: docx
     status: verified_draft_for_human_review
     required_sections: [subject, findings, source_register, deterministic_calculations, review_status]
+    values_section: deterministic_calculations
     numeric_values: verified_fact_or_deterministic_calculation_only
     structural_check: required
     visual_check: required

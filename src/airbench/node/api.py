@@ -51,6 +51,7 @@ from contracts import (
 from contracts.ids import stable_id
 from contracts.provenance.ledger import LedgerError
 from .intake_gateway import NodeArtifactDownload, NodeIntakeError, NodeIntakeGateway
+from .deliverable_gateway import NodeDeliverableGateway
 
 
 PROTOCOL_VERSION = NODE_PROTOCOL_VERSION
@@ -121,10 +122,11 @@ class NodeApiConfig:
 class NodeApiService:
     """Owns API authentication and projections, not task authority."""
 
-    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None):
+    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None):
         self.orchestrator = orchestrator
         self.config = config
         self.intake_gateway = intake_gateway
+        self.deliverable_gateway = deliverable_gateway
         self._ledger: LedgerView = orchestrator.store
         self._lock = RLock()
 
@@ -193,6 +195,12 @@ class NodeApiService:
 
     def artifact_preview(self, artifact_id: str) -> dict[str, Any]:
         with self._lock:
+            if self.deliverable_gateway is not None:
+                try:
+                    return self.deliverable_gateway.artifact_preview(artifact_id=artifact_id)
+                except NodeIntakeError as exc:
+                    if exc.code not in {"deliverable_not_found", "invalid_reference"}:
+                        raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
             gateway = self._require_intake_gateway()
             try:
                 return gateway.artifact_preview(artifact_id=artifact_id)
@@ -201,6 +209,12 @@ class NodeApiService:
 
     def artifact_download(self, artifact_id: str) -> NodeArtifactDownload:
         with self._lock:
+            if self.deliverable_gateway is not None:
+                try:
+                    return self.deliverable_gateway.download(artifact_id=artifact_id)
+                except NodeIntakeError as exc:
+                    if exc.code not in {"deliverable_not_found", "invalid_reference"}:
+                        raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
             gateway = self._require_intake_gateway()
             try:
                 return gateway.download(artifact_id=artifact_id)
@@ -682,6 +696,15 @@ class NodeApiService:
                 "clearanceContext": self.config.clearance_context.value,
             }
 
+    def artifact_review(self, task_id: str) -> dict[str, Any]:
+        with self._lock:
+            if self.deliverable_gateway is None:
+                raise NodeApiError(503, "deliverable_unavailable", "The local Deliverable Engine is not configured.")
+            try:
+                return self.deliverable_gateway.artifact_review(task_id=task_id)
+            except NodeIntakeError as exc:
+                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
     def _visible_task(self, task_id: str) -> TaskEnvelope:
         _validate_task_id(task_id)
         event = next((event for event in self._ledger.events if event.task_id == task_id and event.event_type == "task.created"), None)
@@ -1057,6 +1080,11 @@ def create_app(service: NodeApiService) -> FastAPI:
     async def task_review(task_id: str, request: Request) -> dict[str, Any]:
         auth(request)
         return service.review(task_id)
+
+    @app.get("/api/v1/tasks/{task_id}/artifact-review")
+    async def task_artifact_review(task_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.artifact_review(task_id)
 
     @app.post("/api/v1/tasks/{task_id}/authorize", status_code=202)
     async def authorize_task(task_id: str, request: Request) -> dict[str, Any]:
