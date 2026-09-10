@@ -9,7 +9,7 @@ import { listApprovedNodeProfiles } from "../platform/node/profileBridge";
 import { downloadVerifiedArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, type ArtifactPreview, type DownloadReceipt, type IntakeManifest, type SafePreview } from "../features/intake/intakeBridge";
 import { createTask, fetchTaskArtifactReview, fetchTaskPlan, fetchTaskRouteTrace, fetchTaskSnapshot, sendTaskCommand, type CreateTaskResponse } from "../platform/node/nodeCommands";
 import type { NodeArtifactReview, NodeCommandResult, NodeRouteTrace, TaskPlanReview } from "../generated/core_contracts";
-import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan, canCancelTask } from "../features/tasks/taskComposer";
+import { buildApprovePlanCommand, buildAuthorizeTaskCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan, canCancelTask } from "../features/tasks/taskComposer";
 import { planRecoveryGuidance } from "../features/tasks/planRecovery";
 import { commandOutcomeGuidance, shouldRefreshTaskAfterCommand } from "../features/tasks/commandOutcome";
 import { fetchTaskEventBatch } from "../platform/events/eventTransport";
@@ -501,9 +501,10 @@ function App() {
       }, commandId, `idempotency.${commandId}`);
       const result = await createTask(profile, command);
       setTaskResult(result);
+      let intakeManifestForTask: IntakeManifest | null = null;
       if (selectedFile) {
         try {
-          await uploadFileForTask(profile, selectedFile.selection_id, result.task.task_id);
+          intakeManifestForTask = await uploadFileForTask(profile, selectedFile.selection_id, result.task.task_id);
         } catch {
           // The task remains a real Node task; its intake failure is visible
           // and execution remains gated by the Node state.
@@ -517,6 +518,27 @@ function App() {
       }
       const taskResultWithIntake = { ...result, snapshot: synchronizedSnapshot };
       setTaskResult(taskResultWithIntake);
+      if (selectedFile && !intakeManifestForTask) {
+        setNotice("The Node accepted the task, but File Intake did not return a committed manifest. Authorization is paused.");
+        return;
+      }
+      const authorizationCommandId = `command.authorize.${crypto.randomUUID()}`;
+      const authorizationCommand = buildAuthorizeTaskCommand(
+        connection.authenticatedSubject,
+        result.task.task_id,
+        synchronizedSnapshot.asOfSequence,
+        "operator.authorized.local-task",
+        authorizationCommandId,
+        `idempotency.${authorizationCommandId}`,
+      );
+      try {
+        await sendTaskCommand(profile, authorizationCommand);
+        synchronizedSnapshot = await fetchTaskSnapshot(profile, result.task.task_id);
+        setTaskResult({ ...result, snapshot: synchronizedSnapshot });
+      } catch {
+        setNotice("The Node accepted the task, but did not authorize it. No plan or execution was started.");
+        return;
+      }
       setPlanLoading(true);
       try {
         const plan = await fetchTaskPlan(profile, result.task.task_id);

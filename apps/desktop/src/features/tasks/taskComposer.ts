@@ -88,13 +88,42 @@ export function buildCreateTaskCommand(input: TaskComposerInput, commandId: stri
       deadline,
       risk_class: "operator_requested",
       autonomy_ceiling: "review_required",
-      allowed_evidence_scope: [],
+      allowed_evidence_scope: ["task-input"],
       permitted_worker_capabilities: ["general"],
       permitted_tools: [],
       verification_criteria: [],
       resource_budget: { max_concurrency: 1, max_steps: 32 },
       input_manifest_refs: [...input.inputManifestRefs],
     },
+  };
+}
+
+export function buildAuthorizeTaskCommand(
+  actor: string,
+  taskId: string,
+  expectedSequence: number,
+  authorizationRef: string,
+  commandId: string,
+  idempotencyKey: string,
+): NodeCommandEnvelope {
+  const normalizedActor = required(actor, "The authenticated subject", 256);
+  const normalizedTaskId = required(taskId, "The task identifier", 128);
+  const normalizedAuthorizationRef = required(authorizationRef, "The task authorization reference", 512);
+  if (!Number.isSafeInteger(expectedSequence) || expectedSequence < 0) {
+    throw new Error("The task authorization sequence is invalid.");
+  }
+  if (!commandId.trim() || !idempotencyKey.trim()) throw new Error("The task authorization command identity is incomplete.");
+  return {
+    schema_version: "1.0",
+    compatibility_id: "airbench-core-contracts",
+    command_id: commandId,
+    task_id: normalizedTaskId,
+    actor: normalizedActor,
+    expected_sequence: expectedSequence,
+    idempotency_key: idempotencyKey,
+    client_version: "0.1",
+    command_type: "task.authorize",
+    arguments: { authorization_ref: normalizedAuthorizationRef },
   };
 }
 

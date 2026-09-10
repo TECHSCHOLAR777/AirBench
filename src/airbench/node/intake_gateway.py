@@ -210,8 +210,13 @@ class LocalNodeIntakeGateway:
         existing = next((event for event in self._ledger.events if event.idempotency_key == key), None)
         if existing is not None:
             return existing.event_id
+        event_type = (
+            "artifact.previewed"
+            if operation in {"source_preview", "source_artifact_preview"}
+            else "artifact.downloaded"
+        )
         event = build_event(
-            event_type="artifact.checked",
+            event_type=event_type,
             task_id=manifest.task_id,
             actor_id="node.intake",
             actor_type="service",

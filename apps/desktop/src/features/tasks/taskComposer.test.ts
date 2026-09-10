@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildApprovePlanCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan, canCancelTask } from "./taskComposer";
+import { buildApprovePlanCommand, buildAuthorizeTaskCommand, buildCancelTaskCommand, buildCreateTaskCommand, canApprovePlan, canCancelTask } from "./taskComposer";
 
 const base = {
   actor: "operator-1" as const,
@@ -39,9 +39,21 @@ describe("task composer command", () => {
     expect(command.arguments).toMatchObject({
       domain_pack_ref: "approved-pack.v0",
       input_manifest_refs: ["intake-1"],
+      allowed_evidence_scope: ["task-input"],
       output_contract: "document",
       priority: "high",
     });
+  });
+
+  it("builds explicit task authorization against the current Node sequence", () => {
+    const command = buildAuthorizeTaskCommand("operator-1", "task.review-1", 7, "operator.authorized.local-task", "command.authorize.1", "idempotency.authorize.1");
+    expect(command).toMatchObject({
+      command_type: "task.authorize",
+      task_id: "task.review-1",
+      expected_sequence: 7,
+      arguments: { authorization_ref: "operator.authorized.local-task" },
+    });
+    expect(() => buildAuthorizeTaskCommand("operator-1", "task.review-1", -1, "operator.authorized.local-task", "command.authorize.1", "idempotency.authorize.1")).toThrow(/sequence/);
   });
 
   it("fails closed for missing outcome or oversized metadata", () => {
