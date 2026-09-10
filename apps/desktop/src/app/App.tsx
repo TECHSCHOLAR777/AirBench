@@ -257,13 +257,7 @@ function App() {
     }
   };
 
-  const uploadSelectedFile = async () => {
-    if (!selectedFile) return;
-    const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
-    if (!profile || !nodeConnected) {
-      setNotice("Connect a verified Node before sending a file to the File Intake Layer.");
-      return;
-    }
+  const uploadFileForTask = async (profile: ApprovedNodeProfileReference, selectionId: string, taskId: string) => {
     setIntakeState("uploading");
     setIntakeManifest(null);
     setSafePreview(null);
@@ -272,15 +266,15 @@ function App() {
     setDownloadReceipt(null);
     setNotice(null);
     try {
-      const manifest = await uploadSelectedQueryFile(profile, selectedFile.selection_id);
+      const manifest = await uploadSelectedQueryFile(profile, selectionId, taskId);
       setIntakeManifest(manifest);
       const manifestState = intakeStateFromManifest(manifest);
       setIntakeState(manifestState);
       if (manifestState !== "ready") {
         setNotice(manifestState === "processing"
-          ? "File Intake accepted the source, but OCR or vision is still processing. Launch remains paused until the Node supplies a completed preview."
-          : "File Intake accepted the manifest, but its processing result is incomplete. Launch remains paused until the Node supplies a complete result.");
-        return;
+          ? "File Intake accepted the source, but OCR or vision is still processing. The Node will keep the task gated until a completed preview exists."
+          : "File Intake accepted the source, but the configured OCR or vision path is unavailable. The task remains gated until the Node supplies a complete result.");
+        return manifest;
       }
       try {
         const preview = await fetchSafePreview(profile, manifest.preview_ref, manifest.source_hash);
@@ -289,17 +283,18 @@ function App() {
         const state = classifyIntakeFailure(error, true);
         setIntakeState(state);
         setNotice(intakeStatusCopy(state).detail);
-        return;
+        return manifest;
       }
       try {
         const artifact = await fetchArtifactPreview(profile, manifest.artifact_ref);
         setArtifactPreview(artifact);
       } catch {
         setArtifactPreview(null);
-        setNotice("Source accepted by File Intake. The Node artifact preview is not available yet; task launch remains governed by the intake result.");
-        return;
+        setNotice("Source accepted by File Intake. A source-artifact preview is not available yet; task execution remains governed by the Node.");
+        return manifest;
       }
       setNotice("AirBench accepted the file through the File Intake Layer. Previews are Node-generated and remain untrusted data.");
+      return manifest;
     } catch (error) {
       const state = classifyIntakeFailure(error);
       setIntakeState(state);
@@ -307,6 +302,25 @@ function App() {
       setSafePreview(null);
       setArtifactPreview(null);
       setNotice(intakeStatusCopy(state).detail);
+      throw error;
+    }
+  };
+
+  const uploadSelectedFile = async () => {
+    if (!selectedFile) return;
+    const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
+    if (!profile || !nodeConnected) {
+      setNotice("Connect a verified Node before sending a file to the File Intake Layer.");
+      return;
+    }
+    if (!taskResult) {
+      setNotice("Launch the task first so the Node can bind this source to its task ledger. File Intake will run immediately after task creation.");
+      return;
+    }
+    try {
+      await uploadFileForTask(profile, selectedFile.selection_id, taskResult.task.task_id);
+    } catch {
+      // The helper has already exposed the bounded recovery state.
     }
   };
 
@@ -471,10 +485,26 @@ function App() {
         outputContract,
         priority,
         deadline: deadline || null,
-        inputManifestRefs: intakeManifest ? [intakeManifest.intake_id] : [],
+        inputManifestRefs: [],
       }, commandId, `idempotency.${commandId}`);
       const result = await createTask(profile, command);
       setTaskResult(result);
+      if (selectedFile) {
+        try {
+          await uploadFileForTask(profile, selectedFile.selection_id, result.task.task_id);
+        } catch {
+          // The task remains a real Node task; its intake failure is visible
+          // and execution remains gated by the Node state.
+        }
+      }
+      let synchronizedSnapshot = result.snapshot;
+      try {
+        synchronizedSnapshot = await fetchTaskSnapshot(profile, result.task.task_id);
+      } catch {
+        // The create snapshot remains the last authoritative projection.
+      }
+      const taskResultWithIntake = { ...result, snapshot: synchronizedSnapshot };
+      setTaskResult(taskResultWithIntake);
       setPlanLoading(true);
       try {
         const plan = await fetchTaskPlan(profile, result.task.task_id);
@@ -485,7 +515,7 @@ function App() {
       } finally {
         setPlanLoading(false);
       }
-      await syncTask(profile, result.snapshot);
+      await syncTask(profile, synchronizedSnapshot);
       selectScreen("tasks");
     } catch {
       setNotice("The Node did not accept this task. No local task state was created.");
@@ -561,7 +591,9 @@ function App() {
     }
   };
 
-  const canStart = nodeConnected && taskText.trim().length > 0 && (!selectedFile || intakeState === "ready") && !creatingTask;
+  const canStart = nodeConnected && taskText.trim().length > 0
+    && (!selectedFile || intakeState === "ready" || (!taskResult && intakeState === "idle"))
+    && !creatingTask;
   const nodeLabel = nodeConnected ? (profiles.find((profile) => profile.profileId === connection.profileId)?.displayName ?? "Node connected") : connection.state === "connecting" ? "Connecting to Node" : connection.state === "reconnecting" ? "Reconnecting to Node" : "Node not connected";
   const nodeDetail = nodeConnected ? "Verified and ready" : connection.state === "failed" || connection.state === "blocked" ? "Connection blocked" : connection.state === "reconnecting" ? "Reconnect to continue" : "Choose an approved Node";
   const sovereigntyLabel = nodeConnected && connection.sovereignty === "verified" ? "Verified internal path" : "No verified Node path";
@@ -692,7 +724,7 @@ function HomeView({ outcomeInputRef, currentTask, taskText, setTaskText, taskTit
       {openPanel === "sources" && <section className="launchpad-panel" id="launchpad-sources" aria-label="Sources">
         <div className="launchpad-panel-heading"><div><p className="eyebrow">SOURCES</p><h2>Bring in the material that matters</h2></div><button type="button" className="text-button" onClick={() => setOpenPanel(null)}>Done</button></div>
         {!selectedFile && <div className="launchpad-source-empty"><AppIcon name="attachment" size={19} /><div><strong>No source selected</strong><p>Every file is sent to the Node through File Intake before it can be used.</p></div><button type="button" className="secondary-button" onClick={openSourcePicker}>Choose file</button></div>}
-        {selectedFile && <div className="selected-file"><span className="file-badge">FILE</span><span><strong>{selectedFile.file_name}</strong><small>{formatBytes(selectedFile.byte_size)} / {intakeCopy.label}</small></span><div className="selected-file-actions">{intakeState === "idle" && <button type="button" className="secondary-button compact-button" onClick={onUpload}>Send to Node</button>}{intakeState === "uploading" && <button type="button" className="secondary-button compact-button" disabled>Sending...</button>}{intakeState !== "idle" && intakeState !== "uploading" && intakeState !== "ready" && intakeCopy.retryable && <button type="button" className="secondary-button compact-button" onClick={openSourcePicker}>Choose again</button>}<button type="button" className="remove-file" onClick={onRemoveFile} aria-label="Remove selected file">Remove</button></div></div>}
+        {selectedFile && <div className="selected-file"><span className="file-badge">FILE</span><span><strong>{selectedFile.file_name}</strong><small>{formatBytes(selectedFile.byte_size)} / {intakeCopy.label}</small></span><div className="selected-file-actions">{intakeState === "idle" && taskResult && <button type="button" className="secondary-button compact-button" onClick={onUpload}>Send to Node</button>}{intakeState === "idle" && !taskResult && <span className="selected-file-handoff">Sent after Launch</span>}{intakeState === "uploading" && <button type="button" className="secondary-button compact-button" disabled>Sending...</button>}{intakeState !== "idle" && intakeState !== "uploading" && intakeState !== "ready" && intakeCopy.retryable && <button type="button" className="secondary-button compact-button" onClick={openSourcePicker}>Choose again</button>}<button type="button" className="remove-file" onClick={onRemoveFile} aria-label="Remove selected file">Remove</button></div></div>}
         {selectedFile && intakeState !== "idle" && intakeState !== "ready" && <div className={`intake-status intake-status-${intakeState}`} role={intakeState === "uploading" || intakeState === "processing" ? "status" : "alert"}><strong>{intakeCopy.title}</strong><span>{intakeCopy.detail}</span><IntakeRecoveryGuidance recovery={intakeCopy.recovery} /></div>}
         <div className="launchpad-policy-note"><AppIcon name="shield" size={15} /><span>Uploaded material is untrusted data. The desktop app does not parse it or treat it as instructions.</span></div>
       </section>}

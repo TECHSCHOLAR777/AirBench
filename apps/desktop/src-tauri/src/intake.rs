@@ -334,6 +334,30 @@ pub async fn upload_query_file_from_path(
     profile: NodeProfile,
     path: PathBuf,
 ) -> Result<IntakeManifest, String> {
+    upload_query_file_to_node(profile, path, None).await
+}
+
+pub async fn upload_query_file_from_path_for_task(
+    profile: NodeProfile,
+    path: PathBuf,
+    task_id: String,
+) -> Result<IntakeManifest, String> {
+    if task_id.is_empty()
+        || task_id.len() > 128
+        || !task_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+    {
+        return Err("The task identifier is invalid for File Intake.".to_string());
+    }
+    upload_query_file_to_node(profile, path, Some(task_id)).await
+}
+
+async fn upload_query_file_to_node(
+    profile: NodeProfile,
+    path: PathBuf,
+    task_id: Option<String>,
+) -> Result<IntakeManifest, String> {
     let metadata = validate_file(&path)?;
     let file_name = path
         .file_name()
@@ -354,10 +378,13 @@ pub async fn upload_query_file_from_path(
         .file_name(file_name.clone())
         .mime_str("application/octet-stream")
         .map_err(|_| "The intake media type could not be constructed.")?;
-    let form = reqwest::multipart::Form::new()
+    let mut form = reqwest::multipart::Form::new()
         .text("intake_mode", "query_upload")
         .text("source_file_size", metadata.len().to_string())
         .part("document", part);
+    if let Some(task_id) = task_id {
+        form = form.text("task_id", task_id);
+    }
     let response = build_client(&profile)
         .map_err(String::from)?
         .post(node_url(&profile, "/api/v1/intake/query-upload").map_err(String::from)?)
@@ -393,6 +420,7 @@ pub async fn upload_selected_query_file(
     app: tauri::AppHandle,
     profile_id: String,
     selection_id: String,
+    task_id: String,
     state: State<'_, IntakeState>,
 ) -> Result<IntakeManifest, String> {
     let profile = approved_profile_by_id(&app, &profile_id)?;
@@ -405,7 +433,7 @@ pub async fn upload_selected_query_file(
     if selected.selection_id != selection_id {
         return Err("The intake selection token does not match.".to_string());
     }
-    upload_query_file_from_path(profile, selected.path).await
+    upload_query_file_from_path_for_task(profile, selected.path, task_id).await
 }
 
 pub async fn fetch_safe_preview_from_profile(

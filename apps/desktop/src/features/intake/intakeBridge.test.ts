@@ -76,16 +76,17 @@ describe("File Intake frontend bridge", () => {
   it("submits only the selection token through the approved Rust command", async () => {
     invokeMock.mockResolvedValueOnce(manifest);
 
-    await uploadSelectedQueryFile(profile, "selection-1");
+    await uploadSelectedQueryFile(profile, "selection-1", "task-1");
 
     expect(invokeMock).toHaveBeenCalledWith("upload_selected_query_file", {
       profileId: "profile-1",
       selection_id: "selection-1",
+      task_id: "task-1",
     });
   });
 
   it("rejects an unapproved profile before IPC", async () => {
-    expect(() => uploadSelectedQueryFile({ ...profile, approvedByPolicy: false }, "selection-1")).toThrowError(/approved by policy/);
+    expect(() => uploadSelectedQueryFile({ ...profile, approvedByPolicy: false }, "selection-1", "task-1")).toThrowError(/approved by policy/);
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
