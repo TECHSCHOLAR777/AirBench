@@ -16,7 +16,7 @@ requirements:
     ledger_event: "model.registry.loaded"
     evidence_artifact: "models/roster/v0/model_roster.yaml"
     pass_rule: "test_signed_registry_verifies_local_artifact_and_exact_scope passes; roster loads without RegistryError"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: blocked_external_signature  # Roster qualification hashes still require real certificates and signing.
 
   - id: M5.1-REQ-02
     requirement: Role-specific qualification
@@ -37,7 +37,7 @@ requirements:
     ledger_event: "hardware.profile.loaded"
     evidence_artifact: "profiles/hardware/target_96gb_vram.yaml"
     pass_rule: "Eligibility gate on hardware_profile_ref rejects wrong profile"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: blocked_target_host  # Depends on measured target hardware evidence.
 
   - id: M5.1-REQ-04
     requirement: Quantization decision
@@ -58,7 +58,7 @@ requirements:
     ledger_event: "backend.compatibility.completed"
     evidence_artifact: "benchmarks/backend_compatibility_matrix.yaml"
     pass_rule: "No required column is missing; no entry has status=fail for required behaviors"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: blocked_target_host  # Requires live backend compatibility runs for the qualified targets.
 
   - id: M5.1-REQ-06
     requirement: Optional NIM support
@@ -68,7 +68,7 @@ requirements:
     ledger_event: "backend.nim.checked"
     evidence_artifact: "benchmarks/backend_compatibility_matrix.yaml"
     pass_rule: "Matrix does not have undefined NIM entries; supported targets pass no-egress startup"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: blocked_target_host  # NIM/vLLM support must be verified on the approved target environment.
 
   - id: M5.1-REQ-07
     requirement: Tool calling
@@ -78,7 +78,7 @@ requirements:
     ledger_event: "model.tool_call.tested"
     evidence_artifact: "benchmarks/backend_compatibility_matrix.yaml"
     pass_rule: "tool_call_schema_validity=pass AND tool_call_refusal_for_unauthorized=pass"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: blocked_target_host  # Requires live qualified-model tool-call measurements.
 
   - id: M5.1-REQ-08
     requirement: Structured output
@@ -88,7 +88,7 @@ requirements:
     ledger_event: "model.structured_output.tested"
     evidence_artifact: "benchmarks/backend_compatibility_matrix.yaml"
     pass_rule: "All targets with json_schema in structured_output_modes pass validation"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: blocked_target_host  # Requires live qualified-model structured-output measurements.
 
   - id: M5.1-REQ-09
     requirement: Multimodal input
@@ -108,7 +108,7 @@ requirements:
     ledger_event: "model.lifecycle.tested"
     evidence_artifact: "benchmarks/backend_compatibility_matrix.yaml"
     pass_rule: "All targets with streaming=true pass streaming and cancellation tests"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: locally_tested  # Confirmed by test_m5_acceptance.py::test_independent_routing.
 
   - id: M5.1-REQ-11
     requirement: Independent routing
@@ -118,7 +118,7 @@ requirements:
     ledger_event: "routing.decision"
     evidence_artifact: "acceptance/model_roster_matrix.yaml"
     pass_rule: "Each worker assignment produces a distinct decision_id with its own target and certificate"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: locally_tested  # Confirmed by test_m5_acceptance.py::test_constrained_fallback_preserves_invariants.
 
   - id: M5.1-REQ-12
     requirement: Safe fallback
@@ -128,7 +128,7 @@ requirements:
     ledger_event: "routing.fallback.selected"
     evidence_artifact: "acceptance/model_roster_matrix.yaml"
     pass_rule: "Fallback preserves same role, risk_class, clearance; no silent substitution"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: blocked_target_host  # Requires live air-gapped serving and external observation.
 
   - id: M5.1-REQ-13
     requirement: Air-gapped startup
@@ -138,7 +138,7 @@ requirements:
     ledger_event: "backend.airgap_startup.checked"
     evidence_artifact: "profiles/hardware/target_96gb_vram.yaml (isolation.egress_policy)"
     pass_rule: "no_egress_startup=pass in backend_compatibility_matrix; isolation.egress_policy=deny-all"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: blocked_external_signature  # Requires the signed qualification certificate for the roster target.
 
   - id: M5.1-REQ-14
     requirement: Supply-chain integrity

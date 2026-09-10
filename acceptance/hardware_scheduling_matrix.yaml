@@ -17,7 +17,7 @@ requirements:
     expected_ledger_event: "hardware.measurement.completed"
     evidence_artifact: "profiles/hardware/target_96gb_vram.yaml"
     pass_rule: "Profile validates without ContractValidationError; all measurement fields are filled (not placeholder)"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: blocked_target_host  # Requires a signed profile measured on the target machine.
 
   - id: M5.2-REQ-02
     requirement: 96 GB reference target
@@ -28,7 +28,7 @@ requirements:
     expected_ledger_event: "hardware.profile.loaded"
     evidence_artifact: "profiles/hardware/target_96gb_vram.yaml"
     pass_rule: "gpu.devices[0].vram_total_bytes >= 103079215104"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: blocked_target_host  # The repository has no measured 96 GB target profile.
 
   - id: M5.2-REQ-03
     requirement: Model measurements
@@ -83,7 +83,7 @@ requirements:
     expected_ledger_event: "worker.assigned"
     evidence_artifact: "acceptance/hardware_scheduling_matrix.yaml"
     pass_rule: "Team identities are invariant across execution mode changes"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: locally_tested  # Confirmed by test_m5_acceptance.py::test_serial_and_parallel_preserve_team_identity.
 
   - id: M5.2-REQ-08
     requirement: Resource exhaustion
@@ -116,7 +116,7 @@ requirements:
     expected_ledger_event: "background.work.yielded"
     evidence_artifact: "acceptance/hardware_scheduling_matrix.yaml"
     pass_rule: "Priority rank of interactive_high_consequence (0) < background_ingestion (3)"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: locally_tested  # Confirmed by test_m5_acceptance.py::test_background_yields_to_interactive.
 
   - id: M5.2-REQ-11
     requirement: Model residency
@@ -127,7 +127,7 @@ requirements:
     expected_ledger_event: "model.loaded, model.resident, model.evicted, model.unloaded"
     evidence_artifact: "acceptance/hardware_scheduling_matrix.yaml"
     pass_rule: "release() returns ReleaseRecord with correct freed VRAM; controller active_vram decreases"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: locally_tested  # Confirmed by test_m5_acceptance.py::test_model_residency_events.
 
   - id: M5.2-REQ-12
     requirement: Auditability
@@ -138,7 +138,7 @@ requirements:
     expected_ledger_event: "team.resource_plan.admitted"
     evidence_artifact: "acceptance/hardware_scheduling_matrix.yaml"
     pass_rule: "audit_payload has all 9 required keys; ledger_event_type is a valid LEDGER_EVENT_TYPES member"
-    status: "REPLACE_WITH_MEASURED:pass-or-fail"
+    status: locally_tested  # Confirmed by test_m5_acceptance.py::test_admission_audit_payload_completeness.
 
   - id: M5.2-REQ-13
     requirement: Local sovereignty
