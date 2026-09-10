@@ -20,6 +20,8 @@ The local desktop foundation already covers the initial shell and connection pat
 
 The Tauri debug shell may be used for local smoke tests. It is not evidence of a packaged installer, WebDriver flow, or full no-egress proof.
 
+The implementation portions of #73, #75, #76, #77, #78, #79, #107, #109, and #110 are closed with local evidence. Their remaining target, generated-deliverable, packaged, and independent-observation gates are tracked by the validation issues and [#123](https://github.com/TECHSCHOLAR777/AirBench/issues/123). Closing an implementation issue does not waive those gates.
+
 ## Local shell-command boundary
 
 The #107 command menu is deliberately constrained to local presentation actions. It can focus a new brief, navigate to an already-projected task, open Node settings, or open Display preferences. It cannot create a task, send a model request, route work, download an artifact, approve or stop work, or alter Node state. Any future consequential command requires a typed Rust-owned Node contract, permission result, idempotency behavior, and ledger evidence before it can appear in this menu.
@@ -30,9 +32,9 @@ The #107 command menu is deliberately constrained to local presentation actions.
 
 | Issue | Build now | Explicit limit | Primary files |
 | --- | --- | --- | --- |
-| #79 FE-DEV-07 | Render Node-projected evidence and facts with source, confidence, clearance, taint, location, derivation, supersession, and ledger identity. Reuse the safe preview already returned through Rust when a permitted preview exists. Make the read-only and untrusted-data boundary visible before the preview content. | Exact source-region navigation and task-specific safe-preview fetch need a Node-provided preview reference. Reviewer-note commands need a Node command contract. | `apps/desktop/src/components/ProofInspectorPanel.tsx`, `apps/desktop/src/features/provenance/proofInspector.ts`, `apps/desktop/src/app/App.tsx`, tests, styles |
+| #79 FE-DEV-07 | Implemented. Render Node-projected evidence and facts with source, confidence, clearance, taint, location, derivation, supersession, and ledger identity. Reuse the safe preview already returned through Rust when a permitted preview exists. | Qualified scan extraction, exact production regions, and local vertical evidence remain in #67 and #123. | `apps/desktop/src/components/ProofInspectorPanel.tsx`, `apps/desktop/src/features/provenance/proofInspector.ts`, `apps/desktop/src/app/App.tsx`, tests, styles |
 | #80 FE-DEV-08 | Open Node-generated artifact previews and controlled downloads through the existing Rust bridge. Distinguish read-only Node-returned content from an approved deliverable, and show download permission as a Node decision before the local save receipt. | Artifact status, verification breakdown, deterministic value bindings, approval, return, comparison, and clarification need a typed artifact-review projection and command contract. | same proof components, `intakeBridge.ts`, tests, styles |
-| #109 FE-REF-05 | Compose the evidence and artifact surfaces into an adaptive, keyboard-accessible right-side proof inspector. | Route detail, approval state, and unavailable previews stay explicitly unavailable until the Node contracts arrive. | same proof components, docs, visual tests |
+| #109 FE-REF-05 | Implemented. Compose the evidence and artifact surfaces into an adaptive, keyboard-accessible right-side proof inspector. | Final artifact-review projection, approval state, and production preview evidence remain in #80, #111, and #123. | same proof components, docs, visual tests |
 
 This lane is serialized because it shares the task workspace, safe-preview presentation, and proof component files.
 
@@ -80,12 +82,13 @@ The React client must never call the corresponding Python routes directly. Every
 
 ## Execution order
 
-1. Implement the view-only proof inspector and current safe artifact-preview pathway for #79, #80, and #109. Keep preview state, download state, and artifact approval state separate. Show the first two from the existing typed bridge and leave the third unavailable until its Node projection exists.
+1. The view-only proof inspector and current safe source-preview pathway for #79 and #109 are implemented. #80 remains open for the real artifact-review projection. Preview state, download state, and artifact approval state stay separate.
 2. Add a truthful unavailable question-card state for #108, without a response input or false action.
 3. Add focused failure, keyboard, contrast, reduced-motion, and no-egress tests as the components land. This contributes to #84 and #111 but does not close either issue.
 4. Diagnose #69 in a separate validation worktree or branch so its build tooling does not block user-visible work.
 5. Extend shared Node contracts only after their owner accepts the field definitions and compatibility tests. Then implement #81, #82, #83, full #108, and full #80 in parallel by disjoint directory.
 6. Run the serial packaged validation path #64 through #69, #84, #85, and #111 after the functional work is integrated.
+7. Run #123 before packaged release work so the first local desktop vertical slice is proven against the real Python Node.
 
 ## Completion evidence
 
