@@ -3,14 +3,19 @@
 #
 # HOW TO FILL IN MEASURED VALUES
 # ================================
-# After downloading the models with:
+# Provision the models into the one canonical runtime store with a disposable
+# HF cache. Do not use the global HF cache as a serving fallback. See
+# models/README.md and scripts/model_store.py.
+#
+# Example:
 #
 #   huggingface-cli download Qwen/Qwen3-Coder-30B-A3B-Instruct-AWQ \
-#       --local-dir D:\airbench-models\qwen3-coder-30b-a3b-4bit
+#       --cache-dir C:\Temp\AirBench-model-staging\qwen3-coder-30b-a3b-4bit \
+#       --local-dir C:\AirBench-models\qwen3-coder-30b-a3b-4bit
 #
 # Run the following PowerShell command to get each file's SHA-256:
 #
-#   Get-FileHash "D:\airbench-models\<model-dir>\<weight-file>.safetensors" -Algorithm SHA256 |
+#   Get-FileHash "C:\AirBench-models\<model-dir>\<weight-file>.safetensors" -Algorithm SHA256 |
 #       Select-Object -ExpandProperty Hash | ForEach-Object { $_.ToLower() }
 #
 # Replace every "REPLACE_WITH_MEASURED:<description>" placeholder below with the actual hash.
@@ -31,29 +36,36 @@
 # -------------------------------------------
 # Gemma 4 26B A4B Q4_0 (workstation lead / fast lane):
 #   huggingface-cli download google/gemma-4-26b-it-qat-q4_0-gguf \
-#       --local-dir D:\airbench-models\gemma4-26b-a4b-4bit --include "*.gguf"
+#       --cache-dir C:\Temp\AirBench-model-staging\gemma4-26b-a4b-4bit \
+#       --local-dir C:\AirBench-models\gemma4-26b-a4b-4bit --include "*.gguf"
 #
 # Gemma 4 31B Q4 (full lead — 96 GB VRAM required):
 #   - Model weights (safetensors):
-#       huggingface-cli download google/gemma-4-31b-it-q4 --local-dir D:\airbench-models\gemma4-31b-it-q4
+#       huggingface-cli download google/gemma-4-31b-it-q4 \
+#       --cache-dir C:\Temp\AirBench-model-staging\gemma4-31b-it-q4 \
+#       --local-dir C:\AirBench-models\gemma4-31b-it-q4
 #   - Tokenizer, configs, chat templates:
 #       (Included in the above download if pointing to the full Q4 repo)
 #
 # Qwen3-Coder 30B A3B AWQ (code worker):
 #   huggingface-cli download Qwen/Qwen3-Coder-30B-A3B-Instruct-AWQ \
-#       --local-dir D:\airbench-models\qwen3-coder-30b-a3b-4bit
+#       --cache-dir C:\Temp\AirBench-model-staging\qwen3-coder-30b-a3b-4bit \
+#       --local-dir C:\AirBench-models\qwen3-coder-30b-a3b-4bit
 #
 # Qwen2.5-VL 7B AWQ (vision / evidence worker):
 #   huggingface-cli download Qwen/Qwen2.5-VL-7B-Instruct-AWQ \
-#       --local-dir D:\airbench-models\qwen2.5-vl-7b-4bit
+#       --cache-dir C:\Temp\AirBench-model-staging\qwen2.5-vl-7b-4bit \
+#       --local-dir C:\AirBench-models\qwen2.5-vl-7b-4bit
 #
 # BAAI BGE-M3 (embedding service, CPU-friendly):
 #   huggingface-cli download BAAI/bge-m3 \
-#       --local-dir D:\airbench-models\bge-m3
+#       --cache-dir C:\Temp\AirBench-model-staging\bge-m3 \
+#       --local-dir C:\AirBench-models\bge-m3
 #
 # BAAI BGE-Reranker-v2-M3 (reranking service, CPU-friendly):
 #   huggingface-cli download BAAI/bge-reranker-v2-m3 \
-#       --local-dir D:\airbench-models\bge-reranker-v2-m3
+#       --cache-dir C:\Temp\AirBench-model-staging\bge-reranker-v2-m3 \
+#       --local-dir C:\AirBench-models\bge-reranker-v2-m3
 
 roster:
   roster_id: airbench-model-roster-v0

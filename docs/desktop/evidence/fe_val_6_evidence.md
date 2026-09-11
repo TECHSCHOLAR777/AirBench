@@ -23,15 +23,17 @@ npm run test:desktop
 npm run test:desktop:multiremote
 ```
 
-The test binary is deliberately built with the `wdio` feature and is never the production release binary.
+The test binary is deliberately built with the `wdio` feature and is never the production release binary. The runner builds it with `--debug --no-bundle`, so these checks are native Tauri binary evidence, not installer or packaged release evidence.
 
-Latest retained Windows run: `apps/desktop/logs/wdio-2026-09-08T18-29-06-616Z.log`. The self-built webdriver binary passed 6/6 shell checks, including approved-profile connection and safe intake preview. The same non-fatal WDIO mock-cleanup warning remains after session teardown.
+The current Windows run on 2026-09-10 used Microsoft Edge WebDriver 152.0.4191.66 and passed all 6 shell checks. The route covered approved-profile connection, native file selection through IPC mocking, scanned-file intake, Node-shaped task creation, explicit plan approval, live workspace projection, artifact review, and controlled download. The test now withholds the artifact event until the approval command is sent, so the fixture preserves the Node authorization boundary.
 
-The retained 2026-09-08 run with Microsoft Edge WebDriver 152.0.4191.66 passed all six shell checks, including approved profile connection and safe intake preview. The retained WDIO log contains the frontend marker emitted through the Tauri log path. The retained multiremote run passed its two-instance addressability assertion. Those are provisioned-driver results, not proof that this host can run offline today. The WDIO service still emits a non-fatal cleanup warning when it tries to restore mocks after the WebDriver session has already been deleted, so that warning remains part of the harness evidence and should be removed or accepted explicitly before a release gate.
+The current multiremote run on 2026-09-10 passed its two-instance addressability assertion with two local WebView2 instances. Both runs used `AIRBENCH_ALLOW_DRIVER_DOWNLOAD=1` because a matching driver was not provisioned locally. They are therefore not offline or no-egress evidence. The WDIO service still emits a non-fatal mock-cleanup warning after the WebDriver session has already been deleted; it is visible in the run output and remains a release-harness cleanup item.
+
+The desktop runner places Cargo output and WebDriver logs under one disposable temporary run directory. The frontend log-capture assertion runs before cleanup, and the runner removes only that temporary directory. It does not reuse or delete the repository's existing Cargo debug cache, and it does not leave a new WebDriver log in the working tree.
 
 On 2026-09-09, a fresh Windows run reached the external provider but could not resolve `msedgedriver.microsoft.com` because no matching local Edge driver was provisioned. It did not reach application assertions. The new preflight prevents this missing-prerequisite case from triggering a download or rebuilding the Tauri binary first.
 
-The standalone desktop command now performs a local WebDriver preflight before the expensive webdriver build. On Windows, the default external provider requires `tauri-driver` and a matching local `msedgedriver.exe`; the preflight fails before compilation if either is unavailable. The reproducible sequence is:
+The standalone desktop command now performs a local WebDriver preflight before the expensive webdriver build. On Windows, the default external provider requires `tauri-driver` and a matching local `msedgedriver.exe`; the preflight fails before compilation if either is unavailable. The reproducible offline-safe sequence is:
 
 ```text
 npm run check:webdriver
@@ -48,5 +50,5 @@ The embedded provider may be selected with `AIRBENCH_WDIO_DRIVER=embedded` when 
 - Build and run the harness on the supported clean Windows image.
 - Retain the embedded and external WDIO reports, the per-run frontend log, IPC mock call evidence, and multiremote output as CI artifacts.
 - Remove or isolate the non-fatal WDIO mock cleanup warning so a release run has a clean teardown signal.
-- Add artifact download, reconnect, and blocked-navigation flows after the corresponding UI commands exist. The scanned-document upload and safe-preview path is now covered by the six-test packaged smoke run.
+- Reconnect, blocked-navigation, and additional denied-action flows still need to be exercised in the release configuration. Scanned-document upload, safe preview, explicit plan approval, artifact review, and controlled download are covered by the current six-test native shell run using IPC fixtures.
 - Repeat the no-egress monitor with the test binary under the enforced host policy. The WebDriver test must not be used to hide WebView2 runtime traffic.

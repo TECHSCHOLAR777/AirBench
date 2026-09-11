@@ -80,8 +80,8 @@ describe("File Intake frontend bridge", () => {
 
     expect(invokeMock).toHaveBeenCalledWith("upload_selected_query_file", {
       profileId: "profile-1",
-      selection_id: "selection-1",
-      task_id: "task-1",
+      selectionId: "selection-1",
+      taskId: "task-1",
     });
   });
 
@@ -100,9 +100,9 @@ describe("File Intake frontend bridge", () => {
     await downloadArtifact(profile, "artifact-1", "approval-note.pdf");
 
     expect(invokeMock.mock.calls.slice(-3)).toEqual([
-      ["fetch_safe_preview", expect.objectContaining({ profileId: "profile-1", preview_ref: "preview-1", expected_source_hash: `sha256:${"a".repeat(64)}` })],
-      ["fetch_artifact_preview", expect.objectContaining({ profileId: "profile-1", artifact_id: "artifact-1" })],
-      ["download_artifact", expect.objectContaining({ profileId: "profile-1", artifact_id: "artifact-1", suggested_name: "approval-note.pdf" })],
+      ["fetch_safe_preview", expect.objectContaining({ profileId: "profile-1", previewRef: "preview-1", expectedSourceHash: `sha256:${"a".repeat(64)}` })],
+      ["fetch_artifact_preview", expect.objectContaining({ profileId: "profile-1", artifactId: "artifact-1" })],
+      ["download_artifact", expect.objectContaining({ profileId: "profile-1", artifactId: "artifact-1", suggestedName: "approval-note.pdf" })],
     ]);
   });
 });

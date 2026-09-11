@@ -445,6 +445,11 @@ fn validate_profile(profile: &NodeProfile) -> Result<Url, NodeTransportError> {
 }
 
 fn approved_profiles_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    #[cfg(feature = "wdio")]
+    if let Some(path) = std::env::var_os("AIRBENCH_WDIO_PROFILE_PATH") {
+        return Ok(PathBuf::from(path));
+    }
+
     app.path()
         .app_config_dir()
         .map(|directory| directory.join("approved-node-profiles.json"))
@@ -922,7 +927,13 @@ fn validate_artifact_review(
     }
     if !matches!(
         review.status.as_str(),
-        "staged" | "verified_draft" | "needs_review" | "approved" | "returned" | "rejected" | "superseded"
+        "staged"
+            | "verified_draft"
+            | "needs_review"
+            | "approved"
+            | "returned"
+            | "rejected"
+            | "superseded"
     ) || !matches!(
         review.verification_status.as_str(),
         "not_run" | "passed" | "failed" | "needs_review" | "unavailable"
@@ -935,8 +946,7 @@ fn validate_artifact_review(
     ) || !matches!(
         review.approval_state.as_str(),
         "not_ready" | "pending" | "approved" | "returned" | "rejected" | "unavailable"
-    )
-    {
+    ) {
         return Err(NodeTransportError::EventSchemaInvalid(
             "The Node artifact review status is not supported.".to_string(),
         ));

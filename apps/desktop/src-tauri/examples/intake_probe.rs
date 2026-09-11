@@ -25,7 +25,9 @@ async fn run() -> Result<String, Box<dyn std::error::Error>> {
     let task_id = args.next();
     let profile: NodeProfile = serde_json::from_str(&fs::read_to_string(profile_path)?)?;
     let manifest = match task_id {
-        Some(task_id) => upload_query_file_from_path_for_task(profile.clone(), input_path, task_id).await?,
+        Some(task_id) => {
+            upload_query_file_from_path_for_task(profile.clone(), input_path, task_id).await?
+        }
         None => upload_query_file_from_path(profile.clone(), input_path).await?,
     };
     let preview = fetch_safe_preview_from_profile(

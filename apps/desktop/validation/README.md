@@ -17,3 +17,24 @@ can retain absolute paths from before the repository moved from
 `frontend/src-tauri` to `apps/desktop/src-tauri`, including generated Tauri
 permission files. The validation must not depend on, repair, or delete the
 existing debug cache.
+
+Validation runs are disposable and must not become a second model or build
+store. The desktop runner removes its own temporary run directory on success,
+failure, and handled interruption. The PowerShell transport validators also
+remove their run roots after stopping fixture processes. To inspect abandoned
+runs from an earlier interrupted process, use `npm run cleanup:test-artifacts`
+from `apps/desktop`. It is a dry run by default. After confirming that no
+AirBench WebDriver process is active, use
+`npm run cleanup:test-artifacts -- --apply`. The command only considers known
+AirBench temporary-run prefixes older than 24 hours and never touches the
+repository Cargo target, local models, or the Hugging Face cache.
+
+Validation runs are disposable and must not become a second model or build
+store. The desktop runner removes its own temporary run directory on success,
+failure, and handled interruption. To inspect abandoned runs from an earlier
+interrupted process, use `npm run cleanup:test-artifacts` from `apps/desktop`.
+It is a dry run by default. After confirming that no AirBench WebDriver
+process is active, use `npm run cleanup:test-artifacts -- --apply`. The command
+only considers known AirBench temporary-run prefixes older than 24 hours and
+never touches the repository Cargo target, local models, or the Hugging Face
+cache.

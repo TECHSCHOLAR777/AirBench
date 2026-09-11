@@ -217,4 +217,7 @@ try {
 } finally {
   if ($credentialSet) { & $cargo run --quiet --manifest-path (Join-Path $tauriRoot "Cargo.toml") --example credential_store -- delete validation-user | Out-Null }
   if ($null -ne $server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+  if (Test-Path -LiteralPath $runRoot) {
+    Remove-Item -LiteralPath $runRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
