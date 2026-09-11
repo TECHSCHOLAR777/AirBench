@@ -213,7 +213,10 @@ try {
 
   run(npm, ["run", "check:webdriver"]);
   run(npm, ["run", "tauri:build:webdriver"]);
-  run(npm, ["exec", "--", "wdio", "run", "wdio.real-node.conf.ts"]);
+  // The Tauri service's supported standalone initializer supplies the native
+  // driver host/port directly. This avoids WDIO local-runner setup rejecting
+  // the service's intentionally browserName-free Tauri capabilities.
+  run(process.execPath, ["scripts/run-real-node-standalone.mjs"]);
   run(process.execPath, ["scripts/assert-wdio-log.mjs"]);
 
   if (!existsSync(downloadPath) || statSync(downloadPath).size === 0) {

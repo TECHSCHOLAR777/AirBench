@@ -18,6 +18,8 @@ npm run validate:python-node -- -EvidencePath "$env:TEMP\AirBench-evidence\pytho
 
 The manifest records the run identity, branch, commit, machine, Python version, checks, and limitations. It contains no input document contents, credentials, or private model output. A successful manifest is still local development evidence; it is not packaged acceptance, independent runtime network monitoring, OCR/vision qualification, GPU qualification, or visual artifact approval.
 
+The real-node desktop wrapper uses `@wdio/tauri-service`'s standalone session initializer. This lets the service provide its native driver host and port directly, avoiding WDIO local-runner's browser-driver bootstrap rejecting the service's browserName-free Tauri capabilities.
+
 `validate-node-transport.ps1` and `validate-python-node-transport.ps1` build into
 a disposable `CARGO_TARGET_DIR` under each temporary run directory. This is
 intentional: Cargo dependency artifacts
