@@ -35,6 +35,15 @@ import { classifyIntakeFailure, intakeStateFromManifest, intakeStatusCopy, type 
 type SelectedFile = { selection_id: string; file_name: string; byte_size: number };
 type RecoveryGuidance = { preserved: string; retry: string; nextAction: string };
 
+function boundaryErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  if (typeof error === "string" && error.trim()) return error.trim();
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string" && error.message.trim()) {
+    return error.message.trim();
+  }
+  return "The approved Node returned an unrecognized intake error.";
+}
+
 const primaryNav: Array<{ id: Screen; label: string; icon: AppIconName }> = [
   { id: "home", label: "Home", icon: "home" },
   { id: "tasks", label: "Tasks", icon: "tasks" },
@@ -297,12 +306,14 @@ function App() {
       setNotice("AirBench accepted the file through the File Intake Layer. Previews are Node-generated and remain untrusted data.");
       return manifest;
     } catch (error) {
+      const boundaryError = boundaryErrorMessage(error);
+      console.error("[AirBench] File Intake upload failed", boundaryError);
       const state = classifyIntakeFailure(error);
       setIntakeState(state);
       setIntakeManifest(null);
       setSafePreview(null);
       setArtifactPreview(null);
-      setNotice(intakeStatusCopy(state).detail);
+      setNotice(`${intakeStatusCopy(state).detail} ${boundaryError}`);
       throw error;
     }
   };
@@ -502,12 +513,16 @@ function App() {
       const result = await createTask(profile, command);
       setTaskResult(result);
       let intakeManifestForTask: IntakeManifest | null = null;
+      let intakeFailureMessage: string | null = null;
       if (selectedFile) {
         try {
           intakeManifestForTask = await uploadFileForTask(profile, selectedFile.selection_id, result.task.task_id);
-        } catch {
-          // The task remains a real Node task; its intake failure is visible
-          // and execution remains gated by the Node state.
+        } catch (error) {
+          // Keep the bounded boundary diagnostic visible. The task remains a
+          // real Node task, but execution stays gated until File Intake is
+          // committed. Do not replace a useful IPC or Node error with a
+          // generic message that invites blind retries.
+          intakeFailureMessage = boundaryErrorMessage(error);
         }
       }
       let synchronizedSnapshot = result.snapshot;
@@ -519,7 +534,7 @@ function App() {
       const taskResultWithIntake = { ...result, snapshot: synchronizedSnapshot };
       setTaskResult(taskResultWithIntake);
       if (selectedFile && !intakeManifestForTask) {
-        setNotice("The Node accepted the task, but File Intake did not return a committed manifest. Authorization is paused.");
+        setNotice(`The Node accepted the task, but File Intake did not return a committed manifest. Authorization is paused. ${intakeFailureMessage ?? "The approved Node returned no intake result."}`);
         return;
       }
       const authorizationCommandId = `command.authorize.${crypto.randomUUID()}`;

@@ -300,13 +300,28 @@ fn validate_artifact_preview(
 
 #[tauri::command]
 pub fn pick_query_file(state: State<'_, IntakeState>) -> Result<Option<SelectedFile>, String> {
-    let Some(path) = FileDialog::new()
-        .add_filter(
-            "Scanned documents",
-            &["pdf", "png", "jpg", "jpeg", "tif", "tiff"],
-        )
-        .pick_file()
-    else {
+    let path = {
+        #[cfg(feature = "wdio")]
+        if let Some(path) = std::env::var_os("AIRBENCH_WDIO_INPUT_PATH") {
+            Some(PathBuf::from(path))
+        } else {
+            FileDialog::new()
+                .add_filter(
+                    "Scanned documents",
+                    &["pdf", "png", "jpg", "jpeg", "tif", "tiff"],
+                )
+                .pick_file()
+        }
+
+        #[cfg(not(feature = "wdio"))]
+        FileDialog::new()
+            .add_filter(
+                "Scanned documents",
+                &["pdf", "png", "jpg", "jpeg", "tif", "tiff"],
+            )
+            .pick_file()
+    };
+    let Some(path) = path else {
         return Ok(None);
     };
     let metadata = validate_file(&path)?;
@@ -396,9 +411,16 @@ async fn upload_query_file_to_node(
         .map_err(|_| "The approved Node intake request failed.".to_string())?;
     verify_certificate_pin(&profile, &response).map_err(String::from)?;
     if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let detail = response
+            .json::<NodeApiErrorEnvelope>()
+            .await
+            .ok()
+            .and_then(|error| error.code)
+            .map(|code| format!(" ({code})"))
+            .unwrap_or_default();
         return Err(format!(
-            "The File Intake Layer returned HTTP {}.",
-            response.status().as_u16()
+            "The File Intake Layer returned HTTP {status}{detail}."
         ));
     }
     let manifest = response
@@ -413,6 +435,11 @@ async fn upload_query_file_to_node(
         return Err("The Node intake source hash does not match the uploaded file.".to_string());
     }
     Ok(manifest)
+}
+
+#[derive(Debug, Deserialize)]
+struct NodeApiErrorEnvelope {
+    code: Option<String>,
 }
 
 #[tauri::command]
@@ -605,10 +632,23 @@ pub async fn download_artifact(
     } else {
         safe_name
     };
-    let destination = FileDialog::new()
-        .set_file_name(file_name)
-        .save_file()
-        .ok_or_else(|| "Artifact save was cancelled.".to_string())?;
+    let destination = {
+        #[cfg(feature = "wdio")]
+        if let Some(path) = std::env::var_os("AIRBENCH_WDIO_DOWNLOAD_PATH") {
+            PathBuf::from(path)
+        } else {
+            FileDialog::new()
+                .set_file_name(file_name)
+                .save_file()
+                .ok_or_else(|| "Artifact save was cancelled.".to_string())?
+        }
+
+        #[cfg(not(feature = "wdio"))]
+        FileDialog::new()
+            .set_file_name(file_name)
+            .save_file()
+            .ok_or_else(|| "Artifact save was cancelled.".to_string())?
+    };
     download_artifact_to_path(profile, artifact_id, destination).await
 }
 

@@ -272,8 +272,8 @@ export function uploadSelectedQueryFile(
   if (!taskId.trim() || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(taskId)) throw new Error("The task identifier is invalid for File Intake.");
   return invoke<unknown>("upload_selected_query_file", {
     profileId: approved.profile_id,
-    selection_id: selectionId,
-    task_id: taskId,
+    selectionId,
+    taskId,
   }).then((value) => validateIntakeManifest(value, validateClearanceContext(profile)));
 }
 
@@ -289,8 +289,8 @@ export function fetchSafePreview(
   const approved = approvedProfilePayload(profile);
   return invoke<unknown>("fetch_safe_preview", {
     profileId: approved.profile_id,
-    preview_ref: previewRef,
-    expected_source_hash: expectedSourceHash,
+    previewRef,
+    expectedSourceHash,
   }).then((value) => validateSafePreview(value, previewRef, expectedSourceHash, validateClearanceContext(profile)));
 }
 
@@ -305,7 +305,7 @@ export function fetchArtifactPreview(
   const approved = approvedProfilePayload(profile);
   return invoke<unknown>("fetch_artifact_preview", {
     profileId: approved.profile_id,
-    artifact_id: artifactId,
+    artifactId,
   }).then((value) => validateArtifactPreview(value, artifactId, validateClearanceContext(profile)));
 }
 
@@ -320,8 +320,8 @@ export function downloadArtifact(
   const approved = approvedProfilePayload(profile);
   return invoke<unknown>("download_artifact", {
     profileId: approved.profile_id,
-    artifact_id: artifactId,
-    suggested_name: suggestedName,
+    artifactId,
+    suggestedName,
   }).then((value) => validateDownloadReceipt(value, artifactId));
 }
 

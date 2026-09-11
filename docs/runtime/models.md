@@ -86,3 +86,25 @@ These are the deliberate reference targets for the first AirBench vertical slice
 | Retrieval reranking | `BAAI/bge-reranker-v2-m3` | CPU or a small dedicated local service |
 
 The 31B target is the quality ceiling for the lead role, while the 26B A4B target is the practical default for a mid-range workstation. A smaller target is an explicit hardware profile decision, not a silent quality downgrade. Coding remains assigned to the coder target even though Gemma 4 supports coding, because the coding role requires its own tool-use and sandbox qualification.
+
+## One-copy model storage
+
+The runtime has one canonical model store, supplied through the trusted
+`AIRBENCH_MODEL_STORE` configuration. The model server and Node never use a
+Hugging Face cache as a fallback and never download during task execution.
+The Hugging Face hub cache is an acquisition-only staging mechanism. It is
+removed after the staged files have been verified against the canonical store;
+keeping both stores indefinitely is not part of the deployment design.
+
+The signed roster's `artifact_path` is the canonical relative directory name.
+Provisioning must stage into that directory, verify the declared artifact and
+component files, and then run the repository-local model-store audit. The
+audit compares file content and size rather than trusting cache filenames,
+which may be Git object identifiers or incomplete-download markers. It
+deletes nothing unless the explicit prune command is used, and it retains any
+unmatched or incomplete cache data.
+
+The operational procedure and commands live in `models/README.md`. This
+separates connected acquisition from the air-gapped serving phase and avoids
+the previous failure mode where a global Hugging Face cache and a copied
+`C:\AirBench-models` tree both remained indefinitely.
