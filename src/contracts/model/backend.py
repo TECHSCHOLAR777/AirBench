@@ -74,11 +74,11 @@ class BackendContent(Contract):
 
     def _validate(self, hints: dict[str, Any]) -> list[ValidationIssue]:
         issues = super()._validate(hints)
-        if self.kind not in {"text", "image", "audio", "video", "structured"}:
+        if self.kind not in {"text", "image", "audio", "video", "document", "structured"}:
             issues.append(ValidationIssue("kind", "enum", "unsupported content kind"))
         if self.kind in {"text", "structured"} and not self.text:
             issues.append(ValidationIssue("text", "required", "text content is required"))
-        if self.kind in {"image", "audio", "video"}:
+        if self.kind in {"image", "audio", "video", "document"}:
             if not self.media_ref or not self.media_type or not self.content_hash:
                 issues.append(ValidationIssue("media_ref", "provenance", "media reference, type, and hash are required"))
             elif len(self.content_hash) != 64 or any(char not in _HEX64 for char in self.content_hash.lower()):

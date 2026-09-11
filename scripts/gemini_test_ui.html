@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AirBench — Gemini Test Console</title>
+  <meta name="description" content="AirBench development-only Gemini API integration test console — final verification before local model deployment." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ===== CSS DESIGN SYSTEM ===== */
+    :root {
+      --bg-deep:       #080c14;
+      --bg-surface:    #0d1421;
+      --bg-card:       #111827;
+      --bg-card-hover: #16202e;
+      --bg-input:      #0a1120;
+      --border:        rgba(99,179,237,0.12);
+      --border-bright: rgba(99,179,237,0.3);
+      --accent:        #3b82f6;
+      --accent-glow:   rgba(59,130,246,0.35);
+      --accent2:       #6366f1;
+      --success:       #10b981;
+      --warning:       #f59e0b;
+      --danger:        #ef4444;
+      --text-primary:  #e2e8f0;
+      --text-secondary:#94a3b8;
+      --text-muted:    #475569;
+      --step-created:  #6366f1;
+      --step-auth:     #8b5cf6;
+      --step-plan:     #06b6d4;
+      --step-router:   #f59e0b;
+      --step-call:     #10b981;
+      --tag-ok:        rgba(16,185,129,0.15);
+      --tag-fail:      rgba(239,68,68,0.15);
+      --tag-info:      rgba(59,130,246,0.15);
+      --radius:        10px;
+      --radius-lg:     16px;
+      --shadow:        0 4px 24px rgba(0,0,0,0.4);
+      --shadow-glow:   0 0 24px rgba(59,130,246,0.18);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ===== BACKGROUND GLOW ===== */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background:
+        radial-gradient(ellipse 60% 40% at 10% 5%, rgba(59,130,246,0.07) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 30% at 90% 90%, rgba(99,102,241,0.06) 0%, transparent 60%);
+    }
+
+    /* ===== LAYOUT ===== */
+    .shell { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 100vh; }
+
+    /* ===== HEADER ===== */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 28px;
+      background: rgba(13,20,33,0.9);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo-icon {
+      width: 34px; height: 34px; border-radius: 8px;
+      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; box-shadow: var(--shadow-glow);
+    }
+    .logo-text { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+    .logo-sub { font-size: 11px; color: var(--text-muted); font-weight: 400; margin-top: -2px; }
+    .header-status { display: flex; align-items: center; gap: 10px; }
+    .status-pill {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500;
+      background: var(--bg-card); border: 1px solid var(--border);
+      transition: all 0.3s;
+    }
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--text-muted); transition: background 0.3s;
+    }
+    .status-dot.online { background: var(--success); box-shadow: 0 0 8px var(--success); animation: pulse 2s infinite; }
+    .status-dot.offline { background: var(--danger); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+    /* ===== MAIN GRID ===== */
+    main {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      grid-template-rows: auto 1fr;
+      gap: 0;
+      flex: 1;
+      max-height: calc(100vh - 64px);
+    }
+
+    /* ===== QUERY PANEL (left top) ===== */
+    .query-panel {
+      grid-column: 1; grid-row: 1;
+      padding: 24px 24px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ===== OUTPUT PANEL (left bottom) ===== */
+    .output-panel {
+      grid-column: 1; grid-row: 2;
+      padding: 20px 24px;
+      overflow-y: auto;
+      display: flex; flex-direction: column; gap: 20px;
+    }
+
+    /* ===== SIDEBAR (right full) ===== */
+    .sidebar {
+      grid-column: 2; grid-row: 1 / 3;
+      border-left: 1px solid var(--border);
+      overflow-y: auto;
+      background: var(--bg-surface);
+    }
+
+    /* ===== CARD ===== */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .card:hover { border-color: var(--border-bright); }
+    .card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .card-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); letter-spacing: 0.5px; text-transform: uppercase; }
+    .card-body { padding: 16px 18px; }
+
+    /* ===== QUERY CONTROLS ===== */
+    .controls-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+
+    .model-select {
+      flex: 1; min-width: 200px;
+      background: var(--bg-input); border: 1px solid var(--border);
+      color: var(--text-primary); border-radius: var(--radius);
+      padding: 8px 12px; font-size: 13px; font-family: 'JetBrains Mono', monospace;
+      outline: none; cursor: pointer; transition: border-color 0.2s;
+    }
+    .model-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+
+    .toggle-group { display: flex; align-items: center; gap: 4px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); padding: 3px; }
+    .toggle-btn {
+      padding: 5px 12px; border-radius: 7px; border: none; cursor: pointer;
+      font-size: 12px; font-weight: 500; color: var(--text-muted);
+      background: transparent; transition: all 0.2s;
+    }
+    .toggle-btn.active { background: var(--accent); color: #fff; box-shadow: 0 2px 8px var(--accent-glow); }
+
+    .textarea-wrap { position: relative; margin-bottom: 12px; }
+    .query-textarea {
+      width: 100%; min-height: 100px; max-height: 200px;
+      background: var(--bg-input); border: 1px solid var(--border);
+      color: var(--text-primary); border-radius: var(--radius);
+      padding: 12px 14px; font-size: 14px; font-family: 'Inter', sans-serif;
+      resize: vertical; outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+      line-height: 1.6;
+    }
+    .query-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+    .query-textarea::placeholder { color: var(--text-muted); }
+
+    .action-row { display: flex; align-items: center; gap: 10px; padding-bottom: 18px; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 9px 20px; border-radius: var(--radius); border: none; cursor: pointer;
+      font-size: 13px; font-weight: 600; transition: all 0.2s; white-space: nowrap;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: #fff; box-shadow: 0 4px 14px var(--accent-glow);
+    }
+    .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .btn-ghost {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text-secondary);
+    }
+    .btn-ghost:hover { background: var(--bg-card); border-color: var(--border-bright); color: var(--text-primary); }
+
+    .btn-success { background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); color: var(--success); }
+    .btn-success:hover { background: rgba(16,185,129,0.2); }
+
+    /* ===== FILE UPLOAD ===== */
+    .upload-zone {
+      border: 2px dashed var(--border); border-radius: var(--radius);
+      padding: 10px 16px; cursor: pointer; transition: all 0.2s;
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--text-muted);
+      background: var(--bg-input);
+    }
+    .upload-zone:hover { border-color: var(--accent); color: var(--accent); background: rgba(59,130,246,0.05); }
+    .upload-zone.has-file { border-color: var(--success); color: var(--success); background: rgba(16,185,129,0.05); }
+    #file-input { display: none; }
+    .attachment-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 500;
+      background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3);
+      color: #a5b4fc;
+    }
+    .attachment-chip button { background: none; border: none; cursor: pointer; color: inherit; padding: 0; font-size: 13px; line-height: 1; }
+
+    /* ===== PIPELINE TRACE ===== */
+    .pipeline-trace {
+      display: flex; align-items: stretch; gap: 0;
+      flex-wrap: wrap; margin-bottom: 4px;
+    }
+    .trace-step {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 12px; font-size: 11px; font-weight: 600;
+      border-radius: 0; border-top: 2px solid transparent;
+      color: var(--text-muted); transition: all 0.3s;
+      position: relative; white-space: nowrap;
+    }
+    .trace-step::after {
+      content: '›'; position: absolute; right: -2px; top: 50%; transform: translateY(-50%);
+      color: var(--text-muted); font-size: 14px; z-index: 1;
+    }
+    .trace-step:last-child::after { display: none; }
+    .trace-step.done { color: var(--text-primary); }
+    .trace-step.done.s0 { border-color: var(--step-created); color: var(--step-created); }
+    .trace-step.done.s1 { border-color: var(--step-auth); color: var(--step-auth); }
+    .trace-step.done.s2 { border-color: var(--step-plan); color: var(--step-plan); }
+    .trace-step.done.s3 { border-color: var(--step-router); color: var(--step-router); }
+    .trace-step.done.s4 { border-color: var(--step-call); color: var(--step-call); }
+    .trace-step.active { animation: stepPulse 1s infinite; }
+    @keyframes stepPulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+    .trace-step .step-ms { font-size: 9px; font-weight: 400; opacity: 0.7; }
+
+    /* ===== RESULT CARD ===== */
+    .result-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+
+    .result-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 18px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .result-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .tag {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500;
+    }
+    .tag-model { background: var(--tag-info); border: 1px solid rgba(59,130,246,0.3); color: #93c5fd; }
+    .tag-ok { background: var(--tag-ok); border: 1px solid rgba(16,185,129,0.3); color: #6ee7b7; }
+    .tag-fail { background: var(--tag-fail); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; }
+    .tag-stream { background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3); color: #fcd34d; }
+    .tag-ms { background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.3); color: #c4b5fd; }
+
+    .result-body { padding: 18px; }
+    .result-output {
+      font-family: 'Inter', sans-serif; font-size: 14px; line-height: 1.75;
+      color: var(--text-primary); white-space: pre-wrap; word-break: break-word;
+      max-height: 400px; overflow-y: auto;
+    }
+    .result-output.streaming::after {
+      content: '▊'; animation: blink 0.8s infinite; color: var(--accent);
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    .result-error {
+      font-family: 'JetBrains Mono', monospace; font-size: 12px;
+      color: #fca5a5; background: rgba(239,68,68,0.08);
+      border: 1px solid rgba(239,68,68,0.2); border-radius: 8px;
+      padding: 12px; white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+    }
+
+    /* ===== LOADING SPINNER ===== */
+    .spinner {
+      width: 20px; height: 20px; border-radius: 50%;
+      border: 2px solid rgba(59,130,246,0.2);
+      border-top-color: var(--accent);
+      animation: spin 0.8s linear infinite; display: inline-block;
+    }
+    @keyframes spin { to{ transform: rotate(360deg); } }
+
+    /* ===== SIDEBAR SECTIONS ===== */
+    .sidebar-section {
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px 12px; cursor: pointer; user-select: none;
+      transition: background 0.2s;
+    }
+    .sidebar-header:hover { background: rgba(255,255,255,0.02); }
+    .sidebar-title { font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px; }
+    .sidebar-chevron { color: var(--text-muted); transition: transform 0.2s; font-size: 13px; }
+    .sidebar-chevron.open { transform: rotate(180deg); }
+    .sidebar-body { padding: 0 18px 16px; }
+
+    /* ===== LEDGER EVENTS ===== */
+    .event-list { display: flex; flex-direction: column; gap: 4px; }
+    .event-item {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 8px 10px; border-radius: 8px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      font-size: 11px; transition: background 0.2s; cursor: pointer;
+    }
+    .event-item:hover { background: var(--bg-card-hover); }
+    .event-seq {
+      width: 20px; height: 20px; border-radius: 5px; flex-shrink: 0;
+      background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.2);
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #93c5fd;
+    }
+    .event-info { flex: 1; min-width: 0; }
+    .event-type { font-weight: 600; color: var(--text-primary); font-size: 11px; word-break: break-all; }
+    .event-actor { color: var(--text-muted); font-size: 10px; }
+
+    /* ===== ROUTE / PROVENANCE ===== */
+    .kv-table { width: 100%; font-size: 11px; }
+    .kv-table td { padding: 4px 0; vertical-align: top; }
+    .kv-key { color: var(--text-muted); width: 90px; flex-shrink: 0; font-weight: 500; }
+    .kv-val { font-family: 'JetBrains Mono', monospace; color: var(--text-primary); word-break: break-all; font-size: 10px; }
+
+    /* ===== UNIT TEST PANEL ===== */
+    .test-result { border-radius: 8px; padding: 10px 14px; margin-top: 10px; font-size: 12px; }
+    .test-result.pass { background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); color: #6ee7b7; }
+    .test-result.fail { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); color: #fca5a5; }
+    .test-output-pre {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      white-space: pre-wrap; max-height: 220px; overflow-y: auto;
+      margin-top: 8px; color: var(--text-secondary); line-height: 1.5;
+    }
+
+    /* ===== EMPTY STATE ===== */
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 48px 24px; color: var(--text-muted); text-align: center;
+    }
+    .empty-icon { font-size: 40px; margin-bottom: 14px; opacity: 0.4; }
+    .empty-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary); }
+    .empty-desc { font-size: 13px; line-height: 1.6; }
+
+    /* ===== SCROLL STYLE ===== */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(99,179,237,0.15); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(99,179,237,0.3); }
+
+    /* ===== DIVIDER ===== */
+    .divider { height: 1px; background: var(--border); margin: 12px 0; }
+
+    /* ===== WARNING BANNER ===== */
+    .dev-banner {
+      background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2);
+      border-radius: 8px; padding: 8px 14px; margin-bottom: 14px;
+      font-size: 11px; color: #fcd34d; display: flex; align-items: center; gap: 8px;
+    }
+
+    /* ===== SHORTCUTS INFO ===== */
+    .shortcut-hint { font-size: 11px; color: var(--text-muted); }
+    kbd {
+      display: inline-block; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 4px; padding: 1px 5px; font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; color: var(--text-secondary);
+    }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
+      .sidebar { grid-column: 1; grid-row: 3; border-left: none; border-top: 1px solid var(--border); max-height: 380px; }
+    }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🧪</div>
+      <div>
+        <div class="logo-text">AirBench</div>
+        <div class="logo-sub">Gemini Test Console — development only</div>
+      </div>
+    </div>
+    <div class="header-status">
+      <div class="status-pill" id="server-status-pill">
+        <div class="status-dot" id="server-dot"></div>
+        <span id="server-status-text">Connecting…</span>
+      </div>
+      <div class="status-pill" id="key-status-pill" style="display:none">
+        <div class="status-dot" id="key-dot"></div>
+        <span id="key-status-text">API Key</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN GRID -->
+  <main>
+
+    <!-- ===== QUERY PANEL ===== -->
+    <div class="query-panel">
+
+      <div class="dev-banner">
+        ⚠️ Development-only test path. Gemini is an external provider. Do not send confidential production files or credentials.
+      </div>
+
+      <!-- Pipeline trace bar -->
+      <div class="pipeline-trace" id="pipeline-trace">
+        <div class="trace-step s0" id="ts-task">⬡ Task Created <span class="step-ms"></span></div>
+        <div class="trace-step s1" id="ts-auth">🔐 Authorized <span class="step-ms"></span></div>
+        <div class="trace-step s2" id="ts-plan">📋 Plan Committed <span class="step-ms"></span></div>
+        <div class="trace-step s3" id="ts-router">🔀 Router <span class="step-ms"></span></div>
+        <div class="trace-step s4" id="ts-call">✅ Model Call <span class="step-ms"></span></div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls-row" style="margin-top:14px">
+        <select class="model-select" id="model-select">
+          <option value="">Loading models…</option>
+        </select>
+        <div class="toggle-group">
+          <button class="toggle-btn active" id="mode-sync" onclick="setMode('sync')">Non-stream</button>
+          <button class="toggle-btn" id="mode-stream" onclick="setMode('stream')">Stream</button>
+        </div>
+      </div>
+
+      <div class="textarea-wrap">
+        <textarea
+          class="query-textarea"
+          id="query-input"
+          placeholder="Enter your query… (Ctrl+Enter to send)"
+        ></textarea>
+      </div>
+
+      <div class="action-row">
+        <button class="btn btn-primary" id="send-btn" onclick="sendQuery()">
+          <span id="send-icon">▶</span>
+          <span id="send-label">Send Query</span>
+        </button>
+
+        <label class="upload-zone" id="upload-zone" for="file-input" title="Attach image or PDF">
+          <span>📎</span>
+          <span id="upload-label">Attach file</span>
+          <input type="file" id="file-input" accept="image/*,.pdf" onchange="handleFile(event)" />
+        </label>
+
+        <div id="attachment-chips"></div>
+
+        <span class="shortcut-hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> send · <kbd>Esc</kbd> clear</span>
+      </div>
+
+    </div>
+
+    <!-- ===== OUTPUT PANEL ===== -->
+    <div class="output-panel" id="output-panel">
+      <div class="empty-state" id="empty-state">
+        <div class="empty-icon">🚀</div>
+        <div class="empty-title">Ready to test</div>
+        <div class="empty-desc">Send a query to exercise the full AirBench pipeline<br/>through the Gemini adapter.</div>
+      </div>
+    </div>
+
+    <!-- ===== SIDEBAR ===== -->
+    <div class="sidebar">
+
+      <!-- Ledger Events -->
+      <div class="sidebar-section">
+        <div class="sidebar-header" onclick="toggleSection('ledger-body', 'ledger-chevron')">
+          <span class="sidebar-title">📒 Ledger Events <span id="ledger-count" style="opacity:0.5"></span></span>
+          <span class="sidebar-chevron open" id="ledger-chevron">▾</span>
+        </div>
+        <div class="sidebar-body" id="ledger-body">
+          <div class="event-list" id="event-list">
+            <div style="font-size:12px;color:var(--text-muted);padding:8px 0">No events yet.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Route Decision -->
+      <div class="sidebar-section">
+        <div class="sidebar-header" onclick="toggleSection('route-body', 'route-chevron')">
+          <span class="sidebar-title">🔀 Route Decision</span>
+          <span class="sidebar-chevron open" id="route-chevron">▾</span>
+        </div>
+        <div class="sidebar-body" id="route-body">
+          <div id="route-content" style="font-size:12px;color:var(--text-muted)">No route yet.</div>
+        </div>
+      </div>
+
+      <!-- Provenance + Usage -->
+      <div class="sidebar-section">
+        <div class="sidebar-header" onclick="toggleSection('prov-body', 'prov-chevron')">
+          <span class="sidebar-title">🔍 Provenance + Usage</span>
+          <span class="sidebar-chevron open" id="prov-chevron">▾</span>
+        </div>
+        <div class="sidebar-body" id="prov-body">
+          <div id="prov-content" style="font-size:12px;color:var(--text-muted)">No provenance yet.</div>
+        </div>
+      </div>
+
+      <!-- Offline Unit Tests -->
+      <div class="sidebar-section">
+        <div class="sidebar-header" onclick="toggleSection('tests-body', 'tests-chevron')">
+          <span class="sidebar-title">🧪 Offline Unit Tests</span>
+          <span class="sidebar-chevron open" id="tests-chevron">▾</span>
+        </div>
+        <div class="sidebar-body" id="tests-body">
+          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:10px">
+            Runs <code style="font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--bg-input);padding:1px 4px;border-radius:4px">test_gemini_adapter.py</code> (4 mocked tests, no API key needed).
+          </div>
+          <button class="btn btn-success" onclick="runTests()" id="test-btn">▶ Run Tests</button>
+          <div id="test-result"></div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+</div>
+
+<script>
+/* ===================================================================
+   AirBench Gemini Test Console — frontend logic
+   =================================================================== */
+
+const API = 'http://127.0.0.1:8765';
+let _mode = 'sync';
+let _attachments = [];   // [{filename, mime_type, kind, data_uri, hash}]
+
+/* -------------------- INIT -------------------- */
+async function init() {
+  await checkHealth();
+  await loadModels();
+}
+
+/* -------------------- HEALTH -------------------- */
+async function checkHealth() {
+  try {
+    const r = await fetch(`${API}/api/health`);
+    const d = await r.json();
+    document.getElementById('server-dot').classList.add(d.server === 'ok' ? 'online' : 'offline');
+    document.getElementById('server-status-text').textContent = d.server === 'ok' ? 'Server online' : 'Server error';
+    const pill = document.getElementById('key-status-pill');
+    pill.style.display = 'flex';
+    const dot = document.getElementById('key-dot');
+    dot.classList.add(d.api_key_present ? 'online' : 'offline');
+    document.getElementById('key-status-text').textContent = d.api_key_present ? 'API Key ✓' : 'No API Key';
+  } catch {
+    document.getElementById('server-dot').classList.add('offline');
+    document.getElementById('server-status-text').textContent = 'Server offline';
+  }
+}
+
+/* -------------------- MODELS -------------------- */
+async function loadModels() {
+  const sel = document.getElementById('model-select');
+  sel.innerHTML = '<option value="">Fetching models…</option>';
+  try {
+    const r = await fetch(`${API}/api/models`);
+    if (!r.ok) { throw new Error(await r.text()); }
+    const d = await r.json();
+    if (!d.text_models || d.text_models.length === 0) {
+      sel.innerHTML = '<option value="gemini-2.5-flash">gemini-2.5-flash (manual)</option>';
+      return;
+    }
+    sel.innerHTML = d.text_models.map(m => `<option value="${m}">${m}</option>`).join('');
+    // prefer 2.5-flash if available
+    const flash = d.text_models.find(m => m.includes('2.5-flash'));
+    if (flash) sel.value = flash;
+  } catch (e) {
+    sel.innerHTML = '<option value="gemini-2.5-flash">gemini-2.5-flash</option><option value="gemini-2.5-pro">gemini-2.5-pro</option>';
+  }
+}
+
+/* -------------------- MODE TOGGLE -------------------- */
+function setMode(m) {
+  _mode = m;
+  document.getElementById('mode-sync').classList.toggle('active', m === 'sync');
+  document.getElementById('mode-stream').classList.toggle('active', m === 'stream');
+}
+
+/* -------------------- FILE UPLOAD -------------------- */
+async function handleFile(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const r = await fetch(`${API}/api/upload`, { method: 'POST', body: form });
+    const d = await r.json();
+    _attachments.push(d);
+    renderAttachmentChips();
+    const zone = document.getElementById('upload-zone');
+    zone.classList.add('has-file');
+    document.getElementById('upload-label').textContent = `${file.name.length > 18 ? file.name.slice(0,16)+'…' : file.name}`;
+  } catch (e) {
+    alert('Upload failed: ' + e.message);
+  }
+  evt.target.value = '';
+}
+
+function renderAttachmentChips() {
+  const c = document.getElementById('attachment-chips');
+  c.innerHTML = _attachments.map((a, i) => `
+    <span class="attachment-chip">
+      ${a.kind === 'image' ? '🖼️' : '📄'} ${a.filename.length > 18 ? a.filename.slice(0,16)+'…' : a.filename}
+      <button onclick="removeAttachment(${i})" title="Remove">×</button>
+    </span>`).join('');
+}
+
+function removeAttachment(i) {
+  _attachments.splice(i, 1);
+  renderAttachmentChips();
+  if (_attachments.length === 0) {
+    document.getElementById('upload-zone').classList.remove('has-file');
+    document.getElementById('upload-label').textContent = 'Attach file';
+  }
+}
+
+/* -------------------- SEND QUERY -------------------- */
+async function sendQuery() {
+  const q = document.getElementById('query-input').value.trim();
+  const model = document.getElementById('model-select').value;
+  if (!q) { document.getElementById('query-input').focus(); return; }
+
+  setSending(true);
+  resetTrace();
+  hideEmpty();
+
+  if (_mode === 'stream') {
+    await sendStream(model, q);
+  } else {
+    await sendSync(model, q);
+  }
+  setSending(false);
+}
+
+function setSending(v) {
+  const btn = document.getElementById('send-btn');
+  btn.disabled = v;
+  document.getElementById('send-icon').textContent = v ? '' : '▶';
+  document.getElementById('send-label').textContent = v ? 'Sending…' : 'Send Query';
+  if (v) {
+    const icon = document.createElement('span');
+    icon.className = 'spinner';
+    icon.id = 'spinner-tmp';
+    document.getElementById('send-icon').replaceWith(icon);
+  } else {
+    const sp = document.getElementById('spinner-tmp');
+    if (sp) { const rep = document.createElement('span'); rep.id = 'send-icon'; rep.textContent = '▶'; sp.replaceWith(rep); }
+  }
+}
+
+async function sendSync(model, q) {
+  const card = createResultCard(model, q, false);
+  const outputEl = card.querySelector('.result-output');
+  outputEl.textContent = 'Querying…';
+
+  try {
+    const body = { model, query: q, stream: false, attachments: _attachments.map(a => ({
+      kind: a.kind, data_uri: a.data_uri, mime_type: a.mime_type, hash: a.hash
+    }))};
+    const r = await fetch(`${API}/api/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (d.status === 'failed') {
+      renderError(card, d.error, d.traceback);
+    } else {
+      outputEl.textContent = d.output || '(empty response)';
+      renderTrace(d.pipeline_trace || []);
+      renderTags(card, d);
+      renderLedger(d.ledger_events || []);
+      renderRoute(d.route || {});
+      renderProv(d.provenance || {}, d.usage || {});
+    }
+  } catch (e) {
+    renderError(card, e.message, '');
+  }
+}
+
+async function sendStream(model, q) {
+  const card = createResultCard(model, q, true);
+  const outputEl = card.querySelector('.result-output');
+  outputEl.className = 'result-output streaming';
+  outputEl.textContent = '';
+  let traceRendered = false;
+
+  try {
+    const r = await fetch(`${API}/api/query/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, query: q }),
+    });
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        const raw = line.slice(5).trim();
+        if (!raw) continue;
+        try {
+          const ev = JSON.parse(raw);
+          if (ev.type === 'step') {
+            // update trace incrementally
+          } else if (ev.type === 'done') {
+            outputEl.textContent = ev.output || '(empty)';
+            outputEl.className = 'result-output';
+            if (!traceRendered) { renderTrace(ev.pipeline_trace || []); traceRendered = true; }
+            renderTags(card, ev);
+            renderLedger(ev.ledger_events || []);
+            renderRoute(ev.route || {});
+            renderProv(ev.provenance || {}, ev.usage || {});
+          } else if (ev.type === 'error') {
+            renderError(card, ev.error, '');
+            outputEl.className = 'result-output';
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {
+    renderError(card, e.message, '');
+  }
+}
+
+/* -------------------- RESULT CARD -------------------- */
+function createResultCard(model, q, stream) {
+  const panel = document.getElementById('output-panel');
+  const card = document.createElement('div');
+  card.className = 'result-card';
+  card.innerHTML = `
+    <div class="result-header">
+      <div class="result-meta" id="result-meta-${Date.now()}">
+        <span class="tag tag-model">⬡ ${model}</span>
+        ${stream ? '<span class="tag tag-stream">⚡ Stream</span>' : ''}
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(q)}">${escHtml(q.slice(0, 60))}${q.length > 60 ? '…' : ''}</div>
+    </div>
+    <div class="result-body">
+      <div class="result-output">Waiting…</div>
+    </div>`;
+  panel.prepend(card);
+  return card;
+}
+
+function renderTags(card, d) {
+  const meta = card.querySelector('.result-meta');
+  if (!meta) return;
+  const ok = d.status === 'passed';
+  meta.insertAdjacentHTML('beforeend', `
+    <span class="tag ${ok ? 'tag-ok' : 'tag-fail'}">${ok ? '✓ Passed' : '✗ Failed'}</span>
+    ${d.call_ms ? `<span class="tag tag-ms">⏱ ${d.call_ms}ms API · ${d.total_ms}ms total</span>` : ''}
+    ${d.ledger_event_count ? `<span class="tag tag-ms">📒 ${d.ledger_event_count} events</span>` : ''}
+  `);
+}
+
+function renderError(card, error, tb) {
+  const body = card.querySelector('.result-body');
+  body.innerHTML = `<div class="result-error">${escHtml(error)}\n\n${escHtml(tb || '')}</div>`;
+}
+
+/* -------------------- PIPELINE TRACE -------------------- */
+function resetTrace() {
+  ['ts-task','ts-auth','ts-plan','ts-router','ts-call'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('done', 'active');
+    el.querySelector('.step-ms').textContent = '';
+  });
+}
+
+function renderTrace(steps) {
+  const map = {
+    'task.created': 'ts-task',
+    'task.authorized': 'ts-auth',
+    'task.plan.committed': 'ts-plan',
+    'router.built': 'ts-router',
+    'model.call.completed': 'ts-call',
+  };
+  for (const s of steps) {
+    const id = map[s.step];
+    if (id) {
+      const el = document.getElementById(id);
+      el.classList.add('done');
+      el.classList.remove('active');
+      const ms = el.querySelector('.step-ms');
+      if (ms) ms.textContent = `(${s.elapsed_ms}ms)`;
+    }
+  }
+}
+
+/* -------------------- LEDGER -------------------- */
+function renderLedger(events) {
+  const list = document.getElementById('event-list');
+  document.getElementById('ledger-count').textContent = `(${events.length})`;
+  if (!events.length) { list.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 0">No events.</div>'; return; }
+  list.innerHTML = events.map(e => `
+    <div class="event-item" title="${escHtml(e.event_type)}">
+      <div class="event-seq">${e.sequence}</div>
+      <div class="event-info">
+        <div class="event-type">${escHtml(e.event_type)}</div>
+        <div class="event-actor">${escHtml(e.actor_id || '')} · ${e.occurred_at ? e.occurred_at.slice(11,19) : ''}</div>
+      </div>
+    </div>`).join('');
+}
+
+/* -------------------- ROUTE -------------------- */
+function renderRoute(route) {
+  const el = document.getElementById('route-content');
+  if (!route || !Object.keys(route).length) { el.textContent = 'No route data.'; return; }
+  const rows = [
+    ['status', route.status],
+    ['selected', route.selected_target],
+    ['decision_id', (route.decision_id || '').slice(0, 16) + '…'],
+    ['reason', route.reason],
+    ['eligible', (route.eligible_targets || []).join(', ')],
+  ].filter(([,v]) => v);
+  el.innerHTML = `<table class="kv-table">${rows.map(([k,v]) => `<tr><td class="kv-key">${k}</td><td class="kv-val">${escHtml(String(v||''))}</td></tr>`).join('')}</table>`;
+}
+
+/* -------------------- PROVENANCE -------------------- */
+function renderProv(prov, usage) {
+  const el = document.getElementById('prov-content');
+  const rows = [];
+  if (prov && Object.keys(prov).length) {
+    rows.push(['source_ref', prov.source_ref]);
+    rows.push(['confidence', prov.confidence]);
+    rows.push(['clearance', prov.clearance]);
+    rows.push(['taint', prov.taint]);
+    rows.push(['target_id', prov.target_id]);
+    rows.push(['resp_hash', (prov.response_hash || '').slice(0,16) + '…']);
+  }
+  if (usage && Object.keys(usage).length) {
+    rows.push(['input_tokens', usage.input_tokens]);
+    rows.push(['output_tokens', usage.output_tokens]);
+    rows.push(['total_tokens', usage.total_tokens]);
+  }
+  if (!rows.length) { el.textContent = 'No provenance yet.'; return; }
+  el.innerHTML = `<table class="kv-table">${rows.filter(([,v]) => v !== undefined).map(([k,v]) => `<tr><td class="kv-key">${k}</td><td class="kv-val">${escHtml(String(v||''))}</td></tr>`).join('')}</table>`;
+}
+
+/* -------------------- UNIT TESTS -------------------- */
+async function runTests() {
+  const btn = document.getElementById('test-btn');
+  const res = document.getElementById('test-result');
+  btn.disabled = true;
+  btn.textContent = '⏳ Running…';
+  res.innerHTML = '';
+  try {
+    const r = await fetch(`${API}/api/tests/run`);
+    const d = await r.json();
+    const cls = d.passed ? 'pass' : 'fail';
+    res.innerHTML = `
+      <div class="test-result ${cls}">
+        <strong>${d.passed ? '✅ All tests passed' : '❌ Tests failed'}</strong>
+        <div style="margin-top:4px;font-size:11px">${escHtml(d.summary)}</div>
+        <pre class="test-output-pre">${escHtml(d.output)}</pre>
+      </div>`;
+  } catch (e) {
+    res.innerHTML = `<div class="test-result fail">❌ Could not reach server: ${escHtml(e.message)}</div>`;
+  }
+  btn.disabled = false;
+  btn.textContent = '▶ Run Tests';
+}
+
+/* -------------------- UTILS -------------------- */
+function toggleSection(bodyId, chevronId) {
+  const body = document.getElementById(bodyId);
+  const chev = document.getElementById(chevronId);
+  const hidden = body.style.display === 'none';
+  body.style.display = hidden ? '' : 'none';
+  chev.classList.toggle('open', hidden);
+}
+
+function hideEmpty() {
+  const e = document.getElementById('empty-state');
+  if (e) e.remove();
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* -------------------- KEYBOARD SHORTCUTS -------------------- */
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('query-input').addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); sendQuery(); }
+    if (e.key === 'Escape') { e.target.value = ''; }
+  });
+  init();
+  // Poll health every 10s
+  setInterval(checkHealth, 10000);
+});
+</script>
+</body>
+</html>
