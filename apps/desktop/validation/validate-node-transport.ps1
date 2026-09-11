@@ -331,4 +331,7 @@ try {
   if ($credentialSet) {
     & $cargo run --quiet --manifest-path (Join-Path $tauriRoot "Cargo.toml") --example credential_store -- delete fixture-user | Out-Null
   }
+  if (Test-Path -LiteralPath $runRoot) {
+    Remove-Item -LiteralPath $runRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
