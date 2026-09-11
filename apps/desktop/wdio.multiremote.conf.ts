@@ -33,7 +33,7 @@ export const config: Config = {
   logLevel: "warn",
   framework: "mocha",
   reporters: [["spec", { addConsoleLogs: true }]],
-  services: [["tauri", {
+  services: [["@wdio/tauri-service", {
     appBinaryPath,
     driverProvider,
     autoInstallTauriDriver: allowDriverDownloads,
