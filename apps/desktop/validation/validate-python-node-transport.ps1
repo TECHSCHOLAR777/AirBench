@@ -1,3 +1,8 @@
+[CmdletBinding()]
+param(
+  [string]$EvidencePath
+)
+
 $ErrorActionPreference = "Stop"
 
 $validationRoot = Split-Path -Parent $PSScriptRoot
@@ -207,13 +212,30 @@ try {
   $artifactDownloaded = Invoke-Probe $profilePath @("artifact-download", $artifactId, $artifactDownloadPath)
   if ($artifactDownloaded.code -ne 0 -or -not (Test-Path -LiteralPath $artifactDownloadPath)) { throw "The Rust transport could not download the generated local DOCX artifact." }
 
-  [ordered]@{
+  $report = [ordered]@{
     status = "passed"
     node = "real Python NodeApiService"
     task_id = $taskId
     checks = @("handshake-negotiation", "create-snapshot", "plan-projection-not-ready", "event-batch", "route-trace", "task-authorization", "admitted-plan", "plan-approval", "m4-team-runtime", "deterministic-verification", "real-deliverable-engine-docx", "artifact-review-preview-download", "command-idempotency", "ledger-reference", "event-replay", "real-intake-preview-download", "task-bound-intake-snapshot", "download-hash")
     log = $serverLog
-  } | ConvertTo-Json -Depth 8
+    environment = [ordered]@{
+      captured_at = (Get-Date).ToUniversalTime().ToString("o")
+      machine = [Environment]::MachineName
+      os = [Environment]::OSVersion.VersionString
+      python = (& $python --version 2>&1 | Out-String).Trim()
+      branch = (& git -C $repoRoot branch --show-current 2>$null).Trim()
+      commit = (& git -C $repoRoot rev-parse HEAD 2>$null).Trim()
+    }
+    limitation = "Real Python Node and synthetic worker evidence only. The input is not proof of scanned-document OCR or vision, and this run is not packaged, GPU, visual-renderer, or independent runtime no-egress acceptance."
+  }
+  $json = $report | ConvertTo-Json -Depth 8
+  if (-not [string]::IsNullOrWhiteSpace($EvidencePath)) {
+    $evidenceFile = [IO.Path]::GetFullPath($EvidencePath)
+    $evidenceParent = Split-Path -Parent $evidenceFile
+    if (-not [string]::IsNullOrWhiteSpace($evidenceParent)) { New-Item -ItemType Directory -Force -Path $evidenceParent | Out-Null }
+    [IO.File]::WriteAllText($evidenceFile, $json, [Text.UTF8Encoding]::new($false))
+  }
+  $json
 } finally {
   if ($credentialSet) { & $cargo run --quiet --manifest-path (Join-Path $tauriRoot "Cargo.toml") --example credential_store -- delete validation-user | Out-Null }
   if ($null -ne $server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force }
