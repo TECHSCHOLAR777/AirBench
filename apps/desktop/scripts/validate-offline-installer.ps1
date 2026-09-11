@@ -232,4 +232,5 @@ try {
 } finally {
     if ($null -ne $applicationProcess -and -not $applicationProcess.HasExited) { Stop-ProcessTree $applicationProcess.Id }
     if ($null -ne $installerProcess -and -not $installerProcess.HasExited) { Stop-ProcessTree $installerProcess.Id }
+    if (Test-Path -LiteralPath $installRoot) { Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue }
 }
