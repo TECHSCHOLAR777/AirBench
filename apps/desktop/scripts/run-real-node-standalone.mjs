@@ -7,6 +7,7 @@ const here = fileURLToPath(new URL("..", import.meta.url));
 const appBinaryPath = join(here, "src-tauri", "target", "debug", "airbench-desktop.exe");
 const driverProvider = process.env.AIRBENCH_WDIO_DRIVER === "embedded" ? "embedded" : "external";
 const tauriDriverPath = process.env.TAURI_DRIVER_PATH;
+const allowDriverDownloads = process.env.AIRBENCH_ALLOW_DRIVER_DOWNLOAD === "1";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -27,8 +28,8 @@ try {
   const serviceOptions = {
     driverProvider,
     appBinaryPath,
-    autoInstallTauriDriver: false,
-    autoDownloadEdgeDriver: false,
+    autoInstallTauriDriver: allowDriverDownloads,
+    autoDownloadEdgeDriver: allowDriverDownloads,
     ...(tauriDriverPath ? { tauriDriverPath } : {}),
     captureBackendLogs: true,
     captureFrontendLogs: true,
