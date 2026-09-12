@@ -29,6 +29,9 @@ interface ProofInspectorPanelProps {
   downloadState: "idle" | "downloading" | "downloaded" | "failed";
   downloadReceipt: DownloadReceipt | null;
   onDownloadArtifact: (artifactId: string) => void;
+  onApproveArtifact: (artifactId: string, reason: string) => void;
+  onReturnArtifact: (artifactId: string, reason: string) => void;
+  isArtifactCommandPending: boolean;
 }
 
 export function ProofInspectorPanel({
@@ -41,6 +44,9 @@ export function ProofInspectorPanel({
   downloadState,
   downloadReceipt,
   onDownloadArtifact,
+  onApproveArtifact,
+  onReturnArtifact,
+  isArtifactCommandPending,
 }: ProofInspectorPanelProps) {
   return <aside className="proof-inspector" data-testid="proof-inspector" aria-label="Proof inspector">
     <header className="proof-inspector-head">
@@ -61,6 +67,9 @@ export function ProofInspectorPanel({
       downloadState={downloadState}
       downloadReceipt={downloadReceipt}
       onDownloadArtifact={onDownloadArtifact}
+      onApproveArtifact={onApproveArtifact}
+      onReturnArtifact={onReturnArtifact}
+      isArtifactCommandPending={isArtifactCommandPending}
     />}
   </aside>;
 }
@@ -75,6 +84,9 @@ function EmptyInspector() {
 
 type InspectorSelectionProps = Omit<ProofInspectorPanelProps, "selection"> & {
   selection: ProofSelection;
+  onApproveArtifact: (artifactId: string, reason: string) => void;
+  onReturnArtifact: (artifactId: string, reason: string) => void;
+  isArtifactCommandPending: boolean;
 };
 
 function InspectorSelection({
@@ -87,6 +99,9 @@ function InspectorSelection({
   downloadState,
   downloadReceipt,
   onDownloadArtifact,
+  onApproveArtifact,
+  onReturnArtifact,
+  isArtifactCommandPending,
 }: InspectorSelectionProps) {
   const preview = selection.kind === "artifact" && artifactPreview?.artifact_id === selection.artifactId ? artifactPreview : null;
   const details = preview ? artifactPreviewDetails(preview) : proofDetails(selection);
@@ -117,7 +132,7 @@ function InspectorSelection({
       />
       : <ArtifactLifecycleBoundary state={artifactLifecycleState} />)}
 
-    {selection.kind === "artifact" && artifactReview?.artifactId === selection.artifactId && <ArtifactReviewPanel review={artifactReview} />}
+    {selection.kind === "artifact" && artifactReview?.artifactId === selection.artifactId && <ArtifactReviewPanel review={artifactReview} onApprove={onApproveArtifact} onReturn={onReturnArtifact} isPending={isArtifactCommandPending} />}
 
     <ProofDetails details={details} />
 
@@ -129,7 +144,8 @@ function InspectorSelection({
   </div>;
 }
 
-function ArtifactReviewPanel({ review }: { review: NodeArtifactReview }) {
+function ArtifactReviewPanel({ review, onApprove, onReturn, isPending }: { review: NodeArtifactReview; onApprove: (artifactId: string, reason: string) => void; onReturn: (artifactId: string, reason: string) => void; isPending: boolean }) {
+  const showActions = review.approvalState === "needs_review";
   return <section className="proof-artifact-review" aria-label="Node artifact review">
     <div className="proof-artifact-review-head"><div><span className="proof-artifact-review-kicker">DELIVERABLE RECORD</span><strong>{review.status.replaceAll("_", " ")}</strong></div><span className={`proof-review-badge proof-review-badge-${review.approvalState}`}>{review.approvalState.replaceAll("_", " ")}</span></div>
     <dl className="proof-artifact-review-grid">
@@ -141,6 +157,7 @@ function ArtifactReviewPanel({ review }: { review: NodeArtifactReview }) {
       <div><dt>Size</dt><dd>{review.byteSize.toLocaleString()} bytes</dd></div>
     </dl>
     {review.approvalBlockingReasons.length > 0 && <div className="proof-artifact-review-blockers" role="status"><strong>Review still required</strong><ul>{review.approvalBlockingReasons.map((reason) => <li key={reason}>{reason}</li>)}</ul></div>}
+    {showActions && <div className="proof-artifact-review-actions"><button type="button" className="primary-button compact-button" onClick={() => onApprove(review.artifactId, "Operator approved the artifact.")} disabled={isPending}>{isPending ? "Approving..." : "Approve artifact"}</button><button type="button" className="secondary-button compact-button" onClick={() => onReturn(review.artifactId, "Operator requested revision.")} disabled={isPending}>{isPending ? "Returning..." : "Return for revision"}</button></div>}
     <div className="proof-artifact-review-provenance"><span>Provenance retained</span><small>{review.sourceRefs.length} source reference{review.sourceRefs.length === 1 ? "" : "s"} / {review.evidenceRefs.length} evidence / {review.verificationRefs.length} verification / {review.deterministicValueRefs.length} deterministic value binding{review.deterministicValueRefs.length === 1 ? "" : "s"}</small><small>Template {review.templateId} v{review.templateVersion} / ledger {review.ledgerEventRef}</small></div>
   </section>;
 }
