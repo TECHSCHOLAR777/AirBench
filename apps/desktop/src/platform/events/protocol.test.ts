@@ -217,6 +217,42 @@ describe("sequence-numbered task projection", () => {
     expect(maySendConsequentialCommand(result.projection, "reconnecting")).toBe(false);
   });
 
+  it("replays from the last accepted cursor after an interrupted batch without a gap or duplicate", async () => {
+    const calls: Array<[string, number]> = [];
+    let attempt = 0;
+    const synchronizer = new TaskEventSynchronizer(async (taskId, afterSequence) => {
+      calls.push([taskId, afterSequence]);
+      attempt += 1;
+      if (attempt === 1) {
+        return batch([event(5, "worker.started", { role: "planner", label: "Plan", status: "running" })], 5);
+      }
+      if (attempt === 2) throw new Error("The approved Node connection was interrupted.");
+      return batch([
+        event(6, "tool.completed", { role: "file_intake", label: "Read report", status: "completed" }),
+        event(7, "task.completed", { phase: "complete", status: "completed" }),
+      ], 7);
+    });
+    synchronizer.loadSnapshot(snapshot);
+
+    const first = await synchronizer.synchronizeOnce();
+    expect(first.kind).toBe("current");
+    expect(first.projection.lastAppliedSequence).toBe(5);
+
+    const interrupted = await synchronizer.synchronizeOnce();
+    expect(interrupted.kind).toBe("reconnecting");
+    expect(interrupted.projection.lastAppliedSequence).toBe(5);
+    expect(interrupted.projection.activity.map((item) => item.sequence)).toEqual([5]);
+    expect(maySendConsequentialCommand(interrupted.projection, interrupted.state.status)).toBe(false);
+
+    const recovered = await synchronizer.synchronizeOnce();
+    expect(recovered.kind).toBe("current");
+    expect(recovered.projection.lastAppliedSequence).toBe(7);
+    expect(recovered.projection.activity.map((item) => item.sequence)).toEqual([5, 6, 7]);
+    expect(new Set(recovered.projection.activity.map((item) => item.sequence)).size).toBe(3);
+    expect(calls).toEqual([["task-1", 4], ["task-1", 5], ["task-1", 5]]);
+    expect(maySendConsequentialCommand(recovered.projection, recovered.state.status)).toBe(true);
+  });
+
   it("retains the last ledger reference across an empty event poll", async () => {
     const synchronizer = new TaskEventSynchronizer(async () => batch([], 4));
     synchronizer.loadSnapshot(snapshot);
