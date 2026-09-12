@@ -381,6 +381,68 @@ class NodeApiService:
                 raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the transition.") from exc
             return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
 
+    def approve_artifact(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Record a human sign-off approval for a deliverable artifact.
+
+        The command envelope must carry ``artifact_id`` and ``reason`` in its
+        ``arguments`` field.  On success the orchestrator commits a
+        ``human.signoff`` event and the task transitions back to
+        ``deliverable_verified``.
+        """
+        with self._lock:
+            command = self._command(subject, payload, "task.approve_artifact", task_id)
+            self._visible_task(task_id)
+            existing = self._existing_command(command)
+            if existing is not None:
+                return _command_result(command, task_id, existing, self._task_sequence(task_id, existing.event_id), self.orchestrator.state(task_id), self.config)
+            self._check_expected_sequence(command, task_id)
+            artifact_id = _text(command.arguments, "artifact_id", 512)
+            reason = _text(command.arguments, "reason", 4_096)
+            try:
+                result = self.orchestrator.signoff(
+                    self._visible_task(task_id).task_id,
+                    artifact_id=artifact_id,
+                    decision="approved",
+                    reason=reason,
+                    command_metadata=_command_metadata(command),
+                )
+            except TransitionRejected as exc:
+                raise NodeApiError(409, "transition_rejected", "The artifact cannot be approved from the current task state.") from exc
+            except (StorageFailure, LedgerError) as exc:
+                raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the artifact approval.") from exc
+            return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
+
+    def return_artifact(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Return a deliverable artifact for revision.
+
+        The command envelope must carry ``artifact_id`` and ``reason`` in its
+        ``arguments`` field.  On success the orchestrator commits a second
+        ``human.review.required`` event, keeping the task in ``awaiting_review``
+        for another review cycle without altering any other pipeline state.
+        """
+        with self._lock:
+            command = self._command(subject, payload, "task.return_artifact", task_id)
+            self._visible_task(task_id)
+            existing = self._existing_command(command)
+            if existing is not None:
+                return _command_result(command, task_id, existing, self._task_sequence(task_id, existing.event_id), self.orchestrator.state(task_id), self.config)
+            self._check_expected_sequence(command, task_id)
+            artifact_id = _text(command.arguments, "artifact_id", 512)
+            reason = _text(command.arguments, "reason", 4_096)
+            try:
+                result = self.orchestrator.signoff(
+                    self._visible_task(task_id).task_id,
+                    artifact_id=artifact_id,
+                    decision="revision_requested",
+                    reason=reason,
+                    command_metadata=_command_metadata(command),
+                )
+            except TransitionRejected as exc:
+                raise NodeApiError(409, "transition_rejected", "The artifact cannot be returned from the current task state.") from exc
+            except (StorageFailure, LedgerError) as exc:
+                raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the artifact return.") from exc
+            return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
+
     def _command(self, subject: str, payload: dict[str, Any], expected_type: str, route_task_id: str | None) -> NodeCommandEnvelope:
         try:
             command = NodeCommandEnvelope.from_dict(payload)
@@ -1105,6 +1167,16 @@ def create_app(service: NodeApiService) -> FastAPI:
     async def review_task(task_id: str, request: Request) -> dict[str, Any]:
         subject = auth(request)
         return service.request_review(subject, task_id, await json_body(request))
+
+    @app.post("/api/v1/tasks/{task_id}/approve-artifact", status_code=202)
+    async def approve_artifact(task_id: str, request: Request) -> dict[str, Any]:
+        subject = auth(request)
+        return service.approve_artifact(subject, task_id, await json_body(request))
+
+    @app.post("/api/v1/tasks/{task_id}/return-artifact", status_code=202)
+    async def return_artifact(task_id: str, request: Request) -> dict[str, Any]:
+        subject = auth(request)
+        return service.return_artifact(subject, task_id, await json_body(request))
 
     return app
 

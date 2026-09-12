@@ -7,6 +7,8 @@ the real NodeApiService and Orchestrator, not the synthetic HTTP fixture.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -33,6 +35,7 @@ class ValidationNodeService(NodeApiService):
     def __init__(self, *args, execution: LocalTaskExecutionCoordinator, **kwargs):
         super().__init__(*args, **kwargs)
         self._execution = execution
+        self._replay_evidence_path = os.environ.get("AIRBENCH_WDIO_REPLAY_EVIDENCE_PATH")
 
     def authorize(self, subject: str, task_id: str, payload: dict[str, object]) -> dict[str, object]:
         result = super().authorize(subject, task_id, payload)
@@ -52,7 +55,31 @@ class ValidationNodeService(NodeApiService):
             if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
                 self.orchestrator.transition(task_id, "task.failed", {"failure_code": "local_validation_execution_failed"})
             raise NodeApiError(503, "validation_execution_failed", "The approved local validation plan did not produce a verified draft.") from exc
+        self._write_replay_evidence(task_id)
         return result
+
+    def _write_replay_evidence(self, task_id: str) -> None:
+        if not self._replay_evidence_path:
+            return
+        events = [event for event in self.orchestrator.store.events if event.task_id == task_id]
+        sequence_numbers = [event.sequence for event in events]
+        has_gap = len(sequence_numbers) > 1 and any(
+            sequence_numbers[i] != sequence_numbers[i - 1] + 1
+            for i in range(1, len(sequence_numbers))
+        )
+        has_duplicate = len(sequence_numbers) != len(set(sequence_numbers))
+        evidence = {
+            "task_id": task_id,
+            "has_gap": has_gap,
+            "has_duplicate": has_duplicate,
+            "sequence_numbers": sequence_numbers,
+            "event_count": len(events),
+        }
+        path = Path(self._replay_evidence_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(evidence, indent=2))
+        tmp.replace(path)
 
 
 def build_app(args: argparse.Namespace):
@@ -74,6 +101,7 @@ def build_app(args: argparse.Namespace):
         artifact_root=artifact_store.root,
         workspace_root=Path(args.intake_root).parent / "workspaces",
         template_path=ROOT / "apps" / "desktop" / "validation" / "deliverable_templates.yaml",
+        hardware_profile_path=Path(args.hardware_profile) if args.hardware_profile else None,
     )
     service = ValidationNodeService(
         orchestrator,
@@ -108,6 +136,7 @@ def main() -> None:
     parser.add_argument("--node-identity", default="python-node-validation")
     parser.add_argument("--subject", default="validation-user")
     parser.add_argument("--intake-root", required=True)
+    parser.add_argument("--hardware-profile", type=str, default=None, help="Optional path to a HardwareProfile JSON fixture")
     args = parser.parse_args()
     uvicorn.run(build_app(args), host="127.0.0.1", port=args.port, log_level="warning", access_log=False)
 

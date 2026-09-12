@@ -17,6 +17,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import json
+
 from airbench.delivery import (
     DeliverableEngine,
     DeliverableRequest,
@@ -99,6 +101,7 @@ class LocalTaskExecutionCoordinator:
         artifact_root: str | Path,
         workspace_root: str | Path,
         template_path: str | Path,
+        hardware_profile_path: Path | None = None,
     ) -> None:
         self._orchestrator = orchestrator
         self._ledger = ledger
@@ -106,6 +109,7 @@ class LocalTaskExecutionCoordinator:
         self._artifact_root = Path(artifact_root).resolve()
         self._workspace_root = Path(workspace_root).resolve()
         self._template_path = Path(template_path).resolve()
+        self._hardware_profile_path = hardware_profile_path
         self._runs: dict[str, LocalTaskRun] = {}
         self._prepared: dict[str, tuple[TeamPlan, WorkerAssignment, ResourceScheduler, Any, IntakeManifest]] = {}
 
@@ -151,7 +155,65 @@ class LocalTaskExecutionCoordinator:
             "status": ContractStatus.queued.value,
         })
 
-        profile = HardwareProfile.from_dict({
+        profile = self._load_hardware_profile(task_id)
+        measurement = HardwareMeasurement(
+            measurement_id=stable_id("local-validation-measurement", task_id),
+            profile_id=profile.profile_id,
+            measured_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            available_vram_bytes=profile.vram_bytes,
+            available_ram_bytes=profile.ram_bytes,
+            kv_cache_bytes=profile.kv_cache_bytes,
+            model_residency_bytes=(),
+            latency_ms=(),
+            throughput_tokens_per_second=(),
+            sandbox_limits=(),
+            max_concurrency=profile.safe_parallel_slots,
+            egress_verified=True,
+            available_vram_by_gpu=((0, profile.vram_bytes),),
+            available_cpu_millicores=profile.cpu_cores * 1000,
+            available_context_tokens=profile.model_context_tokens,
+            available_scratch_bytes=profile.scratch_bytes,
+            available_slots=profile.safe_parallel_slots,
+        )
+        scheduler = ResourceScheduler(profile, measurement, ledger=self._ledger)
+        reservation = (
+            ("vram_bytes", 64_000_000),
+            ("ram_bytes", 128_000_000),
+            ("cpu_millicores", 100),
+            ("kv_cache_bytes", 8_000_000),
+            ("context_tokens", 1_024),
+            ("scratch_bytes", 8_000_000),
+            ("slots", 1),
+        )
+        requested_mode = self._choose_execution_mode(profile)
+        admission = AdmissionRequest(
+            task_id=task_id,
+            team_id=team_id,
+            worker_capabilities=((worker_id, assignment.capability_requirement),),
+            reservations=((worker_id, reservation),),
+            verifier_worker_id=worker_id,
+            worker_roles=((worker_id, assignment.role),),
+            gpu_indices=((worker_id, (0,)),),
+            requested_mode=requested_mode,
+            model_targets=((worker_id, "validation.synthetic-worker"),),
+            qualification_refs=((worker_id, "qualification.validation.synthetic"),),
+            clearance=task.clearance,
+            taint=Taint.clean,
+            policy_version_hash=plan.policy_version_hash,
+            concurrency_ceiling=profile.safe_parallel_slots,
+            execution_deadline=deadline,
+        )
+        schedule = scheduler.admit(admission)
+        if schedule.plan.admission != "admitted":
+            raise LocalTaskRunError(f"hardware admission was {schedule.plan.admission}")
+        self._prepared[task_id] = (plan, assignment, scheduler, schedule, manifest)
+
+    def _load_hardware_profile(self, task_id: str) -> HardwareProfile:
+        if self._hardware_profile_path and self._hardware_profile_path.exists():
+            with self._hardware_profile_path.open() as f:
+                data = json.load(f)
+            return HardwareProfile.from_dict(data)
+        return HardwareProfile.from_dict({
             "profile_id": stable_id("local-validation-hardware", task_id),
             "gpu_model": "synthetic-validation-gpu",
             "gpu_count": 1,
@@ -173,56 +235,11 @@ class LocalTaskExecutionCoordinator:
             "sandbox_runtime": "validation-synthetic",
             "benchmark_result_ref": "validation-synthetic",
         })
-        measurement = HardwareMeasurement(
-            measurement_id=stable_id("local-validation-measurement", task_id),
-            profile_id=profile.profile_id,
-            measured_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            available_vram_bytes=profile.vram_bytes,
-            available_ram_bytes=profile.ram_bytes,
-            kv_cache_bytes=profile.kv_cache_bytes,
-            model_residency_bytes=(),
-            latency_ms=(),
-            throughput_tokens_per_second=(),
-            sandbox_limits=(),
-            max_concurrency=1,
-            egress_verified=True,
-            available_vram_by_gpu=((0, profile.vram_bytes),),
-            available_cpu_millicores=2_000,
-            available_context_tokens=profile.model_context_tokens,
-            available_scratch_bytes=profile.scratch_bytes,
-            available_slots=1,
-        )
-        scheduler = ResourceScheduler(profile, measurement, ledger=self._ledger)
-        reservation = (
-            ("vram_bytes", 64_000_000),
-            ("ram_bytes", 128_000_000),
-            ("cpu_millicores", 100),
-            ("kv_cache_bytes", 8_000_000),
-            ("context_tokens", 1_024),
-            ("scratch_bytes", 8_000_000),
-            ("slots", 1),
-        )
-        admission = AdmissionRequest(
-            task_id=task_id,
-            team_id=team_id,
-            worker_capabilities=((worker_id, assignment.capability_requirement),),
-            reservations=((worker_id, reservation),),
-            verifier_worker_id=worker_id,
-            worker_roles=((worker_id, assignment.role),),
-            gpu_indices=((worker_id, (0,)),),
-            requested_mode="serial_virtual_team",
-            model_targets=((worker_id, "validation.synthetic-worker"),),
-            qualification_refs=((worker_id, "qualification.validation.synthetic"),),
-            clearance=task.clearance,
-            taint=Taint.clean,
-            policy_version_hash=plan.policy_version_hash,
-            concurrency_ceiling=1,
-            execution_deadline=deadline,
-        )
-        schedule = scheduler.admit(admission)
-        if schedule.plan.admission != "admitted":
-            raise LocalTaskRunError(f"synthetic validation hardware admission was {schedule.plan.admission}")
-        self._prepared[task_id] = (plan, assignment, scheduler, schedule, manifest)
+
+    def _choose_execution_mode(self, profile: HardwareProfile) -> str:
+        if "parallel" in profile.supported_execution_modes and profile.safe_parallel_slots >= 2:
+            return "parallel"
+        return "serial_virtual_team"
 
     def execute(self, task_id: str) -> LocalTaskRun:
         prepared = self._prepared.get(task_id)

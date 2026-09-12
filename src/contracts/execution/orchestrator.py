@@ -102,6 +102,7 @@ _TARGETS = {
     },
     "verification.completed": {"passed": "deliverable_verified", "needs_review": "needs_review", "failed": "blocked"},
     "human.review.required": "awaiting_review",
+    "human.signoff": "deliverable_verified",
     "artifact.staged": "rendering",
     "artifact.checked": "deliverable_verified",
     "completion.recorded": "complete",
@@ -131,6 +132,7 @@ _ALLOWED = {
     "verification.requested": {"executing", "awaiting_check"},
     "verification.completed": {"awaiting_check"},
     "human.review.required": {"deliverable_verified", "needs_review", "awaiting_review"},
+    "human.signoff": {"awaiting_review"},
     "artifact.staged": {"deliverable_verified", "awaiting_review"},
     "artifact.checked": {"rendering"},
     "completion.recorded": {"deliverable_verified"},
@@ -527,6 +529,40 @@ class Orchestrator:
         if not reason.strip():
             raise TransitionRejected("review reason is required")
         return self.transition(task_id, "human.review.required", {"reason": reason}, command_metadata=command_metadata)
+
+    def signoff(self, task_id: str, *, artifact_id: str, decision: str, reason: str,
+                command_metadata: dict[str, str] | None = None) -> TransitionResult:
+        """Record a human sign-off decision for a deliverable artifact.
+
+        ``decision`` must be ``"approved"`` or ``"revision_requested"``.
+
+        - ``"approved"`` commits ``human.signoff``, which the orchestrator state
+          machine maps to ``deliverable_verified`` — the task can then proceed to
+          ``completion.recorded``.
+        - ``"revision_requested"`` commits another ``human.review.required`` event,
+          keeping the task in ``awaiting_review`` for a second review cycle without
+          touching any other pipeline state.
+        """
+        if decision not in {"approved", "revision_requested"}:
+            raise TransitionRejected("signoff decision must be approved or revision_requested")
+        if not artifact_id.strip():
+            raise TransitionRejected("artifact_id is required for signoff")
+        if not reason.strip():
+            raise TransitionRejected("signoff reason is required")
+        if decision == "approved":
+            return self.transition(
+                task_id,
+                "human.signoff",
+                {"artifact_id": artifact_id, "decision": decision, "reason": reason},
+                command_metadata=command_metadata,
+            )
+        # Revision requested: re-enter review cycle via human.review.required.
+        return self.transition(
+            task_id,
+            "human.review.required",
+            {"artifact_id": artifact_id, "decision": decision, "reason": reason},
+            command_metadata=command_metadata,
+        )
 
     def _record_dependency_failure(self, dependency: str) -> None:
         failures = self._circuit_failures.get(dependency, 0) + 1
