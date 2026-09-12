@@ -1,8 +1,8 @@
-import { createWriteStream, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import net from "node:net";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const here = fileURLToPath(new URL("..", import.meta.url));
@@ -17,6 +17,15 @@ const inputPath = join(runRoot, "inspection-report.pdf");
 const downloadPath = join(runRoot, "inspection-approval-note.docx");
 const serverStdoutPath = join(runRoot, "python-node.stdout.log");
 const serverStderrPath = join(runRoot, "python-node.stderr.log");
+// Replay evidence written by the WDIO test session and read by the
+// reconnect-cursor negative-case smoke test.
+const replayEvidencePath = join(runRoot, "replay-cursor-evidence.json");
+// Acceptance evidence for issue #123 — written on success, retained outside
+// the disposable run root so it survives cleanup and can be attached to #123.
+const acceptanceDir = resolve(repoRoot, "acceptance");
+mkdirSync(acceptanceDir, { recursive: true });
+const evidenceManifestPath = join(acceptanceDir, "real_node_evidence_123.json");
+
 const env = {
   ...process.env,
   CARGO_TARGET_DIR: join(runRoot, "cargo-target"),
@@ -24,6 +33,8 @@ const env = {
   AIRBENCH_WDIO_PROFILE_PATH: profilePath,
   AIRBENCH_WDIO_INPUT_PATH: inputPath,
   AIRBENCH_WDIO_DOWNLOAD_PATH: downloadPath,
+  // Let the WDIO smoke test check replay evidence produced during the run.
+  AIRBENCH_WDIO_REPLAY_EVIDENCE_PATH: replayEvidencePath,
 };
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const cargo = process.platform === "win32"
@@ -213,7 +224,10 @@ try {
 
   run(npm, ["run", "check:webdriver"]);
   run(npm, ["run", "tauri:build:webdriver"]);
-  run(npm, ["exec", "--", "wdio", "run", "wdio.real-node.conf.ts"]);
+  // The Tauri service's supported standalone initializer supplies the native
+  // driver host/port directly. This avoids WDIO local-runner setup rejecting
+  // the service's intentionally browserName-free Tauri capabilities.
+  run(process.execPath, ["scripts/run-real-node-standalone.mjs"]);
   run(process.execPath, ["scripts/assert-wdio-log.mjs"]);
 
   if (!existsSync(downloadPath) || statSync(downloadPath).size === 0) {
@@ -221,12 +235,53 @@ try {
   }
   const downloadHeader = readFileSync(downloadPath).subarray(0, 2).toString("ascii");
   if (downloadHeader !== "PK") throw new Error("The real-node desktop flow did not produce a DOCX package.");
+
+  // Collect run identity for the #123 evidence manifest (handoff §13 checklist).
+  const branch = (() => {
+    try { return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim(); } catch { return "unknown"; }
+  })();
+  const commit = (() => {
+    try { return execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim(); } catch { return "unknown"; }
+  })();
+  const pythonVersionRaw = (() => {
+    try { return execFileSync(python, ["--version"], { encoding: "utf8" }).trim(); } catch { return "unknown"; }
+  })();
+  const evidenceManifest = {
+    issue: "#123",
+    branch,
+    commit,
+    machine: hostname(),
+    python_version: pythonVersionRaw,
+    node_identity: nodeIdentity,
+    ran_at: new Date().toISOString(),
+    evidence: [
+      "real-handshake",
+      "real-task-create",
+      "real-query-upload",
+      "real-preview",
+      "real-event-replay",
+      "real-plan-approval",
+      "real-artifact-preview",
+      "real-hash-verified-download",
+    ],
+    limitations: [
+      "Synthetic PDF fixture — proves File Intake plumbing, not scanned-document OCR or vision",
+      "Synthetic worker — not OCR, handwriting, engineering-drawing understanding, or GPU model inference",
+      "No independent network monitor — source-level egress scan only; runtime no-egress evidence remains open in #124",
+      "Not packaged or clean-machine acceptance — #124 remains the packaged sovereign desktop gate",
+      "Human desktop review not recorded here — operator must complete §9 of the handoff and attach results to #123",
+    ],
+    verdict: "passed",
+  };
+  writeFileSync(evidenceManifestPath, JSON.stringify(evidenceManifest, null, 2), "utf8");
+
   console.log(JSON.stringify({
     status: "passed",
     node: "real Python NodeApiService",
     input: "local PDF through the Rust File Intake boundary",
     output: "Node-authorized DOCX downloaded through the Rust save boundary",
-    evidence: ["real-handshake", "real-task-create", "real-query-upload", "real-preview", "real-event-replay", "real-plan-approval", "real-artifact-preview", "real-hash-verified-download"],
+    evidence: evidenceManifest.evidence,
+    evidence_manifest: evidenceManifestPath,
   }));
 } catch (error) {
   console.error(error instanceof Error ? error.stack : error);
