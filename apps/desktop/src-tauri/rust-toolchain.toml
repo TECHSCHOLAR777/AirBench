@@ -1,0 +1,7 @@
+[toolchain]
+# Tauri on Windows requires the MSVC toolchain.
+# The GNU/MinGW toolchain cannot produce the import libraries that bcryptprimitives
+# and ntdll require, which causes link failures in keyring, getrandom, and windows-sys.
+channel = "stable"
+targets = ["x86_64-pc-windows-msvc"]
+profile = "minimal"
