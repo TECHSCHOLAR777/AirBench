@@ -28,7 +28,7 @@ export const config: Config = {
   framework: "mocha",
   reporters: [["spec", { addConsoleLogs: true }]],
   services: [
-    ["tauri", {
+    ["@wdio/tauri-service", {
       appBinaryPath,
       driverProvider,
       autoInstallTauriDriver: allowDriverDownloads,
