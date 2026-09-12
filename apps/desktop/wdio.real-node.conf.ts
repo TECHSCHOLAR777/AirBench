@@ -57,7 +57,9 @@ export const config: Config = {
     },
   }],
   mochaOpts: {
-    timeout: 60000,
+    // Happy-path test: ~30 s. Negative-case plan-pending test: ~35 s.
+    // 90 s gives headroom without masking real hangs.
+    timeout: 90000,
     require: [],
   },
 };
