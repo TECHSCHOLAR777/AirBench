@@ -306,19 +306,19 @@ pub fn pick_query_file(state: State<'_, IntakeState>) -> Result<Option<SelectedF
             Some(PathBuf::from(path))
         } else {
             FileDialog::new()
-                .add_filter(
-                    "Scanned documents",
-                    &["pdf", "png", "jpg", "jpeg", "tif", "tiff"],
-                )
+                .add_filter("Supported intake documents", &[
+                    "pdf", "png", "jpg", "jpeg", "tif", "tiff", "bmp",
+                    "docx", "xlsx", "csv", "txt", "md", "json", "log",
+                ])
                 .pick_file()
         }
 
         #[cfg(not(feature = "wdio"))]
         FileDialog::new()
-            .add_filter(
-                "Scanned documents",
-                &["pdf", "png", "jpg", "jpeg", "tif", "tiff"],
-            )
+            .add_filter("Supported intake documents", &[
+                "pdf", "png", "jpg", "jpeg", "tif", "tiff", "bmp",
+                "docx", "xlsx", "csv", "txt", "md", "json", "log",
+            ])
             .pick_file()
     };
     let Some(path) = path else {

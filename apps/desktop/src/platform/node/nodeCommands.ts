@@ -7,7 +7,7 @@ import type { NodeArtifactReview, NodeCommandEnvelope, NodeCommandResult, NodeEv
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const COMMAND_ID = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 
-export type TaskCommandType = "task.authorize" | "task.approve_plan" | "task.cancel" | "task.request_review";
+export type TaskCommandType = "task.authorize" | "task.approve_plan" | "task.cancel" | "task.request_review" | "task.approve_artifact" | "task.return_artifact";
 
 export interface CreateTaskResponse {
   task: TaskEnvelope;
@@ -565,7 +565,7 @@ function assertTaskCommand(command: NodeCommandEnvelope): asserts command is Nod
   if (expectedSequence === null || !Number.isSafeInteger(expectedSequence) || expectedSequence < 0) {
     throw new Error("The command expected sequence is invalid.");
   }
-  if (!["task.authorize", "task.approve_plan", "task.cancel", "task.request_review"].includes(command.command_type)) {
+  if (!["task.authorize", "task.approve_plan", "task.cancel", "task.request_review", "task.approve_artifact", "task.return_artifact"].includes(command.command_type)) {
     throw new Error("The command type is not supported by this transport.");
   }
 }
@@ -625,4 +625,46 @@ export function sendTaskCommand(profile: ApprovedNodeProfileReference, command: 
     profileId: profile.profileId,
     command,
   }).then((value) => validateNodeCommandResult(value, profile, command));
+}
+
+export function approveArtifact(profile: ApprovedNodeProfileReference, taskId: string, artifactId: string, reason: string, expectedSequence: number, actor: string): Promise<NodeCommandResult> {
+  assertApprovedProfile(profile);
+  if (!TASK_ID.test(taskId)) throw new Error("The task identifier is invalid.");
+  if (!TASK_ID.test(artifactId)) throw new Error("The artifact identifier is invalid.");
+  if (!reason.trim()) throw new Error("The approval reason is required.");
+  const commandId = `command.approve-artifact.${crypto.randomUUID()}`;
+  const command: NodeCommandEnvelope = {
+    schema_version: CORE_CONTRACT_SCHEMA_VERSION,
+    compatibility_id: CORE_CONTRACT_COMPATIBILITY_ID,
+    command_id: commandId,
+    actor,
+    task_id: taskId,
+    expected_sequence: expectedSequence,
+    idempotency_key: `idempotency.${commandId}`,
+    client_version: NODE_PROTOCOL_VERSION,
+    command_type: "task.approve_artifact",
+    arguments: { artifact_id: artifactId, reason },
+  };
+  return sendTaskCommand(profile, command);
+}
+
+export function returnArtifactForRevision(profile: ApprovedNodeProfileReference, taskId: string, artifactId: string, reason: string, expectedSequence: number, actor: string): Promise<NodeCommandResult> {
+  assertApprovedProfile(profile);
+  if (!TASK_ID.test(taskId)) throw new Error("The task identifier is invalid.");
+  if (!TASK_ID.test(artifactId)) throw new Error("The artifact identifier is invalid.");
+  if (!reason.trim()) throw new Error("The revision reason is required.");
+  const commandId = `command.return-artifact.${crypto.randomUUID()}`;
+  const command: NodeCommandEnvelope = {
+    schema_version: CORE_CONTRACT_SCHEMA_VERSION,
+    compatibility_id: CORE_CONTRACT_COMPATIBILITY_ID,
+    command_id: commandId,
+    actor,
+    task_id: taskId,
+    expected_sequence: expectedSequence,
+    idempotency_key: `idempotency.${commandId}`,
+    client_version: NODE_PROTOCOL_VERSION,
+    command_type: "task.return_artifact",
+    arguments: { artifact_id: artifactId, reason },
+  };
+  return sendTaskCommand(profile, command);
 }
