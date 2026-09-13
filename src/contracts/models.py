@@ -29,6 +29,7 @@ LEDGER_EVENT_TYPES = {
     "index.requested", "index.completed", "index.failed",
     "retrieval.requested", "retrieval.completed", "retrieval.failed",
     "vision.requested", "vision.completed", "vision.failed",
+    "pid.extracted",
     "world_model.requested", "verification.requested",
     "world_model.conflict", "world_model.review_required", "world_model.review_resolved",
     "projection.rebuilt", "projection.exported", "checkpoint.committed", "retry.completed",

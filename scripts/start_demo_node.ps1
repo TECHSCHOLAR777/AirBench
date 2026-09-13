@@ -12,7 +12,8 @@ param(
     [string]$Port = "8765",
     [string]$Subject = "demo.operator",
     [string]$DomainPackRef = "refinery-psu-v0",
-    [switch]$Retrieval   # off by default: loading BGE adds ~1 min and several GB RAM
+    [switch]$Retrieval,   # off by default: loading BGE adds ~1 min and several GB RAM
+    [switch]$Execution    # Node-owned task execution + deliverables (docx/xlsx/pptx)
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,6 +40,7 @@ $env:AIRBENCH_POLICY_VERSION_HASH = "policy-v0.1"
 
 $env:AIRBENCH_MODEL_SERVING_ENABLED  = "1"
 $env:AIRBENCH_MODEL_ROSTER_PATH      = "$repo\models\roster\demo\two_endpoint_roster.yaml"
+$env:AIRBENCH_MODEL_SIGNING_KEY      = ""
 $env:AIRBENCH_MODEL_SIGNING_KEY_PATH = "$repo\.airbench_signing_key"
 $env:AIRBENCH_MODEL_STORE            = $ModelStore
 $env:AIRBENCH_MODEL_E2B_URL          = "http://127.0.0.1:18001"
@@ -54,6 +56,7 @@ $env:AIRBENCH_HARDWARE_PROFILE       = "$repo\profiles\hardware\workstation_04.j
 $env:AIRBENCH_INTAKE_ROOT            = "$repo\.airbench-intake"
 $env:AIRBENCH_ARTIFACT_ROOT          = "$repo\.airbench-artifacts"
 $env:AIRBENCH_PACK_DIR               = "$repo\packs\refinery_psu_v0"
+$env:AIRBENCH_PACK_SIGNING_KEY       = ""
 $env:AIRBENCH_PACK_SIGNING_KEY_PATH  = "$repo\.airbench_signing_key"
 $env:AIRBENCH_WORLD_MODEL_BACKEND    = "sqlite"
 $env:AIRBENCH_WORLD_MODEL_PATH       = "$repo\.airbench-world-model.db"
@@ -82,6 +85,16 @@ if ($Retrieval) {
     $env:AIRBENCH_RETRIEVAL_MODEL_STORE = "$repo\airbench-models"
 } else {
     $env:AIRBENCH_RETRIEVAL_ENABLED = "0"
+}
+
+if ($Execution) {
+    $env:AIRBENCH_TASK_EXECUTION_ENABLED    = "1"
+    $env:AIRBENCH_DELIVERABLE_TEMPLATE_PATH = "$repo\packs\refinery_psu_v0\deliverable_templates.yaml"
+    # The draft/render step is the reversible prepare action; release stays human-gated.
+    $env:AIRBENCH_EXECUTION_ACTION_KIND     = "prepare_approval_note"
+    Write-Host "Task execution enabled: approved tasks render DOCX/XLSX/PPTX deliverables from their output contract." -ForegroundColor Cyan
+} else {
+    $env:AIRBENCH_TASK_EXECUTION_ENABLED = "0"
 }
 
 Write-Host ""
