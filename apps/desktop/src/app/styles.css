@@ -917,3 +917,10 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
 @media (forced-colors: active) { .app-shell { forced-color-adjust: auto; } .status-dot { border: 1px solid CanvasText; } .composer-card, .appearance-menu, .modal-card, .sidebar { border: 1px solid CanvasText; } }
+.intake-badge.intake-confidence-green { color: #0f5132; background: #d1e7dd; border-color: #a3cfbb; }
+.intake-badge.intake-confidence-amber { color: #664d03; background: #fff3cd; border-color: #ffe69c; }
+.intake-badge.intake-confidence-red { color: #842029; background: #f8d7da; border-color: #f1aeb5; }
+.intake-review-hint { display: block; margin-top: 8px; color: var(--faint); font-size: 11px; }
+.node-domain-pack { padding: 18px; background: color-mix(in srgb, var(--surface) 86%, transparent); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.node-domain-pack.tone-trusted { border-color: color-mix(in srgb, var(--trust) 36%, var(--line)); }
+.node-domain-pack.tone-attention { border-color: color-mix(in srgb, var(--attention) 36%, var(--line)); }

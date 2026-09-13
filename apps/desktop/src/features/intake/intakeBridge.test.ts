@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@airbench/tauri-invoke", () => ({ invoke: invokeMock }));
 
-import { downloadArtifact, downloadVerifiedArtifact, fetchArtifactPreview, fetchSafePreview, uploadSelectedQueryFile, validateArtifactPreview, validateDownloadReceipt, validateIntakeManifest, validateSafePreview } from "./intakeBridge";
+import { downloadArtifact, downloadVerifiedArtifact, fetchArtifactPreview, fetchIntakeStatus, fetchSafePreview, uploadSelectedQueryFile, validateArtifactPreview, validateDownloadReceipt, validateIntakeManifest, validateIntakeStatus, validateSafePreview } from "./intakeBridge";
 import type { ApprovedNodeProfile } from "../../platform/node/nodeConnection";
-import type { ArtifactPreview, DownloadReceipt, IntakeManifest, SafePreview } from "./intakeBridge";
+import type { ArtifactPreview, DownloadReceipt, IntakeManifest, IntakeStatus, SafePreview } from "./intakeBridge";
 
 const profile: ApprovedNodeProfile = {
   profileId: "profile-1",
@@ -127,6 +127,48 @@ describe("webview intake response boundary", () => {
     expect(() => validateSafePreview({ ...safePreview, taint: "unknown" }, "preview-1", manifest.source_hash, "restricted")).toThrow("taint");
     expect(() => validateArtifactPreview({ ...artifactPreview, blocks: [{ kind: "paragraph", text: "" + "x".repeat(10 * 1024 * 1024 + 1) }] }, "artifact-1", "restricted")).toThrow("artifact preview block text");
     expect(() => validateArtifactPreview({ ...artifactPreview, artifact_id: "artifact-2" }, "artifact-1", "restricted")).toThrow("does not match");
+  });
+});
+
+const intakeStatus: IntakeStatus = {
+  intake_id: "intake-1",
+  file_name: "inspection-report.pdf",
+  media_type: "application/pdf",
+  page_count: 1,
+  ocr_provider: "airbench.ocr.tesseract",
+  ocr_status: "completed",
+  vision_status: "not_applicable",
+  average_confidence: 0.55,
+  min_confidence: 0.5,
+  confidence_band: "red",
+  review_recommended: true,
+  low_confidence_pages: [
+    { page_id: "page-1", page_number: 1, confidence: 0.5, extraction_method: "ocr_tesseract", bounding_box_count: 3, table_count: 1, review_recommended: true },
+  ],
+  pages: [
+    { page_id: "page-1", page_number: 1, confidence: 0.5, extraction_method: "ocr_tesseract", bounding_box_count: 3, table_count: 1, review_recommended: true },
+  ],
+  ledger_event_ref: "ledger-intake-1",
+};
+
+describe("intake status boundary", () => {
+  beforeEach(() => invokeMock.mockReset());
+
+  it("accepts a complete status projection and returns contract-shaped values", () => {
+    expect(validateIntakeStatus({ ...intakeStatus, unexpected: "ignored" }, "intake-1")).toEqual(intakeStatus);
+  });
+
+  it("rejects mismatched identity, band, and inconsistent page counts", () => {
+    expect(() => validateIntakeStatus({ ...intakeStatus, intake_id: "intake-2" }, "intake-1")).toThrow("does not match");
+    expect(() => validateIntakeStatus({ ...intakeStatus, confidence_band: "blue" }, "intake-1")).toThrow("confidence band");
+    expect(() => validateIntakeStatus({ ...intakeStatus, page_count: 2 }, "intake-1")).toThrow("inconsistent");
+    expect(() => validateIntakeStatus({ ...intakeStatus, average_confidence: 2 }, "intake-1")).toThrow("average confidence");
+  });
+
+  it("fetches status through the approved Rust command", async () => {
+    invokeMock.mockResolvedValueOnce(intakeStatus);
+    await fetchIntakeStatus(profile, "intake-1");
+    expect(invokeMock).toHaveBeenCalledWith("fetch_intake_status", { profileId: "profile-1", intakeId: "intake-1" });
   });
 });
 

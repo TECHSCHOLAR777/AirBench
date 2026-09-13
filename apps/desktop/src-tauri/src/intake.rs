@@ -12,6 +12,7 @@ use uuid::Uuid;
 const MAX_QUERY_UPLOAD_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_NODE_REFERENCE_BYTES: usize = 256;
 const MAX_PREVIEW_TEXT_BYTES: usize = 10 * 1024 * 1024;
+const MAX_INTAKE_STATUS_PAGES: usize = 10_000;
 
 #[derive(Default)]
 pub struct IntakeState {
@@ -61,6 +62,37 @@ pub struct SafePreview {
     pub confidence: f64,
     pub clearance: String,
     pub taint: String,
+    pub ledger_event_ref: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct IntakeStatusPage {
+    pub page_id: String,
+    pub page_number: u32,
+    pub confidence: f64,
+    pub extraction_method: String,
+    pub bounding_box_count: u32,
+    pub table_count: u32,
+    pub review_recommended: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct IntakeStatus {
+    pub intake_id: String,
+    pub file_name: String,
+    pub media_type: String,
+    pub page_count: u32,
+    pub ocr_provider: String,
+    pub ocr_status: String,
+    pub vision_status: String,
+    pub average_confidence: f64,
+    pub min_confidence: f64,
+    pub confidence_band: String,
+    pub review_recommended: bool,
+    pub low_confidence_pages: Vec<IntakeStatusPage>,
+    pub pages: Vec<IntakeStatusPage>,
     pub ledger_event_ref: String,
 }
 
@@ -298,6 +330,56 @@ fn validate_artifact_preview(
     validate_node_reference(&preview.ledger_event_ref, "ledger event")
 }
 
+fn validate_intake_status(
+    status: &IntakeStatus,
+    requested_intake_id: &str,
+    _approved_context: &str,
+) -> Result<(), String> {
+    validate_node_reference(&status.intake_id, "intake")?;
+    if status.intake_id != requested_intake_id {
+        return Err("The Node intake status does not match the requested intake.".to_string());
+    }
+    if status.file_name.is_empty()
+        || status.file_name.len() > 255
+        || status.file_name.contains('/')
+        || status.file_name.contains('\\')
+        || status.file_name.contains('\0')
+    {
+        return Err("The Node returned an invalid intake file name.".to_string());
+    }
+    if status.media_type.trim().is_empty() || status.media_type.contains('\0') {
+        return Err("The Node returned an invalid intake media type.".to_string());
+    }
+    validate_status(&status.ocr_status, "OCR")?;
+    validate_status(&status.vision_status, "vision")?;
+    if !matches!(status.confidence_band.as_str(), "green" | "amber" | "red") {
+        return Err("The Node returned an invalid confidence band.".to_string());
+    }
+    for confidence in [status.average_confidence, status.min_confidence] {
+        if !confidence.is_finite() || !(0.0..=1.0).contains(&confidence) {
+            return Err("The Node returned an invalid intake confidence.".to_string());
+        }
+    }
+    if status.page_count == 0 || status.pages.len() != status.page_count as usize {
+        return Err("The Node returned an inconsistent intake page count.".to_string());
+    }
+    if status.pages.len() > MAX_INTAKE_STATUS_PAGES
+        || status.low_confidence_pages.len() > MAX_INTAKE_STATUS_PAGES
+    {
+        return Err("The Node returned too many intake status pages.".to_string());
+    }
+    for page in status.pages.iter().chain(status.low_confidence_pages.iter()) {
+        validate_node_reference(&page.page_id, "page")?;
+        if page.page_number == 0 || page.extraction_method.trim().is_empty() {
+            return Err("The Node returned an invalid intake status page.".to_string());
+        }
+        if !page.confidence.is_finite() || !(0.0..=1.0).contains(&page.confidence) {
+            return Err("The Node returned an invalid page confidence.".to_string());
+        }
+    }
+    validate_node_reference(&status.ledger_event_ref, "ledger event")
+}
+
 #[tauri::command]
 pub fn pick_query_file(state: State<'_, IntakeState>) -> Result<Option<SelectedFile>, String> {
     let path = {
@@ -509,6 +591,51 @@ pub async fn fetch_safe_preview(
     fetch_safe_preview_from_profile(profile, preview_ref, expected_source_hash).await
 }
 
+pub async fn fetch_intake_status_from_profile(
+    profile: NodeProfile,
+    intake_id: String,
+) -> Result<IntakeStatus, String> {
+    validate_node_reference(&intake_id, "intake")?;
+    let token = credential_token(&profile).map_err(String::from)?;
+    let response = build_client(&profile)
+        .map_err(String::from)?
+        .get(
+            node_url(
+                &profile,
+                &format!("/api/v1/intake/status/{intake_id}"),
+            )
+            .map_err(String::from)?,
+        )
+        .header("Accept", "application/json")
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|_| "The approved Node intake status request failed.".to_string())?;
+    verify_certificate_pin(&profile, &response).map_err(String::from)?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "The Node intake status request returned HTTP {}.",
+            response.status().as_u16()
+        ));
+    }
+    let status = response
+        .json::<IntakeStatus>()
+        .await
+        .map_err(|_| "The Node did not return an intake status schema.".to_string())?;
+    validate_intake_status(&status, &intake_id, &profile.clearance_context)?;
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn fetch_intake_status(
+    app: tauri::AppHandle,
+    profile_id: String,
+    intake_id: String,
+) -> Result<IntakeStatus, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    fetch_intake_status_from_profile(profile, intake_id).await
+}
+
 pub async fn fetch_artifact_preview_from_profile(
     profile: NodeProfile,
     artifact_id: String,
@@ -658,9 +785,10 @@ fn _keep_error_type_linked(_: NodeTransportError) {}
 #[cfg(test)]
 mod tests {
     use super::{
-        validate_artifact_preview, validate_intake_manifest, validate_node_reference,
-        validate_preview_source_hash, validate_safe_preview, ArtifactPreview, ArtifactPreviewBlock,
-        IntakeManifest, SafePreview,
+        validate_artifact_preview, validate_intake_manifest, validate_intake_status,
+        validate_node_reference, validate_preview_source_hash, validate_safe_preview,
+        ArtifactPreview, ArtifactPreviewBlock, IntakeManifest, IntakeStatus, IntakeStatusPage,
+        SafePreview,
     };
 
     fn valid_manifest() -> IntakeManifest {
@@ -793,5 +921,49 @@ mod tests {
         assert!(
             validate_preview_source_hash(&preview, &format!("sha256:{}", "a".repeat(64))).is_err()
         );
+    }
+
+    #[test]
+    fn intake_status_validation_rejects_tampered_confidence_and_pages() {
+        let page = IntakeStatusPage {
+            page_id: "page-1".to_string(),
+            page_number: 1,
+            confidence: 0.5,
+            extraction_method: "ocr_tesseract".to_string(),
+            bounding_box_count: 3,
+            table_count: 1,
+            review_recommended: true,
+        };
+        let mut status = IntakeStatus {
+            intake_id: "intake-1".to_string(),
+            file_name: "scan.pdf".to_string(),
+            media_type: "application/pdf".to_string(),
+            page_count: 1,
+            ocr_provider: "airbench.ocr.tesseract".to_string(),
+            ocr_status: "completed".to_string(),
+            vision_status: "not_applicable".to_string(),
+            average_confidence: 0.5,
+            min_confidence: 0.5,
+            confidence_band: "red".to_string(),
+            review_recommended: true,
+            low_confidence_pages: vec![page.clone()],
+            pages: vec![page],
+            ledger_event_ref: "ledger-intake-1".to_string(),
+        };
+        assert!(validate_intake_status(&status, "intake-1", "restricted").is_ok());
+
+        status.confidence_band = "blue".to_string();
+        assert!(validate_intake_status(&status, "intake-1", "restricted").is_err());
+        status.confidence_band = "red".to_string();
+
+        status.page_count = 2;
+        assert!(validate_intake_status(&status, "intake-1", "restricted").is_err());
+        status.page_count = 1;
+
+        status.average_confidence = 1.5;
+        assert!(validate_intake_status(&status, "intake-1", "restricted").is_err());
+        status.average_confidence = 0.5;
+
+        assert!(validate_intake_status(&status, "intake-2", "restricted").is_err());
     }
 }
