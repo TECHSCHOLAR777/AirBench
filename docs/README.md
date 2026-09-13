@@ -28,6 +28,7 @@ These documents establish the two flows and the three properties that hold throu
 | [assurance](assurance/) | Qualification, ledger, security, and verification assurance |
 | [delivery](delivery/) | Deliverables, packaging, deployment, and scale |
 | [desktop](desktop/) | Tauri application design, contracts, workflows, and validation |
+| [intake](intake/) | Controlled adapters for specialized file and visual-intake paths, including engineering drawings and P&IDs |
 | [evidence/backend](evidence/backend/) | Backend implementation evidence and acceptance notes |
 | [operations](operations/) | Agent workflow and current execution status |
 | [future](future/) | Deliberately deferred full-fledge requirements |

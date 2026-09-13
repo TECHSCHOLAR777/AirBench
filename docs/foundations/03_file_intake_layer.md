@@ -18,7 +18,7 @@ All file type coverage lives here, in one place, so a new format is added once a
 - Word and other rich text documents.
 - Excel, CSV, and other spreadsheets, read as structured tables with headers, units, and formulas kept intact.
 - Photographs, read by the vision model.
-- A reserved drawing-adapter interface; engineering drawing parsing is not in the first scope and will be supplied later by the separate drawing pipeline.
+- A reserved drawing-adapter interface. The engineering drawing and P&ID pipeline is specified in `docs/intake/pid.md` and must enter only through this layer before it is enabled.
 - Plain text and markup.
 
 Adding a new type means adding one parser to this layer. Nothing else in the system changes, and neither caller can drift out of sync with the other, because there is only one path.
