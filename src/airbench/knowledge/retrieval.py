@@ -162,27 +162,64 @@ class QualifiedReranker:
         return values
 
 
+class VectorStore(Protocol):
+    """Provider-neutral durable index storage behind ``LocalVectorIndex``.
+
+    A store owns persistence and clearance-filtered similarity search.  It is
+    injected so the core can use an offline SQLite store, an optional Chroma
+    collection, or an in-memory test double without changing callers.
+    """
+
+    @property
+    def chunks(self) -> tuple[IndexChunk, ...]: ...
+
+    def upsert(self, chunks: Iterable[IndexChunk]) -> None: ...
+
+    def search(self, embedding: tuple[float, ...], clearance: Clearance, limit: int) -> tuple[IndexChunk, ...]: ...
+
+
 class LocalVectorIndex:
-    """Small local index with optional bounded JSON persistence.
+    """Local index facade with optional bounded JSON persistence.
+
+    When a ``VectorStore`` is injected, ``upsert``, ``search``, and ``chunks``
+    delegate to it and the JSON file seam is unused.  Without a store the
+    built-in JSON-backed behavior is preserved.
 
     The file is a simple deployment seam, not a claim that JSON is the
     production-scale vector database.  Providers and durable storage remain
     replaceable at the boundary.
     """
 
-    def __init__(self, path: str | Path | None = None, *, max_file_bytes: int = 50_000_000) -> None:
+    def __init__(
+        self,
+        path: str | Path | None = None,
+        *,
+        max_file_bytes: int = 50_000_000,
+        store: VectorStore | None = None,
+    ) -> None:
         if max_file_bytes < 1:
             raise RetrievalError("invalid_storage_limit", "index storage limit must be positive")
-        self._path = Path(path) if path is not None else None
+        self._store = store
+        self._path = Path(path) if (path is not None and store is None) else None
         self._max_file_bytes = max_file_bytes
         self._chunks: dict[str, IndexChunk] = {}
-        self._load()
+        if store is None:
+            self._load()
+
+    @property
+    def store(self) -> VectorStore | None:
+        return self._store
 
     @property
     def chunks(self) -> tuple[IndexChunk, ...]:
+        if self._store is not None:
+            return self._store.chunks
         return tuple(self._chunks.values())
 
     def upsert(self, chunks: Iterable[IndexChunk]) -> None:
+        if self._store is not None:
+            self._store.upsert(chunks)
+            return
         updated = dict(self._chunks)
         incoming = tuple(chunks)
         for chunk in incoming:
@@ -247,6 +284,8 @@ class LocalVectorIndex:
     def search(self, embedding: tuple[float, ...], clearance: Clearance, limit: int) -> tuple[IndexChunk, ...]:
         if limit < 1:
             raise RetrievalError("invalid_limit", "search limit must be positive")
+        if self._store is not None:
+            return self._store.search(embedding, clearance, limit)
         candidates = [
             (self._cosine(embedding, chunk.embedding), chunk)
             for chunk in self._chunks.values()
@@ -495,5 +534,5 @@ class LexicalReranker:
 __all__ = [
     "CitedExcerpt", "DeterministicEmbeddingProvider", "EmbeddingProvider", "IndexChunk", "IndexRequest",
     "LexicalReranker", "LocalIndexer", "LocalVectorIndex", "QualifiedEmbeddingProvider", "QualifiedReranker",
-    "RetrievalError", "RetrievalRequest", "RetrievalService", "Reranker",
+    "RetrievalError", "RetrievalRequest", "RetrievalService", "Reranker", "VectorStore",
 ]

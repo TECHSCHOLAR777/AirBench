@@ -27,10 +27,12 @@ from pathlib import PurePosixPath
 from typing import Any, Protocol
 from xml.etree import ElementTree
 
-from contracts import Clearance, EventLedger, Taint, build_event, idempotency_key, stable_id
+from contracts import Clearance, EventLedger, PageRegion, StructuredTable, Taint, build_event, idempotency_key, stable_id
 from PIL import Image, UnidentifiedImageError
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
+
+from .vision import LocalVisionAdapter, VisionError, VisionRequest
 
 
 MAX_FILE_BYTES = 50_000_000
@@ -118,6 +120,8 @@ class PageRecord:
     rendered_page_ref: str | None = None
     render_status: str = "deferred"
     rendered_media_type: str | None = None
+    regions: tuple[PageRegion, ...] = ()
+    tables: tuple[StructuredTable, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -135,6 +139,8 @@ class PageRecord:
             "rendered_page_ref": self.rendered_page_ref,
             "render_status": self.render_status,
             "rendered_media_type": self.rendered_media_type,
+            "regions": [region.to_dict() for region in self.regions],
+            "tables": [table.to_dict() for table in self.tables],
         }
 
 
@@ -386,6 +392,8 @@ class LocalIntakeStore:
                     rendered_page_ref=item.get("rendered_page_ref"),
                     render_status=item.get("render_status", "deferred"),
                     rendered_media_type=item.get("rendered_media_type"),
+                    regions=tuple(PageRegion.from_dict(region) for region in item.get("regions", [])),
+                    tables=tuple(StructuredTable.from_dict(table) for table in item.get("tables", [])),
                 )
                 for item in payload["pages"]
             )
@@ -924,6 +932,82 @@ def _append_evidence_event(ledger: LedgerSink, manifest: IntakeManifest) -> str:
     return event.event_id
 
 
+def apply_vision_to_pages(
+    pages: tuple[PageRecord, ...],
+    *,
+    vision_adapter: LocalVisionAdapter | None,
+    task_id: str,
+    intake_id: str,
+    revision_id: str,
+    source_ref: str,
+    rendered_pages: dict[str, bytes] | None = None,
+    source_content: bytes | None = None,
+) -> tuple[tuple[PageRecord, ...], tuple[str, ...]]:
+    """Run the qualified OCR/vision adapter over textless pages.
+
+    Pages that already carry parser text are left untouched.  A failed OCR
+    call leaves the page text empty and is reported in the returned failure
+    list, so the caller never presents unread content as read.  Bounding boxes
+    and structured tables produced by the adapter are retained on the page.
+    """
+
+    if vision_adapter is None:
+        return pages, ()
+    rendered = rendered_pages or {}
+    updated: list[PageRecord] = []
+    failed: list[str] = []
+    for page in pages:
+        if page.text.strip():
+            updated.append(page)
+            continue
+        content = rendered.get(page.page_id)
+        if content is None and page.media_type.startswith("image/"):
+            content = source_content
+        if not content:
+            updated.append(page)
+            continue
+        request = VisionRequest(
+            task_id=task_id,
+            intake_id=intake_id,
+            revision_id=revision_id,
+            page_id=page.page_id,
+            page_number=page.page_number,
+            source_ref=source_ref,
+            media_type=page.media_type,
+            content=content,
+            content_hash=hashlib.sha256(content).hexdigest(),
+            clearance=page.clearance,
+            taint=page.taint,
+        )
+        try:
+            result = vision_adapter.extract(request)
+        except VisionError:
+            failed.append(page.page_id)
+            updated.append(page)
+            continue
+        regions = tuple(
+            PageRegion(
+                region_id=region.region_id,
+                page_number=region.page_number if region.page_number is not None else page.page_number,
+                text=region.text,
+                bounding_box=region.bounding_box,
+                confidence=region.confidence,
+                extraction_method=result.extraction_method,
+            )
+            for region in result.regions
+            if region.bounding_box is not None
+        )
+        updated.append(replace(
+            page,
+            text=result.text,
+            confidence=result.confidence,
+            extraction_method=result.extraction_method,
+            regions=regions,
+            tables=result.tables,
+        ))
+    return tuple(updated), tuple(failed)
+
+
 class FileIntakeLayer:
     """One parser boundary shared by bulk ingestion and query uploads."""
 
@@ -934,11 +1018,13 @@ class FileIntakeLayer:
         *,
         renderer: PageRenderer | None = None,
         store: IntakeStore | None = None,
+        vision_adapter: LocalVisionAdapter | None = None,
     ) -> None:
         self._ledger = ledger
         self._parser = parser or BuiltinDocumentParser()
         self._renderer = renderer
         self._store = store
+        self._vision_adapter = vision_adapter
 
     def intake(self, request: IntakeRequest) -> IntakeManifest:
         _validate_request(request)
@@ -983,17 +1069,28 @@ class FileIntakeLayer:
                 rendered_media_type=rendered.media_type,
             ))
         pages = tuple(rendered_records)
-        ingested_at = _now()
         revision_hash = _semantic_revision_hash(
             media_type,
             tuple((page.source_region, page.text) for page in pages),
             source_hash,
         )
+        revision_id = stable_id("revision", request.source_ref, revision_hash, self._parser.version, renderer_version)
+        pages, vision_failures = apply_vision_to_pages(
+            pages,
+            vision_adapter=self._vision_adapter,
+            task_id=request.task_id,
+            intake_id=intake_id,
+            revision_id=revision_id,
+            source_ref=request.source_ref,
+            rendered_pages=rendered_pages,
+            source_content=request.content,
+        )
+        ingested_at = _now()
         manifest = IntakeManifest(
             intake_id=intake_id,
             task_id=request.task_id,
             source_ref=request.source_ref,
-            revision_id=stable_id("revision", request.source_ref, revision_hash, self._parser.version, renderer_version),
+            revision_id=revision_id,
             source_hash=source_hash,
             file_name=request.file_name,
             media_type=media_type,
@@ -1006,6 +1103,8 @@ class FileIntakeLayer:
                 "parser_version": self._parser.version,
                 "renderer_name": renderer_name,
                 "renderer_version": renderer_version,
+                "ocr_provider": self._vision_adapter.adapter_id if self._vision_adapter is not None else "none",
+                "ocr_failed_pages": str(len(vision_failures)),
             },
             pages=pages,
             mode=request.mode,

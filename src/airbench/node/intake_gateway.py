@@ -47,6 +47,8 @@ class NodeIntakeGateway(Protocol):
 
     def preview(self, *, preview_ref: str) -> dict[str, Any]: ...
 
+    def status(self, *, intake_id: str) -> dict[str, Any]: ...
+
     def artifact_preview(self, *, artifact_id: str) -> dict[str, Any]: ...
 
     def download(self, *, artifact_id: str) -> NodeArtifactDownload: ...
@@ -132,6 +134,10 @@ class LocalNodeIntakeGateway:
             "ledger_event_ref": event_ref,
         }
 
+    def status(self, *, intake_id: str) -> dict[str, Any]:
+        manifest = self._visible_manifest(intake_id)
+        return self._status_wire(manifest)
+
     def artifact_preview(self, *, artifact_id: str) -> dict[str, Any]:
         manifest = self._visible_manifest(artifact_id)
         blocks = [
@@ -205,6 +211,59 @@ class LocalNodeIntakeGateway:
             "ledger_event_ref": manifest.ledger_event_ref,
         }
 
+    def _status_wire(self, manifest: IntakeManifest) -> dict[str, Any]:
+        pages = manifest.pages
+        confidences = [page.confidence for page in pages] or [0.0]
+        average = sum(confidences) / len(confidences)
+        minimum = min(confidences)
+        ocr_pages = [page for page in pages if page.extraction_method.startswith("ocr_")]
+        unread = [page for page in pages if not page.text.strip()]
+        provider = manifest.extraction_settings.get("ocr_provider", "none")
+        if not unread and (ocr_pages or provider != "none"):
+            status = "completed"
+        elif ocr_pages and unread:
+            status = "partial"
+        elif not unread:
+            status = "not_applicable"
+        else:
+            status = "unavailable"
+        return {
+            "intake_id": manifest.intake_id,
+            "file_name": manifest.file_name,
+            "media_type": manifest.media_type,
+            "page_count": manifest.page_count,
+            "ocr_provider": provider,
+            "ocr_status": status,
+            "vision_status": status,
+            "average_confidence": round(average, 4),
+            "min_confidence": round(minimum, 4),
+            "confidence_band": _confidence_band(average),
+            "review_recommended": average < 0.85 or bool(unread),
+            "low_confidence_pages": [
+                {
+                    "page_id": page.page_id,
+                    "page_number": page.page_number,
+                    "confidence": page.confidence,
+                    "extraction_method": page.extraction_method,
+                }
+                for page in pages
+                if page.confidence < 0.65 or not page.text.strip()
+            ],
+            "pages": [
+                {
+                    "page_id": page.page_id,
+                    "page_number": page.page_number,
+                    "confidence": page.confidence,
+                    "extraction_method": page.extraction_method,
+                    "bounding_box_count": len(page.regions),
+                    "table_count": len(page.tables),
+                    "review_recommended": page.confidence < 0.65 or not page.text.strip(),
+                }
+                for page in pages
+            ],
+            "ledger_event_ref": manifest.ledger_event_ref,
+        }
+
     def _record_access(self, manifest: IntakeManifest, operation: str, reference: str, page: PageRecord) -> str:
         key = idempotency_key("node-intake-access", operation, manifest.intake_id)
         existing = next((event for event in self._ledger.events if event.idempotency_key == key), None)
@@ -268,6 +327,14 @@ def _processing_status(manifest: IntakeManifest) -> tuple[str, str]:
     if all(page.text and page.confidence > 0 for page in manifest.pages):
         return "not_applicable", "not_applicable"
     return "unavailable", "unavailable"
+
+
+def _confidence_band(average: float) -> str:
+    if average >= 0.85:
+        return "green"
+    if average >= 0.65:
+        return "amber"
+    return "red"
 
 
 def _map_intake_error(error: IntakeError) -> NodeIntakeError:

@@ -135,6 +135,7 @@ def build_retrieval_runtime(
     ledger: Any = None,
     embedding_provider: Any = None,
     reranker: Any = None,
+    vector_store: Any = None,
 ) -> RetrievalRuntime:
     """Compose the retrieval stack from the canonical model store.
 
@@ -151,7 +152,7 @@ def build_retrieval_runtime(
         root / reranker_dir, model_id=reranker_model_id,
         qualification_reference=reranker_qualification_reference, device=device,
     )
-    index = LocalVectorIndex(index_path)
+    index = LocalVectorIndex(index_path, store=vector_store)
     indexer = LocalIndexer(index, embeddings, ledger=ledger)
     service = RetrievalService(index, embeddings, reranker=reranker_impl, ledger=ledger)
     return RetrievalRuntime(
@@ -164,7 +165,8 @@ def build_retrieval_runtime(
 
 
 def retrieval_runtime_from_env(*, ledger: Any = None,
-                               embedding_provider: Any = None, reranker: Any = None) -> RetrievalRuntime:
+                               embedding_provider: Any = None, reranker: Any = None,
+                               vector_store: Any = None) -> RetrievalRuntime:
     """Build the retrieval stack from environment configuration.
 
     ``AIRBENCH_RETRIEVAL_MODEL_STORE`` takes precedence so the BGE models may
@@ -178,9 +180,13 @@ def retrieval_runtime_from_env(*, ledger: Any = None,
     if not model_store:
         raise EnvironmentError("AIRBENCH_RETRIEVAL_MODEL_STORE or AIRBENCH_MODEL_STORE is required when retrieval is enabled")
     index_path = os.environ.get("AIRBENCH_RETRIEVAL_INDEX_PATH", "").strip() or None
+    if vector_store is None:
+        from .vector_store import build_vector_store_from_env
+
+        vector_store = build_vector_store_from_env()
     return build_retrieval_runtime(
         model_store=model_store, index_path=index_path, ledger=ledger,
-        embedding_provider=embedding_provider, reranker=reranker,
+        embedding_provider=embedding_provider, reranker=reranker, vector_store=vector_store,
         embedding_dir=os.environ.get("AIRBENCH_EMBEDDING_DIR", "bge-m3").strip() or "bge-m3",
         reranker_dir=os.environ.get("AIRBENCH_RERANKER_DIR", "bge-reranker-v2-m3").strip() or "bge-reranker-v2-m3",
     )

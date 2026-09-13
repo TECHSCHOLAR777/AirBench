@@ -1,10 +1,21 @@
 rules:
   - id: finding_requires_source_region
     applies_to: inspection_finding
+    check: citation_required
     result: needs_review_if_missing
   - id: numeric_value_requires_deterministic_derivation
     applies_to: approval_note
+    check: citation_required
+    source_prefixes: ["calc:", "fact:", "deterministic"]
     result: needs_review_if_unverified
+  - id: pressure_within_operating_envelope
+    applies_to: inspection_finding
+    check: range_check
+    expected_unit: bar
+    lower_bound: 0
+    upper_bound: 100
+    result: failed_if_out_of_range
   - id: approval_note_requires_independent_verification
     applies_to: approval_note
+    check: cross_reference
     result: blocked_if_verifier_unavailable

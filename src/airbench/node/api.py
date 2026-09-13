@@ -129,10 +129,27 @@ class NodeApiConfig:
             raise ValueError("node_identity has an invalid shape")
 
 
+def _fact_wire(fact: Any) -> dict[str, Any]:
+    return {
+        "fact_id": fact.fact_id,
+        "value": fact.value,
+        "source_ref": fact.source_ref,
+        "confidence": fact.confidence,
+        "clearance": fact.clearance.value,
+        "taint": fact.taint.value,
+        "extraction_method": fact.extraction_method,
+        "unit": fact.unit,
+        "observed_at": fact.observed_at,
+        "ingested_at": fact.ingested_at,
+        "supersedes_fact_id": fact.supersedes_fact_id,
+        "parent_fact_ids": list(fact.parent_fact_ids),
+    }
+
+
 class NodeApiService:
     """Owns API authentication and projections, not task authority."""
 
-    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None, model_router: Any = None, task_planner: Any = None, retrieval: Any = None, execution: Any = None):
+    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None, model_router: Any = None, task_planner: Any = None, retrieval: Any = None, execution: Any = None, knowledge: Any = None, pack: Any = None, world_model: Any = None, consistency: Any = None, autonomy: Any = None, hardware_profile: Any = None, qualification_matrix: Any = None):
         self.orchestrator = orchestrator
         self.config = config
         self.intake_gateway = intake_gateway
@@ -150,6 +167,19 @@ class NodeApiService:
         # an approved plan is executed by the Node instead of waiting for
         # client-driven model calls.
         self.execution = execution
+        # The bulk knowledge ingestion service is opt-in and root-guarded.
+        self.knowledge = knowledge
+        # The verified domain pack declaration, or ``None`` when not configured.
+        self.pack = pack
+        # The committed world model graph, or ``None`` when not configured.
+        self.world_model = world_model
+        # The task-scoped consistency service, or ``None`` when not configured.
+        self.consistency = consistency
+        # The task-scoped autonomy service, or ``None`` when not configured.
+        self.autonomy = autonomy
+        # Hardware and qualification projections for the Node settings surface.
+        self.hardware_profile = hardware_profile
+        self.qualification_matrix = qualification_matrix
         self._ledger: LedgerView = orchestrator.store
         self._lock = RLock()
 
@@ -215,6 +245,298 @@ class NodeApiService:
                 return gateway.preview(preview_ref=preview_ref)
             except NodeIntakeError as exc:
                 raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
+    def intake_status(self, intake_id: str) -> dict[str, Any]:
+        with self._lock:
+            gateway = self._require_intake_gateway()
+            try:
+                return gateway.status(intake_id=intake_id)
+            except NodeIntakeError as exc:
+                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
+    def knowledge_status(self) -> dict[str, Any]:
+        runtime = self.retrieval
+        if runtime is None:
+            return {"configured": False, "status": "disabled", "indexed_chunks": 0}
+        store = getattr(runtime.index, "store", None)
+        response = {
+            "configured": True,
+            "status": "ready",
+            "embedding_model": runtime.embedding_model_id,
+            "embedding_qualification_reference": runtime.embedding_qualification_reference,
+            "reranker_model": runtime.reranker_model_id,
+            "reranker_qualification_reference": runtime.reranker_qualification_reference,
+            "indexed_chunks": len(runtime.index.chunks),
+            "vector_store": type(store).__name__ if store is not None else "json",
+        }
+        count = getattr(store, "chunk_count", None)
+        if isinstance(count, int):
+            response["store_chunk_count"] = count
+        return response
+
+    def pack_status(self) -> dict[str, Any]:
+        if self.pack is None:
+            return {"configured": False, "status": "disabled"}
+        return {"configured": True, "status": "ready", **self.pack.to_dict()}
+
+    def graph_status(self) -> dict[str, Any]:
+        world = self.world_model
+        if world is None:
+            return {"configured": False, "status": "disabled"}
+        backend = getattr(world, "_backend", None)
+        return {
+            "configured": True,
+            "status": "ready",
+            "node_count": len(world.facts),
+            "edge_count": len(world.relations),
+            "review_queue_count": len(world.review_queue),
+            "backend": type(backend).__name__ if backend is not None else "json",
+        }
+
+    def graph_query(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from airbench.knowledge.world_model import WorldModelQuery
+
+        world = self._require_world_model()
+        clearance = _clearance(payload.get("clearance")) if payload.get("clearance") is not None else self.config.clearance_context
+        self._check_clearance(clearance)
+        limit = payload.get("limit", 50)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 200:
+            raise NodeApiError(422, "invalid_limit", "limit must be between 1 and 200.")
+        max_depth = payload.get("max_depth", 1)
+        if not isinstance(max_depth, int) or isinstance(max_depth, bool) or not 0 <= max_depth <= 5:
+            raise NodeApiError(422, "invalid_limit", "max_depth must be between 0 and 5.")
+        facts = world.query(WorldModelQuery(
+            task_id="knowledge.graph",
+            key=str(payload.get("key", ""))[:256],
+            clearance=clearance,
+            limit=limit,
+            entity_id=str(payload.get("entity_id", ""))[:256],
+            relation=str(payload.get("relation", ""))[:128],
+            max_depth=max_depth,
+        ))
+        return {"result_count": len(facts), "facts": [_fact_wire(fact) for fact in facts]}
+
+    def graph_review_queue(self) -> dict[str, Any]:
+        world = self._require_world_model()
+        return {
+            "count": len(world.review_queue),
+            "items": [
+                {
+                    "candidate_id": item.candidate.candidate_id,
+                    "fact_id": item.candidate.fact.fact_id,
+                    "reason": item.reason,
+                    "enqueued_at": item.enqueued_at,
+                    "confidence": item.candidate.fact.confidence,
+                    "clearance": item.candidate.fact.clearance.value,
+                    "source_ref": item.candidate.fact.source_ref,
+                }
+                for item in world.review_queue
+            ],
+        }
+
+    def graph_resolve_review(self, payload: dict[str, Any]) -> dict[str, Any]:
+        world = self._require_world_model()
+        candidate_id = _text(payload, "candidate_id", 256)
+        accept = payload.get("accept")
+        if not isinstance(accept, bool):
+            raise NodeApiError(422, "invalid_decision", "accept must be a boolean.")
+        item = next((entry for entry in world.review_queue if entry.candidate.candidate_id == candidate_id), None)
+        if item is None:
+            raise NodeApiError(404, "review_not_found", "The review item does not exist.")
+        self._check_clearance(item.candidate.fact.clearance)
+        fact = world.resolve_review(candidate_id, accept=accept)
+        return {"candidate_id": candidate_id, "decision": "accept" if accept else "reject", "fact_id": fact.fact_id if fact else None}
+
+    def _require_world_model(self) -> Any:
+        if self.world_model is None:
+            raise NodeApiError(503, "world_model_unavailable", "The world model graph is not configured.")
+        return self.world_model
+
+    def consistency_report(self, task_id: str) -> dict[str, Any]:
+        self._require_task(task_id)
+        return self._require_consistency().latest(task_id)
+
+    def consistency_evaluate(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from .consistency_gateway import ConsistencyServiceError
+
+        service = self._require_consistency()
+        self._require_task(task_id)
+        features_raw = payload.get("features", {})
+        if not isinstance(features_raw, dict) or len(features_raw) > 100:
+            raise NodeApiError(422, "invalid_features", "features must be an object of at most 100 entries.")
+        material_raw = payload.get("material_features")
+        material: tuple[str, ...] | None = None
+        if material_raw is not None:
+            if not isinstance(material_raw, list) or len(material_raw) > 100:
+                raise NodeApiError(422, "invalid_features", "material_features must be a list.")
+            material = tuple(str(item) for item in material_raw)
+        clearance = _clearance(payload.get("clearance")) if payload.get("clearance") is not None else self.config.clearance_context
+        self._check_clearance(clearance)
+        try:
+            return service.evaluate(
+                task_id=task_id,
+                decision_id=_text(payload, "decision_id", 128),
+                decision_type=_text(payload, "decision_type", 128),
+                object_id=_text(payload, "object_id", 256),
+                features={str(key): str(value) for key, value in features_raw.items()},
+                decision=_text(payload, "decision", 256),
+                rule_ref=_text(payload, "rule_ref", 256, default=""),
+                authority=_text(payload, "authority", 128, default=""),
+                clearance=clearance,
+                material_features=material,
+            )
+        except ConsistencyServiceError as exc:
+            raise NodeApiError(409, exc.code, str(exc)) from exc
+
+    def consistency_justify(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from .consistency_gateway import ConsistencyServiceError
+
+        service = self._require_consistency()
+        self._require_task(task_id)
+        try:
+            return service.justify(
+                task_id=task_id, operator_id=subject, justification=_text(payload, "justification", 4_000),
+            )
+        except ConsistencyServiceError as exc:
+            raise NodeApiError(409, exc.code, str(exc)) from exc
+
+    def _require_consistency(self) -> Any:
+        if self.consistency is None:
+            raise NodeApiError(503, "consistency_unavailable", "The consistency service is not configured.")
+        return self.consistency
+
+    def autonomy_records(self, task_id: str) -> dict[str, Any]:
+        self._require_task(task_id)
+        service = self._require_autonomy()
+        return {"task_id": task_id, "decisions": list(service.decisions(task_id)), "blocked": service.is_blocked(task_id)}
+
+    def autonomy_score(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from contracts import Taint
+
+        from .autonomy_gateway import AutonomyServiceError
+
+        service = self._require_autonomy()
+        self._require_task(task_id)
+        clearance = _clearance(payload.get("clearance")) if payload.get("clearance") is not None else self.config.clearance_context
+        self._check_clearance(clearance)
+        try:
+            taint = Taint(str(payload.get("taint", "untrusted")))
+        except ValueError as exc:
+            raise NodeApiError(422, "invalid_taint", "taint is invalid.") from exc
+        confidence = payload.get("confidence", 1.0)
+        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= float(confidence) <= 1:
+            raise NodeApiError(422, "invalid_confidence", "confidence must be between 0 and 1.")
+        try:
+            return service.score(
+                task_id=task_id,
+                action_id=_text(payload, "action_id", 128),
+                action_kind=_text(payload, "action_kind", 128),
+                source_ref=_text(payload, "source_ref", 512),
+                confidence=float(confidence),
+                clearance=clearance,
+                taint=taint,
+                worker_id=str(payload.get("worker_id", "node.execution"))[:128],
+                claimed_risk=str(payload["claimed_risk"])[:128] if payload.get("claimed_risk") else None,
+                target_object_id=str(payload.get("target_object_id", ""))[:256],
+            )
+        except AutonomyServiceError as exc:
+            raise NodeApiError(409, exc.code, str(exc)) from exc
+
+    def autonomy_authorize(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from .autonomy_gateway import AutonomyServiceError
+
+        service = self._require_autonomy()
+        self._require_task(task_id)
+        try:
+            return service.authorize(task_id=task_id, operator_id=subject, action_id=str(payload.get("action_id", ""))[:128])
+        except AutonomyServiceError as exc:
+            raise NodeApiError(409, exc.code, str(exc)) from exc
+
+    def _require_autonomy(self) -> Any:
+        if self.autonomy is None:
+            raise NodeApiError(503, "autonomy_unavailable", "The autonomy service is not configured.")
+        return self.autonomy
+
+    def hardware_status(self) -> dict[str, Any]:
+        if self.hardware_profile is None:
+            return {"configured": False, "status": "disabled"}
+        from .hardware_gateway import hardware_status
+
+        return {"configured": True, "status": "ready", **hardware_status(self.hardware_profile)}
+
+    def qualification_status(self, target_id: str) -> dict[str, Any]:
+        if self.qualification_matrix is None:
+            return {"target_id": target_id, "status": "unavailable", "certificates": []}
+        from .qualification_gateway import qualification_status
+
+        return qualification_status(self.qualification_matrix, target_id)
+
+    def _require_task(self, task_id: str) -> str:
+        self._visible_task(task_id)
+        return self.orchestrator.state(task_id)
+
+    def knowledge_search(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from airbench.knowledge.retrieval import RetrievalRequest
+        from airbench.knowledge.retrieval_loop import RetrievalLoopRequest, run_iterative_retrieval
+
+        runtime = self.retrieval
+        if runtime is None:
+            raise NodeApiError(503, "retrieval_unavailable", "The local retrieval service is not configured.")
+        query = _text(payload, "query", 4096)
+        clearance = _clearance(payload.get("clearance")) if payload.get("clearance") is not None else self.config.clearance_context
+        self._check_clearance(clearance)
+        top_k = payload.get("top_k", 5)
+        if not isinstance(top_k, int) or isinstance(top_k, bool) or not 1 <= top_k <= 20:
+            raise NodeApiError(422, "invalid_limit", "top_k must be between 1 and 20.")
+        iterative = bool(payload.get("iterative", False))
+        if iterative:
+            max_rounds = payload.get("max_rounds", 2)
+            if not isinstance(max_rounds, int) or isinstance(max_rounds, bool) or not 1 <= max_rounds <= 5:
+                raise NodeApiError(422, "invalid_limit", "max_rounds must be between 1 and 5.")
+            citations = run_iterative_retrieval(
+                runtime.service,
+                RetrievalLoopRequest(
+                    task_id="knowledge.search", query=query, clearance=clearance, top_k=top_k, max_rounds=max_rounds,
+                ),
+            )
+        else:
+            citations = runtime.service.search(RetrievalRequest(
+                task_id="knowledge.search", query=query, clearance=clearance, top_k=top_k,
+            ))
+        return {
+            "query": query,
+            "clearance": clearance.value,
+            "iterative": iterative,
+            "result_count": len(citations),
+            "results": [
+                {
+                    "citation_id": citation.citation_id,
+                    "chunk_id": citation.chunk_id,
+                    "source_ref": citation.source_ref,
+                    "revision_id": citation.revision_id,
+                    "page_id": citation.page_id,
+                    "source_span": citation.source_span,
+                    "excerpt": citation.excerpt,
+                    "score": citation.score,
+                    "confidence": citation.confidence,
+                    "clearance": citation.clearance.value,
+                    "taint": citation.taint.value,
+                    "content_hash": citation.content_hash,
+                    "embedding_model": citation.embedding_model,
+                    "reranker_model": citation.reranker_model,
+                }
+                for citation in citations
+            ],
+        }
+
+    def knowledge_ingest(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.knowledge is None:
+            raise NodeApiError(503, "knowledge_ingest_unavailable", "Bulk knowledge ingestion is not configured.")
+        path = _text(payload, "path", 4096, default=".")
+        try:
+            return self.knowledge.ingest_directory(path=path)
+        except NodeIntakeError as exc:
+            raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
 
     def artifact_preview(self, artifact_id: str) -> dict[str, Any]:
         with self._lock:
@@ -460,6 +782,11 @@ class NodeApiService:
             artifact_id = _text(command.arguments, "artifact_id", 512)
             reason = _text(command.arguments, "reason", 4_096)
             self._require_visible_deliverable(task_id, artifact_id)
+            if self.consistency is not None and self.consistency.is_blocked(task_id):
+                raise NodeApiError(
+                    409, "consistency_review_required",
+                    "A flagged consistency deviation requires an operator justification before approval.",
+                )
             try:
                 result = self.orchestrator.signoff(
                     self._visible_task(task_id).task_id,
@@ -1275,6 +1602,76 @@ def create_app(service: NodeApiService) -> FastAPI:
     async def safe_intake_preview(preview_ref: str, request: Request) -> dict[str, Any]:
         auth(request)
         return service.safe_preview(preview_ref)
+
+    @app.get("/api/v1/intake/status/{intake_id}")
+    async def intake_status(intake_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.intake_status(intake_id)
+
+    @app.get("/api/v1/knowledge/status")
+    async def knowledge_status(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.knowledge_status()
+
+    @app.post("/api/v1/knowledge/search", status_code=200)
+    async def knowledge_search(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.knowledge_search(await json_body(request))
+
+    @app.post("/api/v1/knowledge/ingest", status_code=202)
+    async def knowledge_ingest(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.knowledge_ingest(await json_body(request))
+
+    @app.get("/api/v1/knowledge/graph/stats")
+    async def graph_stats(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.graph_status()
+
+    @app.post("/api/v1/knowledge/graph/query", status_code=200)
+    async def graph_query(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.graph_query(await json_body(request))
+
+    @app.get("/api/v1/knowledge/graph/review-queue")
+    async def graph_review_queue(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.graph_review_queue()
+
+    @app.post("/api/v1/knowledge/graph/review/resolve", status_code=200)
+    async def graph_resolve_review(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.graph_resolve_review(await json_body(request))
+
+    @app.get("/api/v1/tasks/{task_id}/consistency")
+    async def consistency_report(task_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.consistency_report(task_id)
+
+    @app.post("/api/v1/tasks/{task_id}/consistency/evaluate", status_code=200)
+    async def consistency_evaluate(task_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.consistency_evaluate(task_id, await json_body(request))
+
+    @app.post("/api/v1/tasks/{task_id}/consistency/justify", status_code=200)
+    async def consistency_justify(task_id: str, request: Request) -> dict[str, Any]:
+        subject = auth(request)
+        return service.consistency_justify(subject, task_id, await json_body(request))
+
+    @app.get("/api/v1/tasks/{task_id}/autonomy")
+    async def autonomy_records(task_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.autonomy_records(task_id)
+
+    @app.post("/api/v1/tasks/{task_id}/autonomy/score", status_code=200)
+    async def autonomy_score(task_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.autonomy_score(task_id, await json_body(request))
+
+    @app.post("/api/v1/tasks/{task_id}/autonomy/authorize", status_code=200)
+    async def autonomy_authorize(task_id: str, request: Request) -> dict[str, Any]:
+        subject = auth(request)
+        return service.autonomy_authorize(subject, task_id, await json_body(request))
 
     @app.get("/api/v1/artifacts/{artifact_id}/preview")
     async def artifact_preview(artifact_id: str, request: Request) -> dict[str, Any]:

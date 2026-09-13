@@ -208,5 +208,132 @@ class NodeIntakeApiTests(unittest.TestCase):
         self.assertEqual(unsupported.json()["code"], "intake_unsupported_media")
 
 
+    def test_intake_status_reports_confidence_summary(self):
+        content = b"Inspection finding remains untrusted source data."
+        upload = self.request(
+            "POST",
+            "/api/v1/intake/query-upload",
+            headers=self.headers(),
+            data={"intake_mode": "query_upload", "task_id": self.task.task_id, "source_file_size": str(len(content))},
+            files={"document": ("inspection-report.txt", content, "text/plain")},
+        )
+        self.assertEqual(upload.status_code, 200, upload.text)
+        intake_id = upload.json()["intake_id"]
+
+        status = self.request("GET", f"/api/v1/intake/status/{intake_id}", headers=self.headers())
+        self.assertEqual(status.status_code, 200, status.text)
+        body = status.json()
+        self.assertEqual(body["ocr_status"], "not_applicable")
+        self.assertEqual(body["confidence_band"], "green")
+        self.assertEqual(body["average_confidence"], 1.0)
+        self.assertFalse(body["review_recommended"])
+        self.assertEqual(body["pages"][0]["extraction_method"], "utf8_text_decode")
+        self.assertEqual(body["pages"][0]["bounding_box_count"], 0)
+
+        missing = self.request(
+            "GET", "/api/v1/intake/status/00000000-0000-0000-0000-000000000000", headers=self.headers()
+        )
+        self.assertEqual(missing.status_code, 404)
+
+
+class NodeIntakeOcrStatusTests(unittest.TestCase):
+    """The status endpoint reflects real OCR output and confidence bands."""
+
+    def setUp(self):
+        from hashlib import sha256
+        from io import BytesIO
+
+        from PIL import Image
+
+        from airbench.intake.ocr_provider import DeterministicOcrProvider
+        from airbench.intake.table_extractor import GridLineTableExtractor
+        from airbench.intake.vision import LocalVisionAdapter, ocr_provider_extractor
+
+        self.directory = tempfile.TemporaryDirectory()
+        self.ledger = EventLedger()
+        self.orchestrator = Orchestrator(self.ledger)
+
+        image = BytesIO()
+        Image.new("RGB", (12, 12), color=(20, 40, 60)).save(image, format="PNG")
+        self.content = image.getvalue()
+        content_hash = sha256(self.content).hexdigest()
+
+        provider = DeterministicOcrProvider({
+            content_hash: (
+                ("Tag\tComponent\tPressure (bar)", 0, 0, 12, 4, 0.60),
+                ("V-101\tGate valve\t12.5", 0, 4, 12, 4, 0.55),
+                ("V-102\tGlobe valve\t9.0", 0, 8, 12, 4, 0.58),
+            ),
+        })
+        vision = LocalVisionAdapter(
+            adapter_id="airbench.ocr.deterministic", adapter_version="1.0",
+            model_target_id="target.ocr.fixture", qualification_reference="qualification.ocr.fixture",
+            extractor=ocr_provider_extractor(
+                provider, adapter_id="airbench.ocr.deterministic", adapter_version="1.0",
+                model_target_id="target.ocr.fixture", qualification_reference="qualification.ocr.fixture",
+                table_extractor=GridLineTableExtractor(),
+            ),
+            ledger=self.ledger, kind="ocr",
+        )
+        store = LocalIntakeStore(self.directory.name)
+        gateway = LocalNodeIntakeGateway(
+            layer=FileIntakeLayer(self.ledger, store=store, vision_adapter=vision),
+            store=store, ledger=self.ledger, clearance_context=Clearance.restricted,
+        )
+        self.service = NodeApiService(
+            self.orchestrator,
+            NodeApiConfig(
+                node_identity="node.intake.ocr", protocol_version="0.1",
+                clearance_context=Clearance.restricted, authenticated_subject="principal.api",
+                domain_pack_ref="pack.refinery.v0", bearer_token="test-token",
+                handshake_ledger_event_ref="ledger.handshake.test",
+                sovereignty_evidence_ref="evidence.sovereignty.test",
+                require_orchestrator_authorization=False,
+            ),
+            intake_gateway=gateway,
+        )
+        self.task = self.orchestrator.create_task(
+            principal_id="principal.api", clearance=Clearance.restricted,
+            request="Review the uploaded scan", domain_pack_ref="pack.refinery.v0",
+            risk_class="low", autonomy_ceiling="review_required",
+            verification_criteria=("source_hash",), task_id="task.intake.ocr",
+        )
+        self.client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=create_app(self.service)), base_url="http://node.intake.ocr",
+        )
+
+    def tearDown(self):
+        asyncio.run(self.client.aclose())
+        self.directory.cleanup()
+
+    def test_status_reports_red_band_boxes_and_table(self):
+        async def run():
+            return await self.client.post(
+                "/api/v1/intake/query-upload",
+                headers={"Authorization": "Bearer test-token"},
+                data={"intake_mode": "query_upload", "task_id": self.task.task_id, "source_file_size": str(len(self.content))},
+                files={"document": ("scanned-page.png", self.content, "image/png")},
+            )
+
+        upload = asyncio.run(run())
+        self.assertEqual(upload.status_code, 200, upload.text)
+        intake_id = upload.json()["intake_id"]
+
+        async def get_status():
+            return await self.client.get(f"/api/v1/intake/status/{intake_id}", headers={"Authorization": "Bearer test-token"})
+
+        status = asyncio.run(get_status())
+        self.assertEqual(status.status_code, 200, status.text)
+        body = status.json()
+        self.assertEqual(body["ocr_status"], "completed")
+        self.assertEqual(body["ocr_provider"], "airbench.ocr.deterministic")
+        self.assertEqual(body["confidence_band"], "red")
+        self.assertTrue(body["review_recommended"])
+        page = body["pages"][0]
+        self.assertEqual(page["bounding_box_count"], 3)
+        self.assertEqual(page["table_count"], 1)
+        self.assertTrue(page["review_recommended"])
+
+
 if __name__ == "__main__":
     unittest.main()
