@@ -127,6 +127,9 @@ class NodeTaskExecutionCoordinator:
         model_router: Any = None,
         signing_key: bytes = b"airbench-node-execution-signing-key",
         actor_id: str = "node.execution",
+        consistency_service: Any = None,
+        autonomy_service: Any = None,
+        execution_action_kind: str = "task_execution",
     ) -> None:
         self._orchestrator = orchestrator
         self._ledger = ledger
@@ -135,6 +138,9 @@ class NodeTaskExecutionCoordinator:
         self._model_router = model_router
         self._signing_key = signing_key
         self._actor_id = actor_id
+        self._consistency_service = consistency_service
+        self._autonomy_service = autonomy_service
+        self._execution_action_kind = execution_action_kind
         self._artifact_root = Path(config.artifact_root).resolve()
         self._workspace_root = Path(config.workspace_root).resolve()
         self._template_path = Path(config.template_path).resolve()
@@ -244,6 +250,54 @@ class NodeTaskExecutionCoordinator:
             raise NodeTaskExecutionError("the task must be prepared after authorization before approval")
         plan, assignment, scheduler, schedule, manifest = prepared
         task = self._task(task_id)
+
+        # --- Consistency gate (before running the worker team) ---
+        # Evaluates the forming plan decision against past decisions about the
+        # same object.  A deviation flag surfaces to the operator via the API;
+        # execution is not blocked here so the Node can still produce a draft,
+        # but the deviation is recorded to the ledger and visible in the UI.
+        if self._consistency_service is not None:
+            try:
+                self._consistency_service.evaluate(
+                    task_id=task_id,
+                    decision_id=stable_id("node-execution.decision", task_id),
+                    decision_type="task_execution",
+                    object_id=stable_id("node-object", task_id),
+                    features={"domain_pack_ref": task.domain_pack_ref, "output_contract": task.output_contract or "document"},
+                    decision="proceed",
+                    rule_ref="node.execution.plan_approved",
+                    authority=self._actor_id,
+                )
+            except Exception:  # noqa: BLE001 — consistency is advisory; never crash execution
+                pass
+
+        # --- Autonomy gate (before the consequential rendering step) ---
+        # Scores the approve-and-render action.  If the governor escalates, we
+        # raise immediately — the operator must authorize via the API before
+        # execution can be retried.  When no autonomy service is configured the
+        # system proceeds autonomously, which is the existing behaviour.
+        if self._autonomy_service is not None:
+            try:
+                decision = self._autonomy_service.score(
+                    task_id=task_id,
+                    action_id=stable_id("node-execution.action", task_id),
+                    action_kind=self._execution_action_kind,
+                    source_ref=manifest.source_ref,
+                    confidence=manifest.confidence,
+                    clearance=task.clearance,
+                    taint=manifest.taint,
+                    worker_id=self._actor_id,
+                )
+                if decision.get("outcome") == "escalate":
+                    reason = decision.get("reason", "autonomy escalation")
+                    raise NodeTaskExecutionError(
+                        f"autonomy governor escalated task execution — {reason}; "
+                        "use POST /api/v1/tasks/{task_id}/autonomy/authorize to unblock"
+                    )
+            except NodeTaskExecutionError:
+                raise
+            except Exception:  # noqa: BLE001 — autonomy gate failure is fatal for the step
+                raise NodeTaskExecutionError("autonomy scoring failed; execution halted for safety")
 
         def worker_runner(invocation: Any, token: Any) -> WorkerResult:
             if token.cancelled:

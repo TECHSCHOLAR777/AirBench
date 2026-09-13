@@ -695,6 +695,29 @@ fn task_artifact_review_path(task_id: &str) -> Result<String, NodeTransportError
     Ok(format!("{}/artifact-review", task_snapshot_path(task_id)?))
 }
 
+fn task_consistency_path(task_id: &str) -> Result<String, NodeTransportError> {
+    Ok(format!("{}/consistency", task_snapshot_path(task_id)?))
+}
+
+fn task_autonomy_path(task_id: &str) -> Result<String, NodeTransportError> {
+    Ok(format!("{}/autonomy", task_snapshot_path(task_id)?))
+}
+
+fn model_qualification_path(target_id: &str) -> Result<String, NodeTransportError> {
+    if target_id.trim().is_empty()
+        || target_id.len() > MAX_NODE_REFERENCE_BYTES
+        || target_id.contains("..")
+        || !target_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b'_')
+    {
+        return Err(NodeTransportError::InvalidTaskId(
+            "The model target identifier is invalid.".to_string(),
+        ));
+    }
+    Ok(format!("/api/v1/node/qualification/{target_id}"))
+}
+
 fn command_path(command: &NodeCommandEnvelope) -> Result<String, NodeTransportError> {
     let task_id = command.task_id.as_deref().ok_or_else(|| {
         NodeTransportError::CommandSchemaInvalid(
@@ -1597,6 +1620,165 @@ pub async fn send_task_command(
     send_task_command_profile(profile, command).await
 }
 
+// ---------------------------------------------------------------------------
+// Hardware, consistency, autonomy, and qualification commands (M-E/F/G UI)
+// ---------------------------------------------------------------------------
+
+/// Fetch the hardware profile declared by this Node (GET /api/v1/node/hardware).
+#[tauri::command]
+pub async fn fetch_node_hardware(
+    app: tauri::AppHandle,
+    profile_id: String,
+) -> Result<Value, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::GET, "/api/v1/node/hardware", None)
+        .await
+        .map_err(|e| NodeTransportError::RequestFailed(e.to_string()).to_string())?;
+    // Validate the top-level shape — must be an object with a boolean `configured`.
+    match result.get("configured") {
+        Some(Value::Bool(_)) => Ok(result),
+        _ => Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid hardware status.".to_string(),
+        )
+        .to_string()),
+    }
+}
+
+/// Fetch the latest consistency report for a task (GET /api/v1/tasks/{id}/consistency).
+#[tauri::command]
+pub async fn fetch_task_consistency(
+    app: tauri::AppHandle,
+    profile_id: String,
+    task_id: String,
+) -> Result<Value, String> {
+    let path = task_consistency_path(&task_id).map_err(|e| e.to_string())?;
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::GET, &path, None)
+        .await
+        .map_err(|e| NodeTransportError::RequestFailed(e.to_string()).to_string())?;
+    match result.get("task_id") {
+        Some(Value::String(_)) => Ok(result),
+        _ => Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid consistency report.".to_string(),
+        )
+        .to_string()),
+    }
+}
+
+/// Trigger a consistency evaluation for a task decision
+/// (POST /api/v1/tasks/{id}/consistency/evaluate).
+#[tauri::command]
+pub async fn post_consistency_evaluate(
+    app: tauri::AppHandle,
+    profile_id: String,
+    task_id: String,
+    body: Value,
+) -> Result<Value, String> {
+    let path = format!("{}/evaluate", task_consistency_path(&task_id).map_err(|e| e.to_string())?);
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::POST, &path, Some(&body))
+        .await
+        .map_err(|e| NodeTransportError::RequestFailed(e.to_string()).to_string())?;
+    match result.get("task_id") {
+        Some(Value::String(_)) => Ok(result),
+        _ => Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid consistency evaluation.".to_string(),
+        )
+        .to_string()),
+    }
+}
+
+/// Record an operator justification for a consistency deviation
+/// (POST /api/v1/tasks/{id}/consistency/justify).
+#[tauri::command]
+pub async fn post_consistency_justify(
+    app: tauri::AppHandle,
+    profile_id: String,
+    task_id: String,
+    body: Value,
+) -> Result<Value, String> {
+    let path = format!("{}/justify", task_consistency_path(&task_id).map_err(|e| e.to_string())?);
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::POST, &path, Some(&body))
+        .await
+        .map_err(|e| NodeTransportError::RequestFailed(e.to_string()).to_string())?;
+    match result.get("task_id") {
+        Some(Value::String(_)) => Ok(result),
+        _ => Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid consistency justification.".to_string(),
+        )
+        .to_string()),
+    }
+}
+
+/// Fetch autonomy decisions for a task (GET /api/v1/tasks/{id}/autonomy).
+#[tauri::command]
+pub async fn fetch_task_autonomy(
+    app: tauri::AppHandle,
+    profile_id: String,
+    task_id: String,
+) -> Result<Value, String> {
+    let path = task_autonomy_path(&task_id).map_err(|e| e.to_string())?;
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::GET, &path, None)
+        .await
+        .map_err(|e| NodeTransportError::RequestFailed(e.to_string()).to_string())?;
+    match result.get("task_id") {
+        Some(Value::String(_)) => Ok(result),
+        _ => Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid autonomy status.".to_string(),
+        )
+        .to_string()),
+    }
+}
+
+/// Record an operator authorization for an autonomy escalation
+/// (POST /api/v1/tasks/{id}/autonomy/authorize).
+#[tauri::command]
+pub async fn post_autonomy_authorize(
+    app: tauri::AppHandle,
+    profile_id: String,
+    task_id: String,
+    body: Value,
+) -> Result<Value, String> {
+    let path = format!("{}/authorize", task_autonomy_path(&task_id).map_err(|e| e.to_string())?);
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::POST, &path, Some(&body))
+        .await
+        .map_err(|e| NodeTransportError::RequestFailed(e.to_string()).to_string())?;
+    match result.get("task_id") {
+        Some(Value::String(_)) => Ok(result),
+        _ => Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid autonomy authorization.".to_string(),
+        )
+        .to_string()),
+    }
+}
+
+/// Fetch the qualification status for a model target
+/// (GET /api/v1/node/qualification/{target_id}).
+#[tauri::command]
+pub async fn fetch_model_qualification(
+    app: tauri::AppHandle,
+    profile_id: String,
+    target_id: String,
+) -> Result<Value, String> {
+    let path = model_qualification_path(&target_id).map_err(|e| e.to_string())?;
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::GET, &path, None)
+        .await
+        .map_err(|e| NodeTransportError::RequestFailed(e.to_string()).to_string())?;
+    match result.get("target_id") {
+        Some(Value::String(_)) => Ok(result),
+        _ => Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid qualification status.".to_string(),
+        )
+        .to_string()),
+    }
+}
+
+
+
 fn redact_request_error(error: &reqwest::Error) -> String {
     if error.is_timeout() {
         "The approved Node did not respond before the connection timeout.".to_string()
@@ -1718,6 +1900,39 @@ mod tests {
         ));
         assert!(matches!(
             task_events_url(&node, &"a".repeat(MAX_TASK_ID_BYTES + 1), 0),
+            Err(NodeTransportError::InvalidTaskId(_))
+        ));
+    }
+
+    #[test]
+    fn node_asset_and_task_scoped_paths_are_validated() {
+        assert_eq!(
+            task_consistency_path("task-1").unwrap(),
+            "/api/v1/tasks/task-1/consistency"
+        );
+        assert_eq!(
+            task_autonomy_path("task-1").unwrap(),
+            "/api/v1/tasks/task-1/autonomy"
+        );
+        assert!(matches!(
+            task_consistency_path("../secret"),
+            Err(NodeTransportError::InvalidTaskId(_))
+        ));
+        assert!(matches!(
+            task_autonomy_path("bad id"),
+            Err(NodeTransportError::InvalidTaskId(_))
+        ));
+
+        assert_eq!(
+            model_qualification_path("airbench-gemma-4-e2b").unwrap(),
+            "/api/v1/node/qualification/airbench-gemma-4-e2b"
+        );
+        assert!(matches!(
+            model_qualification_path("../escape"),
+            Err(NodeTransportError::InvalidTaskId(_))
+        ));
+        assert!(matches!(
+            model_qualification_path(""),
             Err(NodeTransportError::InvalidTaskId(_))
         ));
     }

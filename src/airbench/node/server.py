@@ -627,14 +627,24 @@ def build_node_app(
         if intake_store is None:
             raise RuntimeError("task execution requires AIRBENCH_INTAKE_ROOT")
         from .task_execution import NodeTaskExecutionCoordinator
+        from .autonomy_gateway import select_execution_action_kind
+
+        execution_action_kind = select_execution_action_kind(
+            loaded_pack.risk_mappings if loaded_pack is not None else (),
+            os.environ.get("AIRBENCH_EXECUTION_ACTION_KIND", "").strip(),
+        )
         execution = NodeTaskExecutionCoordinator(
             orchestrator=orchestrator,
             ledger=ledger,
             intake_store=intake_store,
             config=execution_config,
             model_router=model_router,
+            consistency_service=consistency_service,
+            autonomy_service=autonomy_service,
+            execution_action_kind=execution_action_kind,
         )
-        logger.info("Task execution enabled (model router configured: %s)", model_router is not None)
+        logger.info("Task execution enabled (model router configured: %s, autonomy gate action: %s)",
+                    model_router is not None, execution_action_kind if autonomy_service is not None else "disabled")
 
     service = NodeApiService(
         orchestrator, api_config, model_router=model_router, task_planner=task_planner,
