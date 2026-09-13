@@ -13,9 +13,10 @@ from pathlib import Path
 
 from contracts import (
     BackendContent, BackendMessage, Clearance, ContractStatus, EventLedger,
-    GeminiApiAdapter, ModelCallRequest, ModelRegistry, ModelRouter, ModelTarget,
+    ModelCallRequest, ModelRegistry, ModelRouter, ModelTarget,
     Orchestrator, TeamPlan,
 )
+from devtools.gemini_adapter import GeminiApiAdapter
 
 
 def request(model: str, index: int, query: str, *, modality: str) -> ModelCallRequest:

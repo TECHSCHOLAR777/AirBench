@@ -12,6 +12,9 @@ templates:
       deterministic_calculations: Deterministic Calculations
       review_status: Review Status
     required_sections: [subject, findings, source_register, deterministic_calculations, review_status]
+    value_bindings:
+      - name: page_count
+        required: true
     values_section: deterministic_calculations
     numeric_values: verified_fact_or_deterministic_calculation_only
     structural_check: required

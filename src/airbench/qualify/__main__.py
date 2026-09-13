@@ -49,6 +49,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runtime-version", default="unmeasured")
     parser.add_argument("--adapter-id", default="airbench.qualify")
     parser.add_argument("--duration-days", type=int, default=90)
+    parser.add_argument("--artifact-path", default=None, help="Model artifact file for the integrity stage.")
+    parser.add_argument("--artifact-hash", default="")
+    parser.add_argument("--license-id", default="")
+    parser.add_argument("--license-accepted", action="store_true")
     args = parser.parse_args(argv)
 
     try:
@@ -72,9 +76,17 @@ def main(argv: list[str] | None = None) -> int:
     run = QualificationHarness(complete, model_id=args.target).run(
         target_id=args.target, role=args.role, cases=cases, qualification_source=source,
     )
+    integrity = None
+    if args.artifact_path:
+        from .integrity import verify_model
+
+        integrity = verify_model(
+            artifact_path=args.artifact_path, expected_hash=args.artifact_hash,
+            license_id=args.license_id, license_accepted=args.license_accepted,
+        )
     certificate = build_certificate(
         run, hardware_profile_id=args.hardware_profile_id, runtime_version=args.runtime_version,
-        adapter_id=args.adapter_id, duration_days=args.duration_days,
+        adapter_id=args.adapter_id, duration_days=args.duration_days, integrity=integrity,
     )
     if args.signing_key_path:
         key = Path(args.signing_key_path).read_bytes()

@@ -313,6 +313,7 @@ class NodeApiService:
             entity_id=str(payload.get("entity_id", ""))[:256],
             relation=str(payload.get("relation", ""))[:128],
             max_depth=max_depth,
+            as_of=str(payload["as_of"])[:64] if payload.get("as_of") else None,
         ))
         return {"result_count": len(facts), "facts": [_fact_wire(fact) for fact in facts]}
 
@@ -507,13 +508,18 @@ class NodeApiService:
                 ),
             )
         else:
+            raw_min = payload.get("min_score")
+            if raw_min is not None and (isinstance(raw_min, bool) or not isinstance(raw_min, (int, float))):
+                raise NodeApiError(422, "invalid_limit", "min_score must be a number.")
             citations = runtime.service.search(RetrievalRequest(
                 task_id="knowledge.search", query=query, clearance=clearance, top_k=top_k,
+                min_score=float(raw_min) if raw_min is not None else None,
             ))
         return {
             "query": query,
             "clearance": clearance.value,
             "iterative": iterative,
+            "found": len(citations) > 0,
             "result_count": len(citations),
             "results": [
                 {

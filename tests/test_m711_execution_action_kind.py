@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from airbench.node.autonomy_gateway import select_execution_action_kind
-from airbench.node.pack_loader import PackLoader
+from pack_support import load_unsigned_pack
 from airbench.verification.autonomy import ActionProposal, AutonomyGovernor, risk_rules_from_mappings
 from contracts import Clearance, EventLedger, Taint, build_event
 
@@ -44,7 +44,7 @@ class TestSelectExecutionActionKind:
         assert select_execution_action_kind(()) == "task_execution"
 
     def test_real_pack_selects_the_release_action(self) -> None:
-        pack = PackLoader(allow_unsigned=True).load(REFINERY_PACK)
+        pack = load_unsigned_pack()
         assert select_execution_action_kind(pack.risk_mappings) == "release_approval_note"
 
 
@@ -54,7 +54,7 @@ class TestExecutionGateGovernor:
     def test_selected_release_action_is_governed(self) -> None:
         ledger = EventLedger()
         _seed(ledger)
-        pack = PackLoader(allow_unsigned=True).load(REFINERY_PACK)
+        pack = load_unsigned_pack()
         governor = AutonomyGovernor(ledger, risk_rules_from_mappings(pack.risk_mappings))
         action_kind = select_execution_action_kind(pack.risk_mappings)
         decision = governor.decide(ActionProposal(

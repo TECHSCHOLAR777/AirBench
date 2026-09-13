@@ -254,6 +254,16 @@ def compile_pack_rule(pack_rule: Any, fact: FactEnvelope) -> VerificationRule | 
     return None
 
 
+def _fact_entity_reference(fact: FactEnvelope) -> str | None:
+    value = fact.value
+    if isinstance(value, dict):
+        for key in ("entity_id", "object_id", "object_ref"):
+            reference = value.get(key)
+            if reference:
+                return str(reference)
+    return None
+
+
 def _highest_clearance(facts: list[FactEnvelope], fallback: Clearance) -> Clearance:
     if not facts:
         return fallback
@@ -331,13 +341,15 @@ class VerificationRunner:
         pack_rules: Sequence[Any],
         *,
         fact_type: str | None = None,
+        world_model: Any = None,
     ) -> tuple[VerificationCheck, ...]:
         """Evaluate pack-declared checks against one fact, without a ledger write.
 
         ``fact_type`` selects rules whose ``applies_to`` matches.  When omitted,
         the fact's ``extraction_method`` is used as the type tag.  Deterministic
-        checks run through the same finite language as :meth:`run`; rules that
-        need a verifier or extra facts return ``needs_review``.
+        checks run through the same finite language as :meth:`run`; a
+        ``cross_reference`` rule is checked against the committed world model,
+        and rules that cannot be evaluated return ``needs_review``.
         """
 
         if not isinstance(fact, FactEnvelope):
@@ -350,6 +362,9 @@ class VerificationRunner:
                 continue
             rule_id = getattr(pack_rule, "rule_id", "pack_rule")
             check_name = getattr(pack_rule, "check", None) or "pack_policy"
+            if check_name == "cross_reference":
+                checks.append(self._cross_reference_check(pack_rule, fact, world_model))
+                continue
             compiled = compile_pack_rule(pack_rule, fact)
             if compiled is None:
                 checks.append(VerificationCheck(
@@ -362,6 +377,28 @@ class VerificationRunner:
             check, _ = self._evaluate_rule(compiled, facts, fact.clearance)
             checks.append(replace(check, rule_id=rule_id, kind=check_name))
         return tuple(checks)
+
+    def _cross_reference_check(self, pack_rule: Any, fact: FactEnvelope, world_model: Any) -> VerificationCheck:
+        rule_id = getattr(pack_rule, "rule_id", "cross_reference")
+        base = dict(
+            rule_id=rule_id, kind="cross_reference", fact_ids=(fact.fact_id,),
+            source_refs=(fact.source_ref,), confidence=fact.confidence,
+            clearance=fact.clearance, taint=fact.taint,
+        )
+        if world_model is None:
+            return VerificationCheck(outcome=VerificationOutcome.needs_review, reason="cross-reference requires the world model, which is not configured", **base)
+        reference = _fact_entity_reference(fact)
+        if reference is None:
+            return VerificationCheck(outcome=VerificationOutcome.needs_review, reason="fact does not reference a world model object", **base)
+        present = any(
+            candidate.fact_id == reference
+            or (isinstance(candidate.value, dict) and str(candidate.value.get("entity_id", "")) == reference)
+            for candidate in getattr(world_model, "facts", ())
+            if _CLEARANCE_RANK[candidate.clearance] <= _CLEARANCE_RANK[fact.clearance]
+        )
+        if present:
+            return VerificationCheck(outcome=VerificationOutcome.passed, reason="fact is consistent with the world model", **base)
+        return VerificationCheck(outcome=VerificationOutcome.failed, reason="fact references a world model object that is not committed", **base)
 
     def _validate_request(self, request: VerificationRequest) -> None:
         try:

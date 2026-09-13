@@ -5,3 +5,4 @@ decision_types:
   - id: approval_note_review_status
     required_features: [artifact_id, verification_result, reviewer_id]
     minimum_authority: human_reviewer
+    require_deviation_review: true

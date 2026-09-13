@@ -103,6 +103,7 @@ class DecisionType:
     decision_type_id: str
     required_features: tuple[str, ...]
     minimum_authority: str
+    require_deviation_review: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +130,7 @@ class DeliverableTemplate:
     format: str
     required_sections: tuple[str, ...]
     labels: tuple[tuple[str, str], ...] = ()
+    value_bindings: tuple[tuple[str, bool], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -461,6 +463,7 @@ def _parse_decision_types(value: Any) -> tuple[DecisionType, ...]:
             decision_type_id=_text(entry.get("id"), "decision_type.id"),
             required_features=_text_tuple(entry.get("required_features"), "decision_type.required_features"),
             minimum_authority=_text(entry.get("minimum_authority"), "decision_type.minimum_authority"),
+            require_deviation_review=bool(entry.get("require_deviation_review", False)),
         ))
     return tuple(result)
 
@@ -502,12 +505,20 @@ def _parse_deliverable_templates(value: Any) -> tuple[DeliverableTemplate, ...]:
     for item in _require_sequence(source.get("templates"), "deliverable_templates.templates"):
         entry = _require_mapping(item, "deliverable_templates[]")
         labels = entry.get("section_labels") or {}
+        bindings = entry.get("value_bindings") or []
         result.append(DeliverableTemplate(
             template_id=_text(entry.get("id"), "template.id"),
             version=_text(entry.get("version"), "template.version"),
             format=_text(entry.get("format"), "template.format"),
             required_sections=_text_tuple(entry.get("required_sections"), "template.required_sections"),
             labels=tuple((_text(k, "label key"), _text(v, "label value")) for k, v in _require_mapping(labels, "template.section_labels").items()),
+            value_bindings=tuple(
+                (_text(binding.get("name"), "binding.name"), bool(binding.get("required", False)))
+                for binding in (
+                    _require_mapping(item, "template.value_bindings[]")
+                    for item in _require_sequence(bindings, "template.value_bindings")
+                )
+            ),
         ))
     return tuple(result)
 

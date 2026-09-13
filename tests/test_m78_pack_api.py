@@ -42,7 +42,9 @@ class NodePackApiTests(unittest.TestCase):
         return asyncio.run(run())
 
     def test_pack_status_is_served_without_a_token(self):
-        pack = PackLoader(allow_unsigned=True).load(REFINERY_PACK)
+        from pack_support import load_unsigned_pack
+
+        pack = load_unsigned_pack()
         response = self._get(self._app(pack), "/api/v1/node/pack")
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()

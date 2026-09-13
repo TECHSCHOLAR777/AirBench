@@ -381,6 +381,27 @@ class LocalIndexer:
                     qualification_reference=self.embeddings.qualification_reference,
                     revision_state=request.revision_state,
                 ))
+            for table in getattr(page, "tables", ()):
+                table_text = "\t".join(table.headers) + "\n" + "\n".join("\t".join(row) for row in table.rows)
+                if not table_text.strip():
+                    continue
+                chunks.append(IndexChunk(
+                    chunk_id=stable_id("chunk", request.manifest.revision_id, page.page_id, table.table_id),
+                    intake_id=request.manifest.intake_id,
+                    revision_id=request.manifest.revision_id,
+                    source_ref=request.manifest.source_ref,
+                    page_id=page.page_id,
+                    source_span=table.source_span or page.source_region,
+                    text=table_text,
+                    content_hash=hashlib.sha256(table_text.encode("utf-8")).hexdigest(),
+                    confidence=table.confidence,
+                    clearance=page.clearance,
+                    taint=page.taint,
+                    embedding=self.embeddings.embed(table_text),
+                    embedding_model=self.embeddings.model_id,
+                    qualification_reference=self.embeddings.qualification_reference,
+                    revision_state=request.revision_state,
+                ))
         return tuple(chunks)
 
     def _event(self, event_type: str, task_id: str, clearance: Clearance, payload: dict[str, str]) -> None:
@@ -410,12 +431,15 @@ class RetrievalRequest:
     clearance: Clearance
     top_k: int = 5
     max_excerpt_chars: int = 800
+    min_score: float | None = None
 
     def __post_init__(self) -> None:
         if not self.task_id or not self.query.strip():
             raise RetrievalError("invalid_query", "retrieval task and query are required")
         if not 1 <= self.top_k <= 100 or not 1 <= self.max_excerpt_chars <= 10_000:
             raise RetrievalError("invalid_limit", "retrieval limits are outside the allowed range")
+        if self.min_score is not None and not math.isfinite(self.min_score):
+            raise RetrievalError("invalid_limit", "min_score must be finite")
 
 
 @dataclass(frozen=True, slots=True)
@@ -450,7 +474,11 @@ class RetrievalService:
             query_embedding = self._embeddings.embed(request.query)
             candidates = self._index.search(query_embedding, request.clearance, min(request.top_k * 3, 100))
             scores = self._reranker.score(request.query, candidates) if self._reranker else tuple(0.0 for _ in candidates)
-            ranked = sorted(zip(candidates, scores), key=lambda pair: (-pair[1], pair[0].chunk_id))[:request.top_k]
+            ranked = sorted(zip(candidates, scores), key=lambda pair: (-pair[1], pair[0].chunk_id))
+            if request.min_score is not None:
+                # Honesty: if nothing clears the bar, return nothing rather than forcing a weak match.
+                ranked = [pair for pair in ranked if pair[1] >= request.min_score]
+            ranked = ranked[:request.top_k]
             result = tuple(CitedExcerpt(
                 citation_id=stable_id("citation", request.task_id, chunk.chunk_id),
                 chunk_id=chunk.chunk_id,

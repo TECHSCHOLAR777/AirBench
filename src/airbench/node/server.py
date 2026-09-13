@@ -356,6 +356,12 @@ def _write_node_started(
     }
     if pack is not None:
         payload["domain_pack"] = pack.to_dict()
+    try:
+        from .no_egress import observe_no_egress
+
+        payload["no_egress"] = observe_no_egress().to_dict()
+    except Exception as exc:  # noqa: BLE001 - observation must never block startup
+        payload["no_egress"] = {"clean": None, "error": type(exc).__name__}
     if evidence_dir is not None:
         evidence_dir.mkdir(parents=True, exist_ok=True)
         evidence_path = evidence_dir / f"node_started_{config.node_identity.replace('.', '_')}.json"
@@ -446,6 +452,11 @@ def build_node_app(
             store=SqliteDecisionStore(decision_store_path),
             ledger=ledger,
             clearance_context=config.clearance,
+            required_review_types=frozenset(
+                decision_type.decision_type_id
+                for decision_type in (loaded_pack.decision_types if loaded_pack is not None else ())
+                if decision_type.require_deviation_review
+            ),
         )
         logger.info("Consistency service enabled at %s", decision_store_path)
 

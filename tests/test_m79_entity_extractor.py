@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from airbench.knowledge.entity_extractor import EntityExtractionError, EntityExtractionRequest, EntityExtractor, build_extraction_prompt
-from airbench.node.pack_loader import PackLoader
+from pack_support import load_unsigned_pack
 from contracts import Clearance, Taint, UntrustedEvidence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -21,8 +21,14 @@ def _evidence() -> UntrustedEvidence:
     })
 
 
+_SCHEMA = None
+
+
 def _schema():
-    return PackLoader(allow_unsigned=True).load(REFINERY_PACK).world_schema
+    global _SCHEMA
+    if _SCHEMA is None:
+        _SCHEMA = load_unsigned_pack().world_schema
+    return _SCHEMA
 
 
 def _request(**overrides) -> EntityExtractionRequest:

@@ -23,6 +23,7 @@ def build_certificate(
     adapter_id: str = "airbench.qualify",
     duration_days: int = 90,
     now: datetime | None = None,
+    integrity: object | None = None,
 ) -> dict[str, Any]:
     """Produce a certificate YAML document for one completed run.
 
@@ -45,6 +46,7 @@ def build_certificate(
         "fixture_set_hash": run.fixture_set_hash,
         "benchmark_scores": run.benchmark_scores,
         "pass_rates": run.pass_rates,
+        "model_integrity": integrity.to_dict() if integrity is not None else None,
         "status": "ready_for_review" if pass_rate >= 0.8 else "unqualified",
         "qualified_at": _now_iso(current),
         "expires_at": _now_iso(current + timedelta(days=duration_days)),
