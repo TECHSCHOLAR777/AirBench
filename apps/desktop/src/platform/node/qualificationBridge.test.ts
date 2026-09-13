@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@airbench/tauri-invoke", () => ({ invoke: invokeMock }));
 
-import { fetchModelQualification, validateQualificationStatus } from "./qualificationBridge";
+import { fetchModelQualification, fetchQualificationRoster, validateQualificationRoster, validateQualificationStatus } from "./qualificationBridge";
 import type { ApprovedNodeProfile } from "./nodeConnection";
 
 const profile: ApprovedNodeProfile = {
@@ -22,8 +22,10 @@ describe("qualification bridge", () => {
     expect(status.routing_tier).toBe("efficient");
   });
 
-  it("maps pending/unknown statuses to unknown", () => {
-    expect(validateQualificationStatus({ target_id: "t", status: "pending" }).status).toBe("unknown");
+  it("preserves the Node's pending/not_listed states", () => {
+    expect(validateQualificationStatus({ target_id: "t", status: "pending" }).status).toBe("pending");
+    expect(validateQualificationStatus({ target_id: "t", status: "pending" }).measurement_pending).toBe(true);
+    expect(validateQualificationStatus({ target_id: "t", status: "not_listed" }).status).toBe("not_listed");
     expect(validateQualificationStatus({}).status).toBe("unknown");
   });
 
@@ -37,5 +39,16 @@ describe("qualification bridge", () => {
     expect(invokeMock).toHaveBeenCalledWith("fetch_model_qualification", {
       profileId: "profile-1", targetId: "airbench-gemma-4-e2b",
     });
+  });
+
+  it("validates and fetches the full roster in one call", async () => {
+    const roster = { configured: true, count: 2, targets: [
+      { target_id: "airbench-gemma-4-e2b", status: "qualified" },
+      { target_id: "airbench-gemma-4-12b", status: "pending" },
+    ] };
+    expect(validateQualificationRoster(roster).targets.map((t) => t.status)).toEqual(["qualified", "pending"]);
+    invokeMock.mockResolvedValueOnce(roster);
+    await fetchQualificationRoster(profile);
+    expect(invokeMock).toHaveBeenCalledWith("fetch_qualification_roster", { profileId: "profile-1" });
   });
 });

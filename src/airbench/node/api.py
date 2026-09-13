@@ -408,7 +408,7 @@ class NodeApiService:
     def autonomy_records(self, task_id: str) -> dict[str, Any]:
         self._require_task(task_id)
         service = self._require_autonomy()
-        return {"task_id": task_id, "decisions": list(service.decisions(task_id)), "blocked": service.is_blocked(task_id)}
+        return {"task_id": task_id, "decisions": list(service.decisions(task_id)), "is_blocked": service.is_blocked(task_id)}
 
     def autonomy_score(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         from contracts import Taint
@@ -470,6 +470,13 @@ class NodeApiService:
         from .qualification_gateway import qualification_status
 
         return qualification_status(self.qualification_matrix, target_id)
+
+    def qualification_roster(self) -> dict[str, Any]:
+        if self.qualification_matrix is None:
+            return {"configured": False, "count": 0, "targets": []}
+        from .qualification_gateway import qualification_roster
+
+        return {"configured": True, **qualification_roster(self.qualification_matrix)}
 
     def _require_task(self, task_id: str) -> str:
         self._visible_task(task_id)

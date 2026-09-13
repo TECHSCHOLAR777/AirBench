@@ -302,7 +302,7 @@ class NodeTaskExecutionCoordinator:
         def worker_runner(invocation: Any, token: Any) -> WorkerResult:
             if token.cancelled:
                 raise NodeTaskExecutionError("worker cancelled before invocation")
-            summary = self._propose_prose(task, manifest)
+            summary = self._propose_prose(task, manifest, purpose="worker-result")
             return WorkerResult.from_dict({
                 "result_id": stable_id("node-result", task_id),
                 "assignment_id": assignment.assignment_id,
@@ -401,7 +401,7 @@ class NodeTaskExecutionCoordinator:
             title=task.title or "AirBench review note",
             prose_sections={
                 "subject": f"Task: {task.request[:400]}",
-                "findings": self._propose_prose(task, manifest),
+                "findings": self._propose_prose(task, manifest, purpose="deliverable-findings"),
                 "source_register": f"Source reference: {manifest.source_ref}. Intake record: {manifest.intake_id}.",
                 "deterministic_calculations": "The page count below was computed from the committed intake manifest: {{page_count}} pages.",
                 "review_status": "Verified structural draft for operator review. Operator sign-off remains required.",
@@ -428,11 +428,11 @@ class NodeTaskExecutionCoordinator:
 
     # -- helpers -----------------------------------------------------------
 
-    def _propose_prose(self, task: Any, manifest: IntakeManifest) -> str:
+    def _propose_prose(self, task: Any, manifest: IntakeManifest, *, purpose: str) -> str:
         if self._model_router is None:
             return "A bounded local worker reviewed the File Intake manifest. Source content remains untrusted data."
         request = ModelCallRequest.from_dict({
-            "request_id": stable_id("node-model-request", task.task_id),
+            "request_id": stable_id("node-model-request", task.task_id, purpose),
             "task_id": task.task_id,
             "team_id": stable_id("node-team", task.task_id),
             "worker_id": stable_id("node-worker", task.task_id),

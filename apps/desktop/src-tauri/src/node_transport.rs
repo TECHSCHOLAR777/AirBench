@@ -1782,6 +1782,26 @@ pub async fn fetch_model_qualification(
 
 
 
+/// Fetch every declared model target and its qualification status
+/// (GET /api/v1/node/qualification).
+#[tauri::command]
+pub async fn fetch_qualification_roster(
+    app: tauri::AppHandle,
+    profile_id: String,
+) -> Result<Value, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::GET, "/api/v1/node/qualification", None)
+        .await
+        .map_err(|e| NodeTransportError::RequestFailed(e.to_string()).to_string())?;
+    match result.get("targets") {
+        Some(Value::Array(_)) => Ok(result),
+        _ => Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid qualification roster.".to_string(),
+        )
+        .to_string()),
+    }
+}
+
 fn redact_request_error(error: &reqwest::Error) -> String {
     if error.is_timeout() {
         "The approved Node did not respond before the connection timeout.".to_string()

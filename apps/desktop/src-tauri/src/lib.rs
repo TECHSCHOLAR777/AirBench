@@ -31,6 +31,7 @@ pub fn run() {
             node_transport::fetch_task_autonomy,
             node_transport::post_autonomy_authorize,
             node_transport::fetch_model_qualification,
+            node_transport::fetch_qualification_roster,
             intake::pick_query_file,
             intake::upload_selected_query_file,
             intake::fetch_safe_preview,
