@@ -8,7 +8,7 @@
 #   ssh -N -L 127.0.0.1:18001:127.0.0.1:8001 -L 127.0.0.1:18002:127.0.0.1:8002 mmmut-server
 param(
     [string]$ModelStore = "C:\airbench-models",
-    [string]$Token = "demo-token",
+    [string]$Token = "dev-token-123",
     [string]$Port = "8765",
     [string]$Subject = "demo.operator",
     [string]$DomainPackRef = "refinery-psu-v0",
