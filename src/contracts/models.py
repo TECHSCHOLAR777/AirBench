@@ -598,6 +598,9 @@ NODE_COMMAND_TYPES = {
     "task.cancel",
     "task.request_review",
     "task.approve_plan",
+    "task.approve_artifact",
+    "task.return_artifact",
+    "model.call",
     "node.recheck",
 }
 

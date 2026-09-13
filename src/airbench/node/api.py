@@ -1,9 +1,11 @@
 """Authenticated local Node API over the deterministic AirBench core.
 
-The API is deliberately a projection and command boundary. It does not run a
-model, parse a file, execute a tool, or make a network call. Mutating routes
-delegate to :class:`contracts.Orchestrator`; read routes project only the
-committed local ledger.
+The API is deliberately a projection and command boundary. It does not itself
+run a model, parse a file, execute a tool, or make a network call. Mutating
+routes delegate to :class:`contracts.Orchestrator`; read routes project only the
+committed local ledger. A ``model.call`` command is merely translated into a
+typed request and handed to the orchestrator, which routes it through the
+configured backend adapter and records the decision and result.
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ import hmac
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from email import policy
 from email.parser import BytesParser
 from threading import RLock
@@ -25,9 +27,15 @@ from fastapi.responses import JSONResponse, Response
 from contracts import (
     AuthorizationError,
     AuthorizationRejected,
+    BackendCallError,
+    BackendMessage,
+    BackendOutputSpec,
+    BackendTool,
+    CircuitOpen,
     Clearance,
     ContractValidationError,
     LedgerEventEnvelope,
+    ModelCallRequest,
     NodeCommandEnvelope,
     NodeCommandResult,
     NodeEvidenceRef,
@@ -41,6 +49,8 @@ from contracts import (
     NODE_PROTOCOL_VERSION,
     Orchestrator,
     PlanRejected,
+    RetryExhausted,
+    StepTimeout,
     StorageFailure,
     TaskEnvelope,
     TaskPlanReview,
@@ -122,11 +132,20 @@ class NodeApiConfig:
 class NodeApiService:
     """Owns API authentication and projections, not task authority."""
 
-    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None):
+    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None, model_router: Any = None, task_planner: Any = None, retrieval: Any = None):
         self.orchestrator = orchestrator
         self.config = config
         self.intake_gateway = intake_gateway
         self.deliverable_gateway = deliverable_gateway
+        # The router is composed by the server layer and is only consulted for
+        # model-call steps.  ``None`` means model serving is not configured.
+        self.model_router = model_router
+        # The planner is an opt-in Node composition that commits a validated
+        # plan (and hardware admission) after authorization.
+        self.task_planner = task_planner
+        # The retrieval runtime (local BGE embeddings + reranker) is opt-in and
+        # consulted by the orchestrator for knowledge steps, never by clients.
+        self.retrieval = retrieval
         self._ledger: LedgerView = orchestrator.store
         self._lock = RLock()
 
@@ -315,6 +334,13 @@ class NodeApiService:
                 raise NodeApiError(409, "transition_rejected", "The task cannot be authorized from its current state.") from exc
             except (StorageFailure, LedgerError) as exc:
                 raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the transition.") from exc
+            if self.task_planner is not None:
+                try:
+                    self.task_planner.plan_and_admit(self._visible_task(task_id))
+                except (PlanRejected, TransitionRejected) as exc:
+                    raise NodeApiError(409, "task_planning_rejected", "The Node could not commit a validated plan for this task.") from exc
+                except (StorageFailure, LedgerError) as exc:
+                    raise NodeApiError(503, "task_planning_failed", "The local ledger did not commit the task plan.") from exc
             return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
 
     def approve_plan(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -442,6 +468,129 @@ class NodeApiService:
             except (StorageFailure, LedgerError) as exc:
                 raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the artifact return.") from exc
             return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
+
+    def _require_model_router(self) -> Any:
+        if self.model_router is None:
+            raise NodeApiError(503, "model_serving_unavailable", "Model serving is not configured on this Node.")
+        return self.model_router
+
+    def call_model(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Execute one typed model call through the orchestrator and router.
+
+        The API is only the command boundary: routing, admission, retry,
+        timeout, and ledger writes stay inside the orchestrator.  The model
+        response is a proposal with untrusted provenance, never an approved
+        result, and prompt/response text is never written to the ledger.
+        """
+        with self._lock:
+            command = self._command(subject, payload, "model.call", task_id)
+            task = self._visible_task(task_id)
+            arguments = command.arguments
+
+            raw_request = arguments.get("request")
+            if not isinstance(raw_request, dict):
+                raise NodeApiError(400, "model_request_invalid", "A model call request object is required.")
+            try:
+                request = ModelCallRequest.from_dict(dict(raw_request))
+            except (ContractValidationError, TypeError) as exc:
+                raise NodeApiError(400, "model_request_invalid", "The model call request does not satisfy the contract.") from exc
+            if request.task_id != task_id:
+                raise NodeApiError(400, "command_target_invalid", "The model request task must match the route.")
+            if request.clearance != task.clearance:
+                raise NodeApiError(409, "model_request_rejected", "The model request clearance must match the task clearance.")
+            request = replace(
+                request,
+                request_id=stable_id("model-call-request", task_id, command.idempotency_key),
+            )
+
+            raw_messages = arguments.get("messages")
+            if not isinstance(raw_messages, list) or not 1 <= len(raw_messages) <= 64:
+                raise NodeApiError(400, "model_messages_invalid", "One to sixty-four messages are required.")
+            try:
+                messages = tuple(BackendMessage.from_dict(dict(item)) for item in raw_messages)
+                output = BackendOutputSpec.from_dict(dict(arguments.get("output", {"mode": "text"})))
+                raw_tools = arguments.get("tools", [])
+                if not isinstance(raw_tools, list) or len(raw_tools) > 32:
+                    raise NodeApiError(400, "model_tools_invalid", "At most thirty-two tools may be declared.")
+                tools = tuple(BackendTool.from_dict(dict(item)) for item in raw_tools)
+            except (ContractValidationError, TypeError) as exc:
+                raise NodeApiError(400, "model_messages_invalid", "The model call messages do not satisfy the contract.") from exc
+            if arguments.get("stream") not in (None, False):
+                raise NodeApiError(400, "model_stream_unsupported", "Streaming model calls are not served by this route.")
+
+            existing = self._replay_model_call(command, task_id, request.request_id)
+            if existing is not None:
+                return existing
+            self._check_expected_sequence(command, task_id)
+
+            hardware_profile_ref = _text(arguments, "hardware_profile_ref", 512)
+            router = self._require_model_router()
+            try:
+                execution = self.orchestrator.execute_model_call(
+                    request, router=router, pack_ref=task.domain_pack_ref,
+                    hardware_profile_ref=hardware_profile_ref,
+                    messages=messages, output=output, tools=tools, stream=False,
+                )
+            except PlanRejected as exc:
+                raise NodeApiError(409, "model_request_rejected", "The model request conflicts with the task authority.") from exc
+            except TransitionRejected as exc:
+                raise NodeApiError(409, "transition_rejected", "The task is not in a state that admits a model call.") from exc
+            except BackendCallError as exc:
+                raise NodeApiError(502, "model_backend_failed", "The selected model backend failed.") from exc
+            except StepTimeout as exc:
+                raise NodeApiError(504, "model_timeout", "The model call exceeded its timeout.") from exc
+            except RetryExhausted as exc:
+                raise NodeApiError(502, "model_retry_exhausted", "The model call failed after its retries were exhausted.") from exc
+            except CircuitOpen as exc:
+                raise NodeApiError(503, "model_circuit_open", "The model dependency circuit is open.") from exc
+            except (StorageFailure, LedgerError) as exc:
+                raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the model call.") from exc
+
+            if execution.response is None or execution.step is None or isinstance(execution.response, tuple):
+                raise NodeApiError(503, "model_not_admitted", execution.route.decision.reason or "No qualified model target was admitted.")
+            return self._model_call_result(command, task_id, execution)
+
+    def _replay_model_call(self, command: NodeCommandEnvelope, task_id: str, request_id: str) -> dict[str, Any] | None:
+        event = next(
+            (
+                candidate for candidate in reversed(self._ledger.events)
+                if candidate.task_id == task_id
+                and candidate.event_type == "model.responded"
+                and isinstance(candidate.payload, dict)
+                and candidate.payload.get("request_id") == request_id
+            ),
+            None,
+        )
+        if event is None:
+            return None
+        return {
+            "command": _command_result(
+                command, task_id, event, self._task_sequence(task_id, event.event_id),
+                self.orchestrator.state(task_id), self.config,
+            ),
+            "replayed": True,
+        }
+
+    def _model_call_result(self, command: NodeCommandEnvelope, task_id: str, execution: Any) -> dict[str, Any]:
+        event = self._event_by_id(execution.step.transition.event_id)
+        response = execution.response
+        return {
+            "command": _command_result(
+                command, task_id, event, self._task_sequence(task_id, event.event_id),
+                self.orchestrator.state(task_id), self.config,
+            ),
+            "model": {
+                "request_id": execution.request_id,
+                "selected_target": response.target_id,
+                "status": execution.route.decision.status.value,
+                "output": response.output,
+                "usage": response.usage.to_dict(),
+                "provenance": response.provenance.to_dict(),
+                "finish_reason": response.finish_reason,
+                "tool_calls": [call.to_dict() for call in response.tool_calls],
+                "routing_decision": execution.route.decision.to_dict(),
+            },
+        }
 
     def _command(self, subject: str, payload: dict[str, Any], expected_type: str, route_task_id: str | None) -> NodeCommandEnvelope:
         try:
@@ -1177,6 +1326,11 @@ def create_app(service: NodeApiService) -> FastAPI:
     async def return_artifact(task_id: str, request: Request) -> dict[str, Any]:
         subject = auth(request)
         return service.return_artifact(subject, task_id, await json_body(request))
+
+    @app.post("/api/v1/tasks/{task_id}/model-call", status_code=202)
+    async def model_call(task_id: str, request: Request) -> dict[str, Any]:
+        subject = auth(request)
+        return service.call_model(subject, task_id, await json_body(request))
 
     return app
 

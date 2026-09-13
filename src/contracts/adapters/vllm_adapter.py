@@ -108,6 +108,7 @@ class VllmAdapter:
         tool_parser: BaseToolParser | None = None,
         ledger: LedgerStore | None = None,
         capabilities: BackendCapabilities | None = None,
+        endpoint_id: str | None = None,
         require_no_egress_env: bool = True,
         timeout_s: float = 120.0,
     ) -> None:
@@ -117,6 +118,7 @@ class VllmAdapter:
             raise ValueError("model_name is required")
         self._base_url = base_url.rstrip("/")
         self._model_name = model_name
+        self._endpoint_id = endpoint_id
         self._tool_parser = tool_parser or ToolCallParserRegistry.get("none")
         self._ledger = ledger
         self._capabilities = capabilities or BackendCapabilities(
@@ -129,6 +131,11 @@ class VllmAdapter:
         )
         self._require_no_egress_env = require_no_egress_env
         self._timeout_s = timeout_s
+
+    @property
+    def endpoint_id(self) -> str | None:
+        """Deployment identity recorded in response provenance, if bound."""
+        return self._endpoint_id
 
     # ------------------------------------------------------------------
     # BackendAdapter protocol
@@ -580,6 +587,7 @@ class VllmAdapter:
                 backend_version=request.backend_version,
                 request_hash=request.digest(),
                 response_hash=response_hash,
+                endpoint_id=self._endpoint_id,
             )
 
             return BackendResponse(

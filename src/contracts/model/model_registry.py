@@ -88,6 +88,10 @@ def _normalize_quantization(value: Any) -> str:
         "fp16": "fp16",
         "int8": "int8",
         "int4": "int4",
+        # QAT compressed-tensors: 4-bit weights, 16-bit activations.
+        "w4a16": "w4a16",
+        "int4_w4a16": "w4a16",
+        "compressed_tensors_w4a16": "w4a16",
     }
     return aliases.get(normalized, normalized)
 
@@ -283,7 +287,7 @@ class ModelTarget:
                 raise RegistryError("role_qualification_hashes must contain exactly one digest per role")
             if any(not _HEX64.fullmatch(digest) for _role, digest in self.role_qualification_hashes):
                 raise RegistryError("role qualification hashes must be lowercase SHA-256 digests")
-        if self.quantization not in {"bf16", "fp16", "int8", "int4_awq", "int4_gptq", "int4"}:
+        if self.quantization not in {"bf16", "fp16", "int8", "int4_awq", "int4_gptq", "int4", "w4a16"}:
             raise RegistryError("unsupported quantization")
         if type(self.context_limit) is not int or self.context_limit < 1:
             raise RegistryError("context_limit must be positive")
