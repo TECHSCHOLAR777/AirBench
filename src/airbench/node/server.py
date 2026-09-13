@@ -70,6 +70,7 @@ from .model_serving import (
     probe_endpoint_readiness,
 )
 from .task_planning import NodeTaskPlanner, PlannerConfig, planner_enabled
+from .task_execution import NodeExecutionConfig
 from airbench.knowledge.embedding_runtime import retrieval_enabled, retrieval_runtime_from_env
 
 logger = logging.getLogger(__name__)
@@ -433,9 +434,13 @@ def build_node_app(
                 len(model_router.endpoint_bindings),
             )
 
+    # Node-owned execution is opt-in; when set it also owns plan creation.
+    execution_config = NodeExecutionConfig.from_env(default_root=Path.cwd())
+
     # Deterministic planning is opt-in and never lets a client drive the loop.
+    # It is disabled when the execution coordinator owns planning.
     task_planner = None
-    if planner_enabled():
+    if planner_enabled() and execution_config is None:
         task_planner = NodeTaskPlanner(orchestrator, PlannerConfig.from_env())
         logger.info("Task planning enabled (hardware profile configured: %s)", task_planner.has_hardware_profile)
 
@@ -446,9 +451,58 @@ def build_node_app(
         logger.info("Retrieval enabled: embedding=%s reranker=%s",
                     retrieval_runtime.embedding_model_id, retrieval_runtime.reranker_model_id or "none")
 
+    # File Intake and generated deliverables are composed here so the normal
+    # Node exposes the documented upload/preview/review/download path.
+    intake_store = None
+    intake_gateway = None
+    intake_root = os.environ.get("AIRBENCH_INTAKE_ROOT", "").strip()
+    if intake_root:
+        from airbench.intake import FileIntakeLayer, LocalIntakeStore
+        from .intake_gateway import LocalNodeIntakeGateway
+        intake_store = LocalIntakeStore(intake_root)
+        intake_gateway = LocalNodeIntakeGateway(
+            layer=FileIntakeLayer(ledger, store=intake_store),
+            store=intake_store,
+            ledger=ledger,
+            clearance_context=config.clearance,
+        )
+        logger.info("File Intake enabled at %s", intake_root)
+
+    deliverable_gateway = None
+    artifact_root = os.environ.get("AIRBENCH_ARTIFACT_ROOT", "").strip()
+    if artifact_root:
+        from airbench.delivery import LocalArtifactStore
+        from .deliverable_gateway import LocalDeliverableGateway
+        deliverable_gateway = LocalDeliverableGateway(
+            ledger=ledger,
+            artifact_store=LocalArtifactStore(artifact_root),
+            node_identity=config.node_identity,
+            protocol_version=NODE_PROTOCOL_VERSION,
+            clearance_context=config.clearance,
+        )
+        logger.info("Deliverable Engine enabled at %s", artifact_root)
+
+    # Node-owned task execution is opt-in.  When enabled the Node drives an
+    # approved plan through team, verification, and deliverable steps instead
+    # of waiting for client-driven model calls.
+    execution = None
+    if execution_config is not None:
+        if intake_store is None:
+            raise RuntimeError("task execution requires AIRBENCH_INTAKE_ROOT")
+        from .task_execution import NodeTaskExecutionCoordinator
+        execution = NodeTaskExecutionCoordinator(
+            orchestrator=orchestrator,
+            ledger=ledger,
+            intake_store=intake_store,
+            config=execution_config,
+            model_router=model_router,
+        )
+        logger.info("Task execution enabled (model router configured: %s)", model_router is not None)
+
     service = NodeApiService(
         orchestrator, api_config, model_router=model_router, task_planner=task_planner,
-        retrieval=retrieval_runtime,
+        retrieval=retrieval_runtime, intake_gateway=intake_gateway,
+        deliverable_gateway=deliverable_gateway, execution=execution,
     )
     app = create_app(service)
     add_readiness_route(app, service)
