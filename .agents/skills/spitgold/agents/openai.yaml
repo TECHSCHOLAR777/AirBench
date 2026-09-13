@@ -1,0 +1,6 @@
+interface:
+  display_name: "SpitGold"
+  short_description: "Write precise AirBench presentation copy"
+  default_prompt: "Use $spitgold to draft slide-ready AirBench content for a requested section."
+policy:
+  allow_implicit_invocation: false
