@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Engineering drawing and P&ID pipeline
 
 ## Purpose
