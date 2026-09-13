@@ -18,6 +18,7 @@ param(
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
+$py = if (Test-Path "$repo\.venv-deep\Scripts\python.exe") { "$repo\.venv-deep\Scripts\python.exe" } else { "python" }
 
 if (-not (Test-Path "$repo\models\roster\demo\two_endpoint_roster.yaml")) {
     Write-Error "Signed demo roster missing. Run: python scripts\airbench_demo_roster.py"
@@ -59,6 +60,15 @@ $env:AIRBENCH_WORLD_MODEL_PATH       = "$repo\.airbench-world-model.db"
 $env:AIRBENCH_DECISION_STORE_PATH    = "$repo\.airbench-decisions.db"
 $env:AIRBENCH_QUALIFICATION_MATRIX   = "$repo\qualifications\model_qualification_matrix.yaml"
 
+# Bulk knowledge ingestion + durable vector store (Chroma).
+$env:AIRBENCH_KNOWLEDGE_INGEST_ROOT  = "$repo\.airbench-corpus"
+$env:AIRBENCH_VECTOR_STORE           = "chroma"
+$env:AIRBENCH_VECTOR_STORE_PATH      = "$repo\.airbench-chroma"
+if (-not (Test-Path $env:AIRBENCH_KNOWLEDGE_INGEST_ROOT)) {
+    New-Item -ItemType Directory -Path $env:AIRBENCH_KNOWLEDGE_INGEST_ROOT | Out-Null
+    Write-Host "Created knowledge corpus directory: $env:AIRBENCH_KNOWLEDGE_INGEST_ROOT (drop documents here to ingest)." -ForegroundColor Yellow
+}
+
 $env:USE_TF                 = "0"
 $env:TRANSFORMERS_NO_TF     = "1"
 $env:KMP_DUPLICATE_LIB_OK   = "TRUE"
@@ -79,4 +89,4 @@ Write-Host "Starting AirBench Node on http://127.0.0.1:$Port" -ForegroundColor C
 Write-Host "The Node re-hashes the signed model files at startup: wait ~35s until you see" -ForegroundColor Yellow
 Write-Host "'Starting AirBench Node ...' before running the curl checks. Ctrl+C to stop." -ForegroundColor Yellow
 Write-Host ""
-python -m airbench.node.server
+& $py -m airbench.node.server
