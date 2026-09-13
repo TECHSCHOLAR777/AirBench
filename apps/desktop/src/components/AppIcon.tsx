@@ -4,6 +4,7 @@ export type AppIconName =
   | "attachment"
   | "audit"
   | "chevron-down"
+  | "cpu"
   | "display"
   | "document"
   | "history"
@@ -47,6 +48,8 @@ export function AppIcon({ name, size = 18 }: AppIconProps) {
       return <svg aria-hidden="true" {...common}><path d="m7.5 9.5 4.5 4.5 4.5-4.5" /></svg>;
     case "display":
       return <svg aria-hidden="true" {...common}><rect x="3.5" y="4.5" width="17" height="12" rx="2" /><path d="M8.5 20h7M12 16.5V20" /></svg>;
+    case "cpu":
+      return <svg aria-hidden="true" {...common}><rect x="6" y="6" width="12" height="12" rx="2" /><rect x="9.5" y="9.5" width="5" height="5" rx="1" /><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" /></svg>;
     case "document":
       return <svg aria-hidden="true" {...common}><path d="M6 3.5h8.5L18 7v13.5H6z" /><path d="M14.5 3.5V7H18M9 11h6M9 15h6" /></svg>;
     case "history":

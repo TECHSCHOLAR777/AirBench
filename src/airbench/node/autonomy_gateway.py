@@ -27,6 +27,27 @@ def _rank(clearance: Clearance) -> int:
     return {Clearance.public: 0, Clearance.internal: 1, Clearance.restricted: 2, Clearance.secret: 3}[clearance]
 
 
+def select_execution_action_kind(risk_mappings: Any, override: str = "") -> str:
+    """Pick the pack-declared action kind that gates task execution.
+
+    The core must not hardcode a sector action name.  When the operator does not
+    pin one, the most consequential declared action (the first non-reversible
+    mapping) is used; if no mappings exist, a neutral default is returned so the
+    governor still fails closed on an unmapped action.
+    """
+    if override and override.strip():
+        return override.strip()
+    mappings = tuple(risk_mappings or ())
+    if not mappings:
+        return "task_execution"
+    non_reversible = [
+        mapping for mapping in mappings
+        if str(getattr(mapping, "reversibility", "")).strip().lower() not in {"reversible", "yes", "true"}
+    ]
+    chosen = (non_reversible or list(mappings))[0]
+    return str(getattr(chosen, "action_kind", "") or "task_execution")
+
+
 def _decision_wire(decision: AuthorityDecision) -> dict[str, Any]:
     return {
         "task_id": decision.task_id,
@@ -137,4 +158,4 @@ class LocalNodeAutonomyService:
         return {"task_id": task_id, "authorized": True, "action_id": action_id or hold.get("action_id")}
 
 
-__all__ = ["AutonomyServiceError", "LocalNodeAutonomyService"]
+__all__ = ["AutonomyServiceError", "LocalNodeAutonomyService", "select_execution_action_kind"]
