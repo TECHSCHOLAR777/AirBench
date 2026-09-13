@@ -14,14 +14,23 @@ class TextOCR:
         self._init_ocr()
 
     def _init_ocr(self):
-        """Initializes EasyOCR directly."""
+        """Initializes EasyOCR from a local model directory only (never downloads)."""
+        import os
+        from pathlib import Path
+
+        from .config import REPO_ROOT
+
+        model_dir = Path(os.environ.get("PID_OCR_MODEL_DIR", str(REPO_ROOT / "models" / "weights" / "pid" / "easyocr")))
         try:
             import easyocr
-            print("[TextOCR] Initializing EasyOCR...")
-            self.ocr_engine = easyocr.Reader([self.lang], gpu=False)
+
+            if not model_dir.is_dir():
+                raise FileNotFoundError(f"local EasyOCR models are required at {model_dir} (downloads are disabled)")
+            self.ocr_engine = easyocr.Reader(
+                [self.lang], gpu=False, model_storage_directory=str(model_dir), download_enabled=False
+            )
             self.engine_type = "easyocr"
-            print("[TextOCR] EasyOCR initialized successfully.")
-        except (ImportError, Exception) as e:
+        except Exception as e:  # noqa: BLE001 - missing local OCR models disable OCR, they never download
             print(f"[TextOCR] EasyOCR not available ({e}). OCR module running in mock/pass-through mode.")
             self.ocr_engine = None
             self.engine_type = "none"
