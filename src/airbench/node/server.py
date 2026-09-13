@@ -500,6 +500,24 @@ def build_node_app(
         except Exception as exc:  # noqa: BLE001
             logger.warning("Qualification matrix not loaded: %s", exc)
 
+    # P&ID extraction is offline and opt-in: it is available when the local
+    # vision stack and the committed detector weights are present.
+    pid_adapter = None
+    try:
+        from airbench.intake.pid.adapter import PidIntakeAdapter
+
+        legend = (Path(pack_dir) / "pid_legend.yaml") if pack_dir else (Path("packs/refinery_psu_v0/pid_legend.yaml"))
+        pid_adapter = PidIntakeAdapter(legend_path=legend if legend.is_file() else None)
+        logger.info("P&ID adapter composed (legend=%s)", legend.name if legend.is_file() else "default")
+    except Exception as exc:  # noqa: BLE001 - optional subsystem
+        logger.warning("P&ID adapter not initialized: %s", exc)
+    pid_workspace = (
+        os.environ.get("AIRBENCH_PID_WORKSPACE", "").strip()
+        or os.environ.get("AIRBENCH_ARTIFACT_ROOT", "").strip()
+        or os.environ.get("AIRBENCH_INTAKE_ROOT", "").strip()
+        or str(Path.cwd())
+    )
+
     # Write node-started sovereignty evidence (sidecar JSON, not the task ledger)
     if evidence_dir is None and config.ledger_path:
         evidence_dir = Path(config.ledger_path).parent
@@ -667,6 +685,7 @@ def build_node_app(
         deliverable_gateway=deliverable_gateway, execution=execution, knowledge=knowledge_service,
         pack=loaded_pack, world_model=world_model, consistency=consistency_service, autonomy=autonomy_service,
         hardware_profile=hardware_profile, qualification_matrix=qualification_matrix,
+        pid_adapter=pid_adapter, pid_workspace=pid_workspace,
     )
     app = create_app(service)
     add_readiness_route(app, service)

@@ -146,10 +146,18 @@ def _fact_wire(fact: Any) -> dict[str, Any]:
     }
 
 
+def _image_media_type(content: bytes) -> str | None:
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    return None
+
+
 class NodeApiService:
     """Owns API authentication and projections, not task authority."""
 
-    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None, model_router: Any = None, task_planner: Any = None, retrieval: Any = None, execution: Any = None, knowledge: Any = None, pack: Any = None, world_model: Any = None, consistency: Any = None, autonomy: Any = None, hardware_profile: Any = None, qualification_matrix: Any = None):
+    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None, model_router: Any = None, task_planner: Any = None, retrieval: Any = None, execution: Any = None, knowledge: Any = None, pack: Any = None, world_model: Any = None, consistency: Any = None, autonomy: Any = None, hardware_profile: Any = None, qualification_matrix: Any = None, pid_adapter: Any = None, pid_workspace: Any = None):
         self.orchestrator = orchestrator
         self.config = config
         self.intake_gateway = intake_gateway
@@ -180,6 +188,9 @@ class NodeApiService:
         # Hardware and qualification projections for the Node settings surface.
         self.hardware_profile = hardware_profile
         self.qualification_matrix = qualification_matrix
+        # The P&ID extraction adapter (offline) and its scoped workspace root.
+        self.pid_adapter = pid_adapter
+        self.pid_workspace = pid_workspace
         self._ledger: LedgerView = orchestrator.store
         self._lock = RLock()
 
@@ -253,6 +264,61 @@ class NodeApiService:
                 return gateway.status(intake_id=intake_id)
             except NodeIntakeError as exc:
                 raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
+    def pid_extract(self, subject: str, *, task_id: str, file_name: str, content: bytes) -> dict[str, Any]:
+        from hashlib import sha256
+        from pathlib import Path
+
+        from contracts import Taint, build_event, idempotency_key, stable_id
+
+        from airbench.intake.pid.adapter import PidAdapterError
+
+        with self._lock:
+            task = self._visible_task(task_id)
+            if task.principal_id != subject:
+                raise NodeApiError(403, "principal_mismatch", "The upload principal does not match the task principal.")
+            adapter = self._require_pid()
+            media_type = _image_media_type(content)
+            if media_type is None:
+                raise NodeApiError(415, "pid_unsupported_media", "The P&ID route accepts PNG or JPEG page images.")
+            content_hash = sha256(content).hexdigest()
+            intake_id = stable_id("pid-intake", task_id, content_hash)
+            workspace = Path(self.pid_workspace or ".").resolve() / task_id
+            try:
+                record = adapter.process(
+                    page_bytes=content, media_type=media_type, task_id=task_id, intake_id=intake_id,
+                    revision_id=stable_id("pid-revision", task_id, content_hash),
+                    source_ref=f"query-upload:{task_id}:{file_name}", content_hash=content_hash,
+                    clearance=task.clearance, taint=Taint.untrusted, workspace=workspace,
+                )
+            except PidAdapterError as exc:
+                status = 503 if exc.code == "adapter_unavailable" else 422
+                raise NodeApiError(status, f"pid_{exc.code}", str(exc)) from exc
+            payload = record.to_dict()
+            event = build_event(
+                event_type="pid.extracted", task_id=task_id, actor_id="node.pid", actor_type="service",
+                payload_contract="PIDRecord", payload_version="1.0",
+                payload={
+                    **payload,
+                    "provenance": {
+                        "source_ref": record.source_ref, "confidence": 0.9,
+                        "clearance": task.clearance.value, "taint": Taint.untrusted.value,
+                    },
+                },
+                clearance=task.clearance,
+                idempotency=idempotency_key("pid.extracted", task_id, intake_id),
+                sequence=len(self._ledger.events), previous_event_hash=self._ledger.head_hash,
+            )
+            try:
+                self._ledger.append(event)
+            except Exception as exc:
+                raise NodeApiError(503, "pid_not_committed", "The P&ID extraction record could not be committed.") from exc
+            return {**payload, "ledger_event_ref": event.event_id}
+
+    def _require_pid(self) -> Any:
+        if self.pid_adapter is None:
+            raise NodeApiError(503, "pid_unavailable", "The P&ID extraction adapter is not configured.")
+        return self.pid_adapter
 
     def knowledge_status(self) -> dict[str, Any]:
         runtime = self.retrieval
@@ -1610,6 +1676,12 @@ def create_app(service: NodeApiService) -> FastAPI:
         subject = auth(request)
         task_id, file_name, content = await multipart_document(request)
         return service.query_upload(subject, task_id=task_id, file_name=file_name, content=content)
+
+    @app.post("/api/v1/intake/pid", status_code=200)
+    async def pid_extract(request: Request) -> dict[str, Any]:
+        subject = auth(request)
+        task_id, file_name, content = await multipart_document(request)
+        return service.pid_extract(subject, task_id=task_id, file_name=file_name, content=content)
 
     @app.get("/api/v1/intake/{preview_ref}/preview")
     async def safe_intake_preview(preview_ref: str, request: Request) -> dict[str, Any]:

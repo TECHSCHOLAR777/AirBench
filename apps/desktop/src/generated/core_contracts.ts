@@ -87,6 +87,7 @@ export const LEDGER_EVENT_TYPES = [
   "model.variant.qualified",
   "pack.load_rejected",
   "pack.loaded",
+  "pid.extracted",
   "projection.exported",
   "projection.rebuilt",
   "recovery.resumed",
