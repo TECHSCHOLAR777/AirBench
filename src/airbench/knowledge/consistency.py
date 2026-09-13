@@ -128,13 +128,12 @@ class ConsistencyEngine:
                 "taint": taint.value,
             },
         }
-        self.ledger.append(build_event(
+        event = self.ledger.append(build_event(
             event_type="consistency.checked", task_id=current.task_id, actor_id="consistency-engine", actor_type="policy",
             payload_contract="ConsistencyResult", payload_version="1.0", payload=payload, clearance=clearance,
             idempotency=idempotency_key("consistency.checked", current.task_id, current.decision_id),
             sequence=len(self.ledger.events), previous_event_hash=self.ledger.head_hash,
         ))
-        event = self.ledger.events[-1]
         return ConsistencyResult(
             current.task_id, current.decision_id, tuple(item.decision_id for item in active),
             tuple(item.decision_id for item in superseded), tuple(differences), deviation, reason, event.event_id,

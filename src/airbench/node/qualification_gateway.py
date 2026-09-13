@@ -75,4 +75,19 @@ def qualification_status(matrix: Mapping[str, Any], target_id: str) -> dict[str,
     return {"target_id": target_id, "status": overall, "certificates": entries}
 
 
-__all__ = ["QualificationReadError", "load_qualification_matrix", "qualification_status"]
+def qualification_roster(matrix: Mapping[str, Any]) -> dict[str, Any]:
+    """Return every declared target and its qualification status in one call.
+
+    This is the Node-authoritative roster the desktop renders; the desktop must
+    not hardcode the target list.
+    """
+    seen: list[str] = []
+    for certificate in matrix.get("certificates", []):
+        target_id = str(certificate.get("target_id", ""))
+        if target_id and target_id not in seen:
+            seen.append(target_id)
+    targets = [qualification_status(matrix, target_id) for target_id in seen]
+    return {"count": len(targets), "targets": targets}
+
+
+__all__ = ["QualificationReadError", "load_qualification_matrix", "qualification_roster", "qualification_status"]

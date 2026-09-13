@@ -127,8 +127,7 @@ class AutonomyGovernor:
             authority, checks, outcome, reason = "system", rule.required_checks, "allow", "pack rule permits a reversible, low-harm, sufficiently confident action"
         payload = {"action_id": proposal.action_id, "action_kind": proposal.action_kind, "outcome": outcome, "required_authority": authority, "required_checks": list(checks), "reason": reason, "worker_agreement_ignored": True, "target_object_id": proposal.target_object_id, "provenance": {"source_ref": proposal.source_ref, "confidence": proposal.confidence, "clearance": proposal.clearance.value, "taint": proposal.taint.value}}
         event_type = "authority.decided" if outcome == "allow" else "escalation.required"
-        self.ledger.append(build_event(event_type=event_type, task_id=proposal.task_id, actor_id="autonomy-governor", actor_type="policy", payload_contract="AuthorityDecision", payload_version="1.0", payload=payload, clearance=proposal.clearance, idempotency=idempotency_key(event_type, proposal.task_id, proposal.action_id), sequence=len(self.ledger.events), previous_event_hash=self.ledger.head_hash))
-        event = self.ledger.events[-1]
+        event = self.ledger.append(build_event(event_type=event_type, task_id=proposal.task_id, actor_id="autonomy-governor", actor_type="policy", payload_contract="AuthorityDecision", payload_version="1.0", payload=payload, clearance=proposal.clearance, idempotency=idempotency_key(event_type, proposal.task_id, proposal.action_id), sequence=len(self.ledger.events), previous_event_hash=self.ledger.head_hash))
         return AuthorityDecision(proposal.task_id, proposal.action_id, outcome, authority, checks, reason, event.event_id)
 
 

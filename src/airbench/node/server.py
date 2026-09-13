@@ -466,7 +466,11 @@ def build_node_app(
 
     # Hardware and qualification projections for the Node settings surface.
     hardware_profile = None
-    hardware_path = os.environ.get("AIRBENCH_HARDWARE_PROFILE", "").strip() or str(Path("profiles/hardware/workstation_demo.yaml"))
+    hardware_path = (
+        os.environ.get("AIRBENCH_HARDWARE_PROFILE", "").strip()
+        or os.environ.get("AIRBENCH_HARDWARE_PROFILE_PATH", "").strip()
+        or str(Path("profiles/hardware/workstation_demo.yaml"))
+    )
     if Path(hardware_path).is_file():
         try:
             from .hardware_gateway import load_hardware_profile
@@ -676,7 +680,11 @@ def add_node_asset_routes(app: Any, service: NodeApiService) -> None:
         target_id = request.path_params["target_id"]
         return StarletteJSONResponse(status_code=200, content=service.qualification_status(target_id))
 
+    async def qualification_roster(request: StarletteRequest) -> StarletteJSONResponse:  # noqa: ARG001
+        return StarletteJSONResponse(status_code=200, content=service.qualification_roster())
+
     app.router.routes.insert(0, Route("/api/v1/node/hardware", endpoint=hardware, methods=["GET"]))
+    app.router.routes.insert(0, Route("/api/v1/node/qualification", endpoint=qualification_roster, methods=["GET"]))
     app.router.routes.insert(0, Route("/api/v1/node/qualification/{target_id}", endpoint=qualification, methods=["GET"]))
 
 

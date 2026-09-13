@@ -8,7 +8,7 @@ import httpx
 
 from airbench.node.api import NodeApiConfig, NodeApiService, create_app
 from airbench.node.hardware_gateway import hardware_status, load_hardware_profile
-from airbench.node.qualification_gateway import load_qualification_matrix, qualification_status
+from airbench.node.qualification_gateway import load_qualification_matrix, qualification_roster, qualification_status
 from airbench.node.server import add_node_asset_routes
 from contracts import Clearance, EventLedger, Orchestrator
 
@@ -44,6 +44,13 @@ class QualificationStatusTests(unittest.TestCase):
         matrix = load_qualification_matrix(QUAL_MATRIX)
         status = qualification_status(matrix, "target.unknown")
         self.assertEqual(status["status"], "not_listed")
+
+    def test_roster_lists_every_declared_target(self):
+        matrix = load_qualification_matrix(QUAL_MATRIX)
+        roster = qualification_roster(matrix)
+        self.assertGreaterEqual(roster["count"], 1)
+        self.assertEqual(roster["count"], len(roster["targets"]))
+        self.assertTrue(all(target["status"] in {"qualified", "unqualified", "pending"} for target in roster["targets"]))
 
 
 class NodeAssetApiTests(unittest.TestCase):
@@ -87,6 +94,14 @@ class NodeAssetApiTests(unittest.TestCase):
         self.assertEqual(response.json()["status"], "pending")
         unknown = self._get("/api/v1/node/qualification/target.unknown")
         self.assertEqual(unknown.json()["status"], "not_listed")
+
+    def test_qualification_roster_endpoint(self):
+        response = self._get("/api/v1/node/qualification")
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body["configured"])
+        self.assertGreaterEqual(body["count"], 1)
+        self.assertEqual(body["count"], len(body["targets"]))
 
 
 if __name__ == "__main__":

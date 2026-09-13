@@ -85,7 +85,7 @@ class NodeAutonomyApiTests(unittest.TestCase):
 
         records = self._request("GET", f"/api/v1/tasks/{self.task.task_id}/autonomy")
         self.assertEqual(records.status_code, 200, records.text)
-        self.assertTrue(records.json()["blocked"])
+        self.assertTrue(records.json()["is_blocked"])
         self.assertEqual(len(records.json()["decisions"]), 1)
 
         authorize = self._request("POST", f"/api/v1/tasks/{self.task.task_id}/autonomy/authorize", json={"action_id": "action.2"})
