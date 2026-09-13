@@ -16,16 +16,16 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from ..ids import idempotency_key
-from ..model.backend import (
+from contracts.ids import idempotency_key
+from contracts.model.backend import (
     BackendCallError, BackendCapabilities, BackendChunk, BackendContent,
     BackendErrorCode, BackendFailure, BackendHealth, BackendMessage,
     BackendOutputSpec, BackendReadiness, BackendRequest, BackendResponse,
     BackendTool, BackendToolCall, BackendUsage, CancellationToken,
     ResponseProvenance,
 )
-from ..models import ContractStatus, Taint
-from ..provenance.ledger import build_event
+from contracts.models import ContractStatus, Taint
+from contracts.provenance.ledger import build_event
 
 
 def _sha256(value: str) -> str:

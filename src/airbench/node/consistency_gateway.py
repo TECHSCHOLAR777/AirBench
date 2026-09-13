@@ -41,12 +41,14 @@ class LocalNodeConsistencyService:
         ledger: EventLedger,
         clearance_context: Clearance,
         max_justification_chars: int = 4_000,
+        required_review_types: "frozenset[str] | set[str] | None" = None,
     ) -> None:
         self._engine = engine
         self._store = store
         self._ledger = ledger
         self._clearance = clearance_context
         self._max_justification_chars = max_justification_chars
+        self._required_review_types = frozenset(required_review_types) if required_review_types is not None else None
         self._reports: dict[str, dict[str, Any]] = {}
         self._justified: dict[str, str] = {}
 
@@ -127,7 +129,11 @@ class LocalNodeConsistencyService:
 
     def is_blocked(self, task_id: str) -> bool:
         report = self._reports.get(task_id)
-        return bool(report and report.get("deviation")) and task_id not in self._justified
+        if not report or not report.get("deviation") or task_id in self._justified:
+            return False
+        if self._required_review_types is None:
+            return True
+        return report.get("decision_type") in self._required_review_types
 
     @staticmethod
     def _report_wire(result: ConsistencyResult, *, decision_type: str, object_id: str) -> dict[str, Any]:

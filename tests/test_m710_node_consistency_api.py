@@ -116,6 +116,29 @@ class NodeConsistencyApiTests(unittest.TestCase):
         response = self._request("POST", f"/api/v1/tasks/{self.task.task_id}/consistency/evaluate", json=payload)
         self.assertEqual(response.status_code, 403, response.text)
 
+    def test_policy_restricts_which_deviations_block(self):
+        from airbench.knowledge.consistency import ConsistencyEngine
+        from airbench.knowledge.decision_store import SqliteDecisionStore
+
+        def drive(required, name):
+            store = SqliteDecisionStore(f"{self.directory.name}/{name}.sqlite")
+            service = LocalNodeConsistencyService(
+                engine=ConsistencyEngine(self.ledger), store=store, ledger=self.ledger,
+                clearance_context=Clearance.internal, required_review_types=required,
+            )
+            base = dict(
+                task_id=self.task.task_id, decision_type="approval_note_review_status",
+                object_id=f"equipment.{name}", decision="approved", rule_ref="r.1", authority="human_reviewer",
+            )
+            service.evaluate(decision_id=f"decision.{name}.1", features={"severity": "low"}, **base)
+            service.evaluate(decision_id=f"decision.{name}.2", features={"severity": "high"}, **base)
+            blocked = service.is_blocked(self.task.task_id)
+            store.close()
+            return blocked
+
+        self.assertFalse(drive(frozenset({"some_other_type"}), "policyA"))
+        self.assertTrue(drive(frozenset({"approval_note_review_status"}), "policyB"))
+
 
 if __name__ == "__main__":
     unittest.main()

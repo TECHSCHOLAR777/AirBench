@@ -47,6 +47,17 @@ $env:TRANSFORMERS_OFFLINE            = "1"
 
 $env:AIRBENCH_TASK_PLANNER_ENABLED   = "1"
 $env:AIRBENCH_HARDWARE_PROFILE_PATH  = "$repo\profiles\hardware\workstation_04.json"
+$env:AIRBENCH_HARDWARE_PROFILE       = "$repo\profiles\hardware\workstation_04.json"
+
+# Domain pack (signed), world model, decision history, intake, and qualification.
+$env:AIRBENCH_INTAKE_ROOT            = "$repo\.airbench-intake"
+$env:AIRBENCH_ARTIFACT_ROOT          = "$repo\.airbench-artifacts"
+$env:AIRBENCH_PACK_DIR               = "$repo\packs\refinery_psu_v0"
+$env:AIRBENCH_PACK_SIGNING_KEY_PATH  = "$repo\.airbench_signing_key"
+$env:AIRBENCH_WORLD_MODEL_BACKEND    = "sqlite"
+$env:AIRBENCH_WORLD_MODEL_PATH       = "$repo\.airbench-world-model.db"
+$env:AIRBENCH_DECISION_STORE_PATH    = "$repo\.airbench-decisions.db"
+$env:AIRBENCH_QUALIFICATION_MATRIX   = "$repo\qualifications\model_qualification_matrix.yaml"
 
 $env:USE_TF                 = "0"
 $env:TRANSFORMERS_NO_TF     = "1"

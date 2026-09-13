@@ -56,9 +56,10 @@ except ImportError as exc:  # pragma: no cover
 # ---------------------------------------------------------------------------
 from contracts import (
     BackendContent, BackendMessage, Clearance, ContractStatus,
-    EventLedger, GeminiApiAdapter, ModelCallRequest, ModelRegistry,
+    EventLedger, ModelCallRequest, ModelRegistry,
     ModelRouter, ModelTarget, Orchestrator, TeamPlan,
 )
+from devtools.gemini_adapter import GeminiApiAdapter
 
 # ---------------------------------------------------------------------------
 # Helpers (inlined from run_gemini_e2e.py so the server is self-contained)

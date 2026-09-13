@@ -16,9 +16,9 @@ KEY = b"p" * 32
 
 
 def _copy_pack(tmp_path: Path) -> Path:
-    destination = tmp_path / "refinery_psu_v0"
-    shutil.copytree(REFINERY_PACK, destination)
-    return destination
+    from pack_support import materialize_pack
+
+    return materialize_pack(tmp_path, signed=False)
 
 
 def _sign_pack(pack_dir: Path, key: bytes = KEY) -> Path:
@@ -118,9 +118,15 @@ class TestPackLoader:
 
 class TestPackFieldRules:
     def setup_method(self) -> None:
-        self.path = REFINERY_PACK
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.path = _copy_pack(Path(self._tmp.name))
         self.pack = PackLoader(allow_unsigned=True).load(self.path)
         self.runner = VerificationRunner(EventLedger())
+
+    def teardown_method(self) -> None:
+        self._tmp.cleanup()
 
     def test_range_check_rejects_out_of_envelope_fact(self) -> None:
         high = self.runner.run_pack_rules(_fact(250), self.pack.field_rules, fact_type="inspection_finding")
@@ -151,6 +157,33 @@ class TestPackFieldRules:
         assert outcome["approval_note_requires_independent_verification"] == VerificationOutcome.needs_review
         rule = next(rule for rule in self.pack.field_rules if rule.rule_id == "approval_note_requires_independent_verification")
         assert compile_pack_rule(rule, _fact(1)) is None
+
+    def test_cross_reference_is_checked_against_the_world_model(self) -> None:
+        from airbench.knowledge.world_model import CandidateFact, CandidateFactWriter, WorldModelStore, candidate_id
+        from contracts import FactEnvelope, Taint as _Taint
+
+        store = WorldModelStore()
+        entity = FactEnvelope(
+            fact_id="fact.pump", value={"entity_id": "equipment.P-101", "object_type": "equipment"},
+            source_ref="upload:report.pdf#page-1", confidence=0.9, clearance=Clearance.internal,
+            taint=_Taint.untrusted, extraction_method="entity_extractor:fixture",
+            observed_at="2026-01-01T00:00:00Z", ingested_at="2026-01-01T00:00:01Z",
+        )
+        candidate = CandidateFact(candidate_id("task.cross", entity), "task.cross", entity, ("evidence.1",), "c.1", "v.1")
+        writer = CandidateFactWriter(store, consistency_gate=lambda _: True, verification_gate=lambda _: True)
+        writer.stage(candidate)
+        writer.commit(candidate.candidate_id)
+
+        referencing = _fact({"entity_id": "equipment.P-101", "object_type": "approval_note"}, method="approval_note")
+        with_model = self.runner.run_pack_rules(referencing, self.pack.field_rules, fact_type="approval_note", world_model=store)
+        assert {c.rule_id: c.outcome for c in with_model}["approval_note_requires_independent_verification"] == VerificationOutcome.passed
+
+        unknown = _fact({"entity_id": "equipment.UNKNOWN", "object_type": "approval_note"}, method="approval_note")
+        missing = self.runner.run_pack_rules(unknown, self.pack.field_rules, fact_type="approval_note", world_model=store)
+        assert {c.rule_id: c.outcome for c in missing}["approval_note_requires_independent_verification"] == VerificationOutcome.failed
+
+        without_model = self.runner.run_pack_rules(referencing, self.pack.field_rules, fact_type="approval_note")
+        assert {c.rule_id: c.outcome for c in without_model}["approval_note_requires_independent_verification"] == VerificationOutcome.needs_review
 
     def test_rules_do_not_apply_to_other_fact_types(self) -> None:
         assert self.runner.run_pack_rules(_fact(250), self.pack.field_rules, fact_type="equipment") == ()

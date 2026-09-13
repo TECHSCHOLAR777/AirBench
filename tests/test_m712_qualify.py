@@ -13,6 +13,7 @@ from airbench.qualify import (
     load_cases,
     sign_certificate,
     verify_certificate,
+    verify_model,
 )
 from airbench.qualify.__main__ import main
 
@@ -94,3 +95,49 @@ class TestCli:
         assert certificate["qualification_source"] == "operator_measured"
         assert certificate["status"] == "ready_for_review"
         assert verify_certificate(certificate, b"s" * 32)
+
+
+class TestModelIntegrity:
+    def _artifact(self, tmp_path) -> tuple:
+        import hashlib
+
+        path = tmp_path / "model.safetensors"
+        path.write_bytes(b"weights")
+        return path, hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def test_full_integrity_pass(self, tmp_path) -> None:
+        path, digest = self._artifact(tmp_path)
+        result = verify_model(
+            artifact_path=path, expected_hash=digest, license_id="apache-2.0",
+            license_accepted=True, sandbox_probe=lambda: True,
+        )
+        assert result.passed
+        assert {check.name: check.passed for check in result.checks} == {
+            "artifact_present": True, "artifact_hash": True, "safe_format": True,
+            "license": True, "sandbox_load": True,
+        }
+
+    def test_hash_format_license_and_sandbox_failures(self, tmp_path) -> None:
+        path, digest = self._artifact(tmp_path)
+        wrong = verify_model(artifact_path=path, expected_hash="0" * 64, license_id="apache-2.0", license_accepted=True, sandbox_probe=lambda: True)
+        assert not wrong.passed
+        assert {c.name: c.passed for c in wrong.checks}["artifact_hash"] is False
+
+        unsafe = tmp_path / "model.bin"
+        unsafe.write_bytes(b"pickle")
+        assert not verify_model(artifact_path=unsafe, license_id="x", license_accepted=True, sandbox_probe=lambda: True).passed
+
+        no_license = verify_model(artifact_path=path, expected_hash=digest, sandbox_probe=lambda: True)
+        assert {c.name: c.passed for c in no_license.checks}["license"] is False
+
+        no_probe = verify_model(artifact_path=path, expected_hash=digest, license_id="apache-2.0", license_accepted=True)
+        assert {c.name: c.passed for c in no_probe.checks}["sandbox_load"] is False
+
+    def test_certificate_records_integrity(self, tmp_path) -> None:
+        path, digest = self._artifact(tmp_path)
+        integrity = verify_model(artifact_path=path, expected_hash=digest, license_id="apache-2.0", license_accepted=True, sandbox_probe=lambda: True)
+        cases = load_cases(_write_fixtures(tmp_path / "fixtures"))
+        run = QualificationHarness(lambda prompt: "seal isolate", model_id="m").run(target_id="t", role="r", cases=cases)
+        certificate = build_certificate(run, hardware_profile_id="workstation-04", runtime_version="vllm", integrity=integrity)
+        assert certificate["model_integrity"]["passed"] is True
+        assert len(certificate["model_integrity"]["checks"]) == 5

@@ -21,6 +21,16 @@ def _rank(clearance: Clearance) -> int:
     }[clearance]
 
 
+def _parse_time(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise WorldModelError("invalid_time", "as_of must be an RFC3339 timestamp") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 class WorldModelError(RuntimeError):
     """A stable candidate or query failure."""
 
@@ -62,12 +72,15 @@ class WorldModelQuery:
     entity_id: str = ""
     relation: str = ""
     max_depth: int = 1
+    as_of: str | None = None
 
     def __post_init__(self) -> None:
         if not self.task_id or self.limit < 1 or self.limit > 1_000 or len(self.key) > 256:
             raise WorldModelError("invalid_query", "world model query identity or limit is invalid")
         if len(self.relation) > 128 or self.max_depth < 0 or self.max_depth > 5:
             raise WorldModelError("invalid_query", "world model relation query is outside the allowed bounds")
+        if self.as_of is not None:
+            _parse_time(self.as_of)
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,7 +205,7 @@ class WorldModelStore:
             "key_hash": hashlib.sha256(request.key.encode("utf-8")).hexdigest(),
             "limit": str(request.limit),
         })
-        visible = self._visible_facts()
+        visible = self._visible_as_of(request.as_of) if request.as_of is not None else self._visible_facts()
         matches = [
             fact for fact in visible.values()
             if _rank(fact.clearance) <= _rank(request.clearance) and self._matches_key(fact, request.key)
@@ -256,6 +269,33 @@ class WorldModelStore:
             fact_id: fact for fact_id, fact in self._facts.items()
             if fact_id not in superseded
         }
+
+    def _visible_as_of(self, as_of: str) -> dict[str, FactEnvelope]:
+        """Reconstruct the graph as it was known at ``as_of``.
+
+        Uses the learned time (``ingested_at``), the valid window
+        (``valid_from``/``valid_to``) and the supersession chain, so a fact that
+        was still current then is returned even if a later revision has since
+        superseded it.
+        """
+        cutoff = _parse_time(as_of)
+        known = {
+            fact_id: fact for fact_id, fact in self._facts.items()
+            if _parse_time(fact.ingested_at) <= cutoff
+        }
+        superseded = {
+            fact.supersedes_fact_id for fact in known.values() if fact.supersedes_fact_id in known
+        }
+        visible: dict[str, FactEnvelope] = {}
+        for fact_id, fact in known.items():
+            if fact_id in superseded:
+                continue
+            if fact.valid_from is not None and _parse_time(fact.valid_from) > cutoff:
+                continue
+            if fact.valid_to is not None and _parse_time(fact.valid_to) <= cutoff:
+                continue
+            visible[fact_id] = fact
+        return visible
 
     def _traverse(self, request: WorldModelQuery, visible: dict[str, FactEnvelope]) -> list[FactEnvelope]:
         frontier = {request.entity_id}

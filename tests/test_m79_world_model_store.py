@@ -140,3 +140,47 @@ class TestReconciliation:
         assert "world_model.conflict" in [event.event_type for event in ledger.events]
         assert len(store.facts) == 2
         assert [fact.fact_id for fact in store.query(WorldModelQuery("task.m79"))] == ["fact.pump.2"]
+
+
+class TestAsOfQuery:
+    def _store(self) -> WorldModelStore:
+        store = WorldModelStore()
+        writer = CandidateFactWriter(store, consistency_gate=lambda _: True, verification_gate=lambda _: True)
+        older = replace(_fact(fact_id="fact.pump.1"), ingested_at="2026-01-01T00:00:00Z")
+        newer = replace(_fact(fact_id="fact.pump.2", supersedes="fact.pump.1"), ingested_at="2026-03-01T00:00:00Z")
+        for item in (older, newer):
+            candidate = _candidate(item)
+            writer.stage(candidate)
+            writer.commit(candidate.candidate_id)
+        return store
+
+    def test_as_of_returns_the_then_current_fact(self) -> None:
+        store = self._store()
+        before = store.query(WorldModelQuery("task.m79", as_of="2026-02-01T00:00:00Z"))
+        after = store.query(WorldModelQuery("task.m79", as_of="2026-04-01T00:00:00Z"))
+        assert [fact.fact_id for fact in before] == ["fact.pump.1"]
+        assert [fact.fact_id for fact in after] == ["fact.pump.2"]
+
+    def test_missing_as_of_returns_current_graph(self) -> None:
+        store = self._store()
+        assert [fact.fact_id for fact in store.query(WorldModelQuery("task.m79"))] == ["fact.pump.2"]
+
+    def test_valid_window_excludes_not_yet_valid_and_expired_facts(self) -> None:
+        store = WorldModelStore()
+        writer = CandidateFactWriter(store, consistency_gate=lambda _: True, verification_gate=lambda _: True)
+        fact = replace(
+            _fact(fact_id="fact.pump.window"),
+            ingested_at="2026-01-01T00:00:00Z",
+            valid_from="2026-02-01T00:00:00Z",
+            valid_to="2026-03-01T00:00:00Z",
+        )
+        candidate = _candidate(fact)
+        writer.stage(candidate)
+        writer.commit(candidate.candidate_id)
+        assert store.query(WorldModelQuery("task.m79", as_of="2026-01-15T00:00:00Z")) == ()
+        assert [f.fact_id for f in store.query(WorldModelQuery("task.m79", as_of="2026-02-15T00:00:00Z"))] == ["fact.pump.window"]
+        assert store.query(WorldModelQuery("task.m79", as_of="2026-04-01T00:00:00Z")) == ()
+
+    def test_invalid_as_of_is_rejected(self) -> None:
+        with pytest.raises(WorldModelError):
+            WorldModelQuery("task.m79", as_of="not-a-time")
