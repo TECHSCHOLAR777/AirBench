@@ -397,7 +397,7 @@ class NodeTaskExecutionCoordinator:
             actor_id="deliverable-engine.node-execution",
         ).render(DeliverableRequest(
             task_id=task_id,
-            template_id=self._template_id(),
+            template_id=self._template_id(task.output_contract),
             title=task.title or "AirBench review note",
             prose_sections={
                 "subject": f"Task: {task.request[:400]}",
@@ -472,14 +472,25 @@ class NodeTaskExecutionCoordinator:
     def _hardware_ref(self, task_id: str) -> str:
         profile = self._load_hardware_profile(task_id)
         return profile.profile_id
-
-    def _template_id(self) -> str:
+    def _template_id(self, output_contract: str = "") -> str:
         try:
             import yaml  # type: ignore
+
             payload = yaml.safe_load(self._template_path.read_text(encoding="utf-8"))
             templates = payload.get("templates") if isinstance(payload, dict) else None
-            if isinstance(templates, list) and templates and isinstance(templates[0].get("id"), str):
-                return templates[0]["id"]
+            if not isinstance(templates, list) or not templates:
+                raise NodeTaskExecutionError("the deliverable template declaration has no templates")
+            wanted = {"spreadsheet": "xlsx", "presentation": "pptx", "slides": "pptx", "workbook": "xlsx"}.get(
+                (output_contract or "").strip().lower(), "docx"
+            )
+            for template in templates:
+                if isinstance(template, dict) and template.get("format") == wanted and isinstance(template.get("id"), str):
+                    return template["id"]
+            first = templates[0]
+            if isinstance(first, dict) and isinstance(first.get("id"), str):
+                return first["id"]
+        except NodeTaskExecutionError:
+            raise
         except Exception as exc:
             raise NodeTaskExecutionError("the deliverable template declaration could not be read") from exc
         raise NodeTaskExecutionError("the deliverable template declaration has no template id")
