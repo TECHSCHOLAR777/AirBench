@@ -132,7 +132,7 @@ class NodeApiConfig:
 class NodeApiService:
     """Owns API authentication and projections, not task authority."""
 
-    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None, model_router: Any = None, task_planner: Any = None, retrieval: Any = None):
+    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None, model_router: Any = None, task_planner: Any = None, retrieval: Any = None, execution: Any = None):
         self.orchestrator = orchestrator
         self.config = config
         self.intake_gateway = intake_gateway
@@ -146,6 +146,10 @@ class NodeApiService:
         # The retrieval runtime (local BGE embeddings + reranker) is opt-in and
         # consulted by the orchestrator for knowledge steps, never by clients.
         self.retrieval = retrieval
+        # The execution coordinator is the Node-owned task runner.  When set,
+        # an approved plan is executed by the Node instead of waiting for
+        # client-driven model calls.
+        self.execution = execution
         self._ledger: LedgerView = orchestrator.store
         self._lock = RLock()
 
@@ -245,6 +249,21 @@ class NodeApiService:
             raise NodeApiError(503, "intake_unavailable", "The local File Intake service is not configured.")
         return self.intake_gateway
 
+    def _require_visible_deliverable(self, task_id: str, artifact_id: str) -> None:
+        """Bind a sign-off command to the task's current committed deliverable."""
+        if self.deliverable_gateway is None:
+            return
+        try:
+            review = self.deliverable_gateway.artifact_review(task_id=task_id)
+        except NodeIntakeError as exc:
+            raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+        committed = review.get("artifact_id") or review.get("artifactId")
+        if committed != artifact_id:
+            raise NodeApiError(409, "artifact_mismatch", "The artifact does not belong to this task's current deliverable.")
+        blockers = review.get("approval_blocking_reasons") or review.get("approvalBlockingReasons") or ()
+        if blockers:
+            raise NodeApiError(409, "artifact_blocked", "The deliverable still has unresolved verification blockers.")
+
     def create_task(self, subject: str, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
             command = self._command(subject, payload, "task.create", None)
@@ -341,6 +360,14 @@ class NodeApiService:
                     raise NodeApiError(409, "task_planning_rejected", "The Node could not commit a validated plan for this task.") from exc
                 except (StorageFailure, LedgerError) as exc:
                     raise NodeApiError(503, "task_planning_failed", "The local ledger did not commit the task plan.") from exc
+            if self.execution is not None:
+                from .task_execution import NodeTaskExecutionError
+                try:
+                    self.execution.prepare(task_id)
+                except NodeTaskExecutionError as exc:
+                    if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
+                        self.orchestrator.transition(task_id, "task.failed", {"failure_code": "task_execution_prepare_failed"})
+                    raise NodeApiError(409, "task_execution_prepare_failed", "The Node could not prepare the admitted plan for execution.") from exc
             return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
 
     def approve_plan(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -369,6 +396,14 @@ class NodeApiService:
                 raise NodeApiError(409, "transition_rejected", "The plan cannot be approved from its current task state.") from exc
             except (StorageFailure, LedgerError) as exc:
                 raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the plan approval.") from exc
+            if self.execution is not None:
+                from .task_execution import NodeTaskExecutionError
+                try:
+                    self.execution.execute(task_id)
+                except NodeTaskExecutionError as exc:
+                    if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
+                        self.orchestrator.transition(task_id, "task.failed", {"failure_code": "task_execution_failed"})
+                    raise NodeApiError(503, "task_execution_failed", "The approved plan did not produce a verified draft.") from exc
             return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
 
     def cancel(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -424,6 +459,7 @@ class NodeApiService:
             self._check_expected_sequence(command, task_id)
             artifact_id = _text(command.arguments, "artifact_id", 512)
             reason = _text(command.arguments, "reason", 4_096)
+            self._require_visible_deliverable(task_id, artifact_id)
             try:
                 result = self.orchestrator.signoff(
                     self._visible_task(task_id).task_id,
@@ -455,6 +491,7 @@ class NodeApiService:
             self._check_expected_sequence(command, task_id)
             artifact_id = _text(command.arguments, "artifact_id", 512)
             reason = _text(command.arguments, "reason", 4_096)
+            self._require_visible_deliverable(task_id, artifact_id)
             try:
                 result = self.orchestrator.signoff(
                     self._visible_task(task_id).task_id,

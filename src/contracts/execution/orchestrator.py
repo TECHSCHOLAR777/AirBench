@@ -132,7 +132,7 @@ _ALLOWED = {
     "verification.requested": {"executing", "awaiting_check"},
     "verification.completed": {"awaiting_check"},
     "human.review.required": {"deliverable_verified", "needs_review", "awaiting_review"},
-    "human.signoff": {"awaiting_review"},
+    "human.signoff": {"awaiting_review", "deliverable_verified"},
     "artifact.staged": {"deliverable_verified", "awaiting_review"},
     "artifact.checked": {"rendering"},
     "completion.recorded": {"deliverable_verified"},

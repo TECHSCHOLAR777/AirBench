@@ -145,7 +145,8 @@ function InspectorSelection({
 }
 
 function ArtifactReviewPanel({ review, onApprove, onReturn, isPending }: { review: NodeArtifactReview; onApprove: (artifactId: string, reason: string) => void; onReturn: (artifactId: string, reason: string) => void; isPending: boolean }) {
-  const showActions = review.approvalState === "needs_review";
+  const showActions = (review.approvalState === "pending" || review.approvalState === "needs_review")
+    && review.approvalBlockingReasons.length === 0;
   return <section className="proof-artifact-review" aria-label="Node artifact review">
     <div className="proof-artifact-review-head"><div><span className="proof-artifact-review-kicker">DELIVERABLE RECORD</span><strong>{review.status.replaceAll("_", " ")}</strong></div><span className={`proof-review-badge proof-review-badge-${review.approvalState}`}>{review.approvalState.replaceAll("_", " ")}</span></div>
     <dl className="proof-artifact-review-grid">

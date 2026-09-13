@@ -1,0 +1,9 @@
+# Structural-only deliverable template for the production composition test.
+# Visual regression is a separate gate; this template does not require it.
+templates:
+  - id: node_execution_review_note_v0
+    version: "1.0"
+    format: docx
+    required_sections: [subject, findings, source_register, deterministic_calculations, review_status]
+    values_section: deterministic_calculations
+    structural_check: required
