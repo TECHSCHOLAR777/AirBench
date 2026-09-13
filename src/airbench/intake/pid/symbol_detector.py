@@ -1,4 +1,3 @@
-import urllib.request
 from typing import List, Dict, Any
 import cv2
 import numpy as np
@@ -6,18 +5,29 @@ from ultralytics import YOLO
 
 from .config import (
     SYMBOL_WEIGHTS_PATH,
-    SYMBOL_WEIGHTS_URL,
     SYMBOL_CONFIG
 )
 
 
+class PidUnavailable(RuntimeError):
+    """A required local P&ID artifact or dependency is missing (no download)."""
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        super().__init__(message)
+
+
 def ensure_weights_exist():
-    """Downloads the fine-tuned 32-class YOLOv8 weights from GitHub if missing."""
+    """Fail closed when the local detector weights are missing.
+
+    The P&ID adapter is offline-only: it never downloads model weights. A
+    missing artifact returns a typed unavailable result for the caller.
+    """
     if not SYMBOL_WEIGHTS_PATH.exists():
-        print(f"[SymbolDetector] Weights not found at {SYMBOL_WEIGHTS_PATH}. Downloading from {SYMBOL_WEIGHTS_URL}...")
-        SYMBOL_WEIGHTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        urllib.request.urlretrieve(SYMBOL_WEIGHTS_URL, str(SYMBOL_WEIGHTS_PATH))
-        print(f"[SymbolDetector] Weights downloaded successfully to {SYMBOL_WEIGHTS_PATH}.")
+        raise PidUnavailable(
+            "weights_missing",
+            f"local P&ID detector weights are required at {SYMBOL_WEIGHTS_PATH} (downloads are disabled)",
+        )
 
 
 def non_max_suppression_boxes(boxes: np.ndarray, scores: np.ndarray, classes: np.ndarray, iou_threshold: float = 0.45):
