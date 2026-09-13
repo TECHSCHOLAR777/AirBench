@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import { AppIcon } from "./AppIcon";
 import type { ApprovedNodeProfileReference } from "../platform/node/nodeConnection";
 import type { NodeConnectionView } from "../platform/node/nodeConnectionController";
 import { buildNodeReadiness } from "../platform/node/nodeReadiness";
+import { domainPackSignatureTone, fetchDomainPack, type DomainPackStatus } from "../platform/node/domainPack";
 
 interface NodeReadinessPanelProps {
   connection: NodeConnectionView;
@@ -11,6 +13,24 @@ interface NodeReadinessPanelProps {
 export function NodeReadinessPanel({ connection, profile }: NodeReadinessPanelProps) {
   const readiness = buildNodeReadiness(connection, profile);
   const connectionIcon = readiness.connection.tone === "trusted" ? "shield" : "node";
+  const verified = readiness.connection.tone === "trusted";
+  const [domainPack, setDomainPack] = useState<DomainPackStatus | null>(null);
+  const [domainPackUnavailable, setDomainPackUnavailable] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!verified || !profile) {
+      setDomainPack(null);
+      setDomainPackUnavailable(false);
+      return () => { active = false; };
+    }
+    fetchDomainPack(profile)
+      .then((status) => { if (active) { setDomainPack(status); setDomainPackUnavailable(false); } })
+      .catch(() => { if (active) { setDomainPack(null); setDomainPackUnavailable(true); } });
+    return () => { active = false; };
+  }, [verified, profile]);
+
+  const packTone = domainPack ? domainPackSignatureTone(domainPack) : "attention";
 
   return <div className="node-readiness" data-testid="node-readiness-panel">
     <p className="sr-only" role="status">{readiness.connection.title}</p>
@@ -28,6 +48,27 @@ export function NodeReadinessPanel({ connection, profile }: NodeReadinessPanelPr
         <div><dt>Next</dt><dd>{readiness.connection.recovery.nextAction}</dd></div>
       </dl>
     </section>
+
+    {verified && <section className={`node-domain-pack tone-${packTone}`} aria-label="Domain pack status" data-testid="node-domain-pack">
+      <header className="node-readiness-head">
+        <span className="node-readiness-icon" aria-hidden="true"><AppIcon name="sliders" size={20} /></span>
+        <div>
+          <p className="eyebrow">DOMAIN PACK</p>
+          <h2>{domainPack?.configured ? `${domainPack.pack_id} v${domainPack.pack_version}` : "Domain pack status unavailable"}</h2>
+          <p>{domainPack?.configured
+            ? "The Node's declared sector pack. Verification happens at Node startup; the desktop only displays the result and never loads the pack."
+            : domainPackUnavailable
+              ? "The desktop could not read the Node domain pack declaration. Consequential work stays governed by the Node."
+              : "Reading the Node domain pack declaration."}</p>
+        </div>
+      </header>
+      {domainPack?.configured && <dl className="node-proof-grid">
+        <div><dt>Signature</dt><dd>{domainPack.signature_status === "signed" ? "Signed" : "Unsigned (development only)"}</dd></div>
+        <div><dt>Active sections</dt><dd>{domainPack.active_sections.length}</dd></div>
+        <div><dt>Field rules</dt><dd>{domainPack.counts.field_rules ?? 0}</dd></div>
+        <div><dt>Risk mappings</dt><dd>{domainPack.counts.risk_mappings ?? 0}</dd></div>
+      </dl>}
+    </section>}
 
     <section className="node-readiness-explainer" aria-label="About an AirBench Node">
       <span className="node-readiness-explainer-icon" aria-hidden="true"><AppIcon name="node" size={17} /></span>

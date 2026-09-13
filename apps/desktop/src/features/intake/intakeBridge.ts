@@ -39,12 +39,39 @@ export interface DownloadReceipt {
   byte_size: number;
 }
 
+export interface IntakeStatusPage {
+  page_id: string;
+  page_number: number;
+  confidence: number;
+  extraction_method: string;
+  bounding_box_count: number;
+  table_count: number;
+  review_recommended: boolean;
+}
+
+export interface IntakeStatus {
+  intake_id: string;
+  file_name: string;
+  media_type: string;
+  page_count: number;
+  ocr_provider: string;
+  ocr_status: string;
+  vision_status: string;
+  average_confidence: number;
+  min_confidence: number;
+  confidence_band: string;
+  review_recommended: boolean;
+  low_confidence_pages: IntakeStatusPage[];
+  pages: IntakeStatusPage[];
+  ledger_event_ref: string;
+}
+
 const MAX_QUERY_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_NODE_REFERENCE_LENGTH = 256;
 const MAX_PREVIEW_TEXT_BYTES = 10 * 1024 * 1024;
 type Clearance = "public" | "internal" | "restricted" | "secret";
 type Taint = "clean" | "untrusted" | "contaminated";
-type IntakeStatus = "pending" | "running" | "completed" | "failed" | "not_applicable" | "unavailable";
+type IntakeProcessingStatus = "pending" | "running" | "completed" | "failed" | "not_applicable" | "unavailable";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -102,7 +129,7 @@ function requireTaint(value: unknown, label: string): Taint {
   return value;
 }
 
-function requireStatus(value: unknown, label: string): IntakeStatus {
+function requireStatus(value: unknown, label: string): IntakeProcessingStatus {
   if (value !== "pending" && value !== "running" && value !== "completed" && value !== "failed" && value !== "not_applicable" && value !== "unavailable") {
     throw new Error(`The Node returned an invalid ${label} status.`);
   }
@@ -188,6 +215,88 @@ export function validateSafePreview(value: unknown, requestedRef: string, expect
     taint: requireTaint(source.taint, "preview taint"),
     ledger_event_ref: requireNodeReference(source.ledger_event_ref, "ledger event"),
   };
+}
+
+function requireConfidenceBand(value: unknown): "green" | "amber" | "red" {
+  if (value !== "green" && value !== "amber" && value !== "red") {
+    throw new Error("The Node returned an invalid confidence band.");
+  }
+  return value;
+}
+
+function requireConfidence(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`The Node returned an invalid ${label}.`);
+  }
+  return value;
+}
+
+function validateIntakeStatusPage(value: unknown, label: string): IntakeStatusPage {
+  const page = requireRecord(value, label);
+  const pageId = requireNodeReference(page.page_id, "page");
+  const pageNumber = requireSafeInteger(page.page_number, "page number", 1);
+  const extractionMethod = requireNonEmptyString(page.extraction_method, "page extraction method");
+  const boundingBoxCount = requireSafeInteger(page.bounding_box_count, "bounding box count", 0);
+  const tableCount = requireSafeInteger(page.table_count, "table count", 0);
+  if (typeof page.review_recommended !== "boolean") throw new Error(`The Node returned an invalid ${label} review flag.`);
+  return {
+    page_id: pageId,
+    page_number: pageNumber,
+    confidence: requireConfidence(page.confidence, "page confidence"),
+    extraction_method: extractionMethod,
+    bounding_box_count: boundingBoxCount,
+    table_count: tableCount,
+    review_recommended: page.review_recommended,
+  };
+}
+
+/**
+ * Re-validates the Node intake status projection at the webview boundary. The
+ * status is advisory UI data; it never widens clearance or promotes content.
+ */
+export function validateIntakeStatus(value: unknown, requestedIntakeId: string): IntakeStatus {
+  const source = requireRecord(value, "intake status");
+  const intakeId = requireNodeReference(source.intake_id, "intake");
+  if (intakeId !== requestedIntakeId) throw new Error("The Node intake status does not match the requested intake.");
+  const pages = source.pages;
+  if (!Array.isArray(pages) || pages.length === 0 || pages.length > 10_000) {
+    throw new Error("The Node returned an invalid intake status page list.");
+  }
+  const lowConfidence = source.low_confidence_pages;
+  if (!Array.isArray(lowConfidence) || lowConfidence.length > 10_000) {
+    throw new Error("The Node returned an invalid low-confidence page list.");
+  }
+  const pageCount = requireSafeInteger(source.page_count, "intake page count", 1);
+  if (pageCount !== pages.length) throw new Error("The Node returned an inconsistent intake page count.");
+  if (typeof source.review_recommended !== "boolean") throw new Error("The Node returned an invalid review flag.");
+  return {
+    intake_id: intakeId,
+    file_name: requireFileName(source.file_name),
+    media_type: requireNonEmptyString(source.media_type, "intake media type"),
+    page_count: pageCount,
+    ocr_provider: requireNonEmptyString(source.ocr_provider, "OCR provider"),
+    ocr_status: requireStatus(source.ocr_status, "OCR"),
+    vision_status: requireStatus(source.vision_status, "vision"),
+    average_confidence: requireConfidence(source.average_confidence, "average confidence"),
+    min_confidence: requireConfidence(source.min_confidence, "minimum confidence"),
+    confidence_band: requireConfidenceBand(source.confidence_band),
+    review_recommended: source.review_recommended,
+    low_confidence_pages: lowConfidence.map((page) => validateIntakeStatusPage(page, "low-confidence page")),
+    pages: pages.map((page) => validateIntakeStatusPage(page, "intake page")),
+    ledger_event_ref: requireNodeReference(source.ledger_event_ref, "ledger event"),
+  };
+}
+
+export function fetchIntakeStatus(
+  profile: ApprovedNodeProfileReference | ApprovedNodeProfile,
+  intakeId: string,
+): Promise<IntakeStatus> {
+  const approved = approvedProfilePayload(profile);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(intakeId)) throw new Error("The intake identifier is invalid for status.");
+  return invoke<unknown>("fetch_intake_status", {
+    profileId: approved.profile_id,
+    intakeId,
+  }).then((value) => validateIntakeStatus(value, intakeId));
 }
 
 export function validateArtifactPreview(value: unknown, requestedArtifactId: string, approvedContext: Clearance): ArtifactPreview {

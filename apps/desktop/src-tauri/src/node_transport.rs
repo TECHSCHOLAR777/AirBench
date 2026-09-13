@@ -260,6 +260,37 @@ pub struct NodeRouteTrace {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
+pub struct DomainPackSectionHash {
+    pub name: String,
+    pub sha256: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct DomainPackStatus {
+    pub configured: bool,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub pack_id: Option<String>,
+    #[serde(default)]
+    pub pack_version: Option<String>,
+    #[serde(default)]
+    pub compatibility_id: Option<String>,
+    #[serde(default)]
+    pub signature_status: Option<String>,
+    #[serde(default)]
+    pub signature_verified: Option<bool>,
+    #[serde(default)]
+    pub active_sections: Vec<String>,
+    #[serde(default)]
+    pub counts: HashMap<String, u64>,
+    #[serde(default)]
+    pub section_hashes: Vec<DomainPackSectionHash>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "snake_case")]
 pub struct NodeCommandEnvelope {
     pub schema_version: String,
     pub compatibility_id: String,
@@ -1478,6 +1509,62 @@ pub async fn fetch_task_artifact_review(
 ) -> Result<TaskArtifactReview, String> {
     let profile = approved_profile_by_id(&app, &profile_id)?;
     fetch_task_artifact_review_profile(profile, task_id).await
+}
+
+async fn fetch_domain_pack_profile(profile: NodeProfile) -> Result<DomainPackStatus, String> {
+    let status: DomainPackStatus = request_json(&profile, Method::GET, "/api/v1/node/pack", None)
+        .await
+        .map_err(|error| NodeTransportError::RequestFailed(error.to_string()).to_string())?;
+    validate_domain_pack_status(&status).map_err(String::from)?;
+    Ok(status)
+}
+
+fn validate_domain_pack_status(status: &DomainPackStatus) -> Result<(), NodeTransportError> {
+    if !status.configured {
+        return Ok(());
+    }
+    let pack_id = status.pack_id.as_deref().unwrap_or("");
+    let version = status.pack_version.as_deref().unwrap_or("");
+    if pack_id.is_empty() || pack_id.len() > 256 || version.is_empty() || version.len() > 64 {
+        return Err(NodeTransportError::NonAirbenchResponse(
+            "The Node domain pack identity is invalid.".to_string(),
+        ));
+    }
+    match status.signature_status.as_deref() {
+        Some("signed") | Some("unsigned") => {}
+        _ => {
+            return Err(NodeTransportError::NonAirbenchResponse(
+                "The Node domain pack signature status is invalid.".to_string(),
+            ))
+        }
+    }
+    if status.active_sections.is_empty() || status.active_sections.len() > 64 {
+        return Err(NodeTransportError::NonAirbenchResponse(
+            "The Node domain pack section list is invalid.".to_string(),
+        ));
+    }
+    for section in &status.active_sections {
+        if section.is_empty()
+            || section.len() > 64
+            || !section
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.')
+        {
+            return Err(NodeTransportError::NonAirbenchResponse(
+                "The Node domain pack section name is invalid.".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn fetch_domain_pack(
+    app: tauri::AppHandle,
+    profile_id: String,
+) -> Result<DomainPackStatus, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    fetch_domain_pack_profile(profile).await
 }
 
 #[tauri::command]

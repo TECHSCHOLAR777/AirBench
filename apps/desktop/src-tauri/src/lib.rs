@@ -16,6 +16,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             node_transport::list_approved_node_profiles,
             node_transport::connect_node,
+            node_transport::fetch_domain_pack,
             node_transport::fetch_task_events,
             node_transport::fetch_task_snapshot,
             node_transport::fetch_task_plan,
@@ -26,6 +27,7 @@ pub fn run() {
             intake::pick_query_file,
             intake::upload_selected_query_file,
             intake::fetch_safe_preview,
+            intake::fetch_intake_status,
             intake::fetch_artifact_preview,
             intake::download_artifact
         ])
