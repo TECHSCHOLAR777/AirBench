@@ -167,14 +167,31 @@ class ChromaVectorStore:
     """
 
     def __init__(self, path: str | Path, *, collection: str = "airbench") -> None:
+        # Chroma's anonymised telemetry phones home by default; disable it before
+        # the import so the local store can never make an external call.
+        os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+        os.environ.setdefault("CHROMA_TELEMETRY_ENABLED", "False")
         try:
             import chromadb  # type: ignore[import-not-found]
         except ImportError as exc:  # pragma: no cover - optional dependency
             raise VectorStoreError("store_unavailable", "chromadb is required for the Chroma vector store") from exc
+        # Defensive no-egress: even if a Chroma build ignores the telemetry
+        # setting, neutralise its capture call entirely.
+        try:
+            import chromadb.telemetry.product.posthog as _chroma_posthog  # type: ignore[import-not-found]
+
+            _chroma_posthog.Posthog.capture = lambda self, *args, **kwargs: None
+            _chroma_posthog.Posthog.capture_batch = lambda self, *args, **kwargs: None
+        except Exception:  # pragma: no cover - hardening must never fail the store
+            pass
         self._path = Path(path)
         self._path.mkdir(parents=True, exist_ok=True)
         try:
-            self._client = chromadb.PersistentClient(path=str(self._path))
+            from chromadb.config import Settings  # type: ignore[import-not-found]
+
+            self._client = chromadb.PersistentClient(
+                path=str(self._path), settings=Settings(anonymized_telemetry=False)
+            )
             self._collection = self._client.get_or_create_collection(name=collection, metadata={"hnsw:space": "cosine"})
         except Exception as exc:  # pragma: no cover - optional dependency
             raise VectorStoreError("store_open_failed", "the Chroma collection could not be opened") from exc
@@ -223,25 +240,38 @@ def _chunk_metadata(chunk: IndexChunk) -> dict[str, object]:
     }
 
 
+def _to_pylist(value: Any) -> list:
+    """Normalise a Chroma value (possibly a numpy array) to a Python list."""
+    if value is None:
+        return []
+    tolist = getattr(value, "tolist", None)
+    if callable(tolist):
+        value = tolist()
+    return list(value) if isinstance(value, (list, tuple)) else [value]
+
+
 def _chroma_to_chunks(result: dict) -> tuple[IndexChunk, ...]:
-    metadatas = (result.get("metadatas") or [[]])
-    documents = (result.get("documents") or [[]])
-    embeddings = (result.get("embeddings") if result.get("embeddings") is not None else [[]])
-    first_metadatas = metadatas[0] if metadatas and isinstance(metadatas[0], list) else metadatas
-    first_documents = documents[0] if documents and isinstance(documents[0], list) else documents
-    first_embeddings = embeddings[0] if embeddings and isinstance(embeddings[0], list) else embeddings
+    metadatas = _to_pylist(result.get("metadatas"))
+    documents = _to_pylist(result.get("documents"))
+    embeddings = _to_pylist(result.get("embeddings"))
+    # ``query`` returns one extra level of nesting (per query) than ``get``.
+    nested = bool(metadatas) and isinstance(metadatas[0], list)
+    if nested:
+        metadatas = metadatas[0]
+        documents = _to_pylist(documents[0]) if documents else []
+        embeddings = _to_pylist(embeddings[0]) if embeddings else []
     chunks: list[IndexChunk] = []
-    for index, metadata in enumerate(first_metadatas or ()):
+    for index, metadata in enumerate(metadatas or ()):
         if not metadata:
             continue
-        embedding = first_embeddings[index] if index < len(first_embeddings or ()) else ()
-        text = first_documents[index] if index < len(first_documents or ()) else ""
+        embedding = embeddings[index] if index < len(embeddings) else ()
+        text = documents[index] if index < len(documents) else ""
         chunks.append(IndexChunk(
             chunk_id=metadata["chunk_id"], intake_id=metadata["intake_id"], revision_id=metadata["revision_id"],
             source_ref=metadata["source_ref"], page_id=metadata["page_id"], source_span=metadata["source_span"],
             text=text, content_hash=metadata["content_hash"], confidence=metadata["confidence"],
             clearance=Clearance(metadata["clearance"]), taint=Taint(metadata["taint"]),
-            embedding=tuple(embedding), embedding_model=metadata["embedding_model"],
+            embedding=tuple(float(value) for value in embedding), embedding_model=metadata["embedding_model"],
             qualification_reference=metadata["qualification_reference"],
             revision_state=metadata.get("revision_state", "current"),
         ))
