@@ -1,9 +1,9 @@
 {
   "corpus_size": 3,
   "mrr": 1.0,
-  "qualification_hash": "2ed0fcece6c1c4471098f2b1c750f08fdc49efd87efacec83777fdc543d63d6a",
+  "qualification_hash": "7acd6163801641e959c8c7b1edf296d78856fbe66a5087098736f6120763243f",
   "qualification_reference": "cert-bge-reranker-v2-m3-reranking-v0",
-  "qualified_at": "2026-09-13T14:17:40.930278Z",
+  "qualified_at": "2026-09-13T22:04:47.394527Z",
   "query_count": 3,
   "recall_at_k": 1.0,
   "reranker_model": "bge-reranker-v2-m3",

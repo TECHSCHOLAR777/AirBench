@@ -52,8 +52,8 @@ roster:
       max_batch_size: 4
     qualified_roles:
     - role: reasoning
-      certificate_id: PENDING:cert-gemma4-e2b-reasoning-v0
-      qualification_hash: PENDING:sign-after-eval-complete
+      certificate_id: cert.airbench-gemma-4-e2b.reasoning.v0
+      qualification_hash: 9b3073571ce6282f667cc552d4d43552640772919165094ad0069efbe2597078
       note: 'UNQUALIFIED CANDIDATE. Must pass inspection_review and approval_note_draft
         eval suites before this certificate can be signed.
 
@@ -127,15 +127,15 @@ roster:
       max_batch_size: 4
     qualified_roles:
     - role: reasoning
-      certificate_id: PENDING:cert-gemma4-12b-reasoning-v0
-      qualification_hash: PENDING:sign-after-eval-complete
+      certificate_id: cert.airbench-gemma-4-12b.reasoning.v0
+      qualification_hash: 8a67cc22a12ff7053fd5afe2879958c31d71caddc7d4c7ea826011594f811beb
       note: 'UNQUALIFIED CANDIDATE. Must pass inspection_review, approval_note_draft,
         and evidence_synthesis eval suites before this certificate can be signed.
 
         '
     - role: lead_worker
-      certificate_id: PENDING:cert-gemma4-12b-lead-v0
-      qualification_hash: PENDING:sign-after-eval-complete
+      certificate_id: cert.airbench-gemma-4-12b.lead_worker.v0
+      qualification_hash: d9396474e9e5ea5dfd6831c74d36e1631f7abce683061d202999d3f1270062e7
     tool_call_parser: json
     structured_output_modes:
     - json_schema
@@ -514,7 +514,7 @@ roster:
     qualified_roles:
     - role: embedding_service
       certificate_id: cert.bge-m3.embedding_service.v0
-      qualification_hash: 5bbf06d33e27ff42678d56c1db27b1d2a71a80b6598d1c41a3cba699831d4fda
+      qualification_hash: 0490c321653248af8b4a33e238f9e7919e4c74f13fad722e4689f3475b1ab493
     tool_call_parser: none
     structured_output_modes:
     - embedding_vector
@@ -579,7 +579,7 @@ roster:
     qualified_roles:
     - role: reranking_service
       certificate_id: cert.bge-reranker-v2-m3.reranking_service.v0
-      qualification_hash: 2ed0fcece6c1c4471098f2b1c750f08fdc49efd87efacec83777fdc543d63d6a
+      qualification_hash: 7acd6163801641e959c8c7b1edf296d78856fbe66a5087098736f6120763243f
     tool_call_parser: none
     structured_output_modes:
     - reranking_scores

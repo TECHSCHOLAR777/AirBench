@@ -44,8 +44,8 @@ roster:
       max_batch_size: 4
     qualified_roles:
     - role: reasoning
-      certificate_id: candidate.airbench-gemma-4-e2b.reasoning
-      qualification_hash: 6c10d38206a1e25d39e892f757040c87f92ac70167ce06b86c000d2f5ef7ffd9
+      certificate_id: cert.airbench-gemma-4-e2b.reasoning.v0
+      qualification_hash: 9b3073571ce6282f667cc552d4d43552640772919165094ad0069efbe2597078
       note: 'UNQUALIFIED CANDIDATE. Must pass inspection_review and approval_note_draft
         eval suites before this certificate can be signed.
 
@@ -77,7 +77,7 @@ roster:
     license: gemma-terms-of-use
     source_evidence: https://ai.google.dev/gemma/docs
     qualification_expires_at: '2027-09-06T00:00:00Z'
-    qualification_signature: 91b15bbea25016f4a88315e3af425031c2585c3e8d183a92ba002281b9cd27a1
+    qualification_signature: 3c8c28988012f982b6f7d7362a99cae53ea4de0d0ef19cd48c2a41cae57d31c0
   - target_id: airbench-gemma-4-12b
     model_family: gemma4
     display_name: Gemma 4 12B Instruction-Tuned QAT W4A16 (Capable Lane)
@@ -119,15 +119,15 @@ roster:
       max_batch_size: 4
     qualified_roles:
     - role: reasoning
-      certificate_id: candidate.airbench-gemma-4-12b.reasoning
-      qualification_hash: 237bab2219545a857c7135cad0b484b68cb8cf33b973887d37139645ed18b181
+      certificate_id: cert.airbench-gemma-4-12b.reasoning.v0
+      qualification_hash: 8a67cc22a12ff7053fd5afe2879958c31d71caddc7d4c7ea826011594f811beb
       note: 'UNQUALIFIED CANDIDATE. Must pass inspection_review, approval_note_draft,
         and evidence_synthesis eval suites before this certificate can be signed.
 
         '
     - role: lead_worker
-      certificate_id: candidate.airbench-gemma-4-12b.lead_worker
-      qualification_hash: aa9147e7ee2e81a1d1b5b1ce67d877210920a822b5b077c1d4b93c5af9c90877
+      certificate_id: cert.airbench-gemma-4-12b.lead_worker.v0
+      qualification_hash: d9396474e9e5ea5dfd6831c74d36e1631f7abce683061d202999d3f1270062e7
     tool_call_parser: json
     structured_output_modes:
     - json_schema
@@ -158,8 +158,8 @@ roster:
     license: gemma-terms-of-use
     source_evidence: https://ai.google.dev/gemma/docs
     qualification_expires_at: '2027-09-06T00:00:00Z'
-    qualification_signature: 88da242c4a6dd9c15fffe0286b9b7a5f1ff88d2e632eedb2ef193592fec2f0e0
+    qualification_signature: 89fe3ae98706c77078e4f76ada8215eac3e3f270a21c7b207676fa5b2fae5bc7
 registry_id: airbench-two-endpoint-demo
 manifest_version: '1.0'
 valid_until: '2027-09-06T00:00:00Z'
-signature: 03c50d09786173ac9f7971bfb0a2e4cf92706cbf34b09d88c8ed0911a689f605
+signature: 67513f0e69a8fdcb5ca5aab87ff262c0b4c9320f58a6487d2ebc99523696afd7
