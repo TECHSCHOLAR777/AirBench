@@ -440,3 +440,178 @@ certificates:
       - artifact_hash_changes
     signer_key_id: "airbench-local-signing-key-v1"
     signature: "REPLACE_WITH_MEASURED:hmac-sha256-of-certificate-canonical-json"
+
+  # ── CANDIDATE: Gemma 4 E2B — Efficient-lane reasoning ─────────────────────
+  # adapter_id reconciled to "airbench.vllm" (VllmAdapter class constant).
+  # All PENDING: fields must be filled after model download and harness run.
+  # DO NOT sign until eval suite passes.
+  - certificate_id: "PENDING:cert-gemma4-e2b-reasoning-v0"
+    target_id: airbench-gemma-4-e2b
+    artifact_hash: "PENDING:sha256-of-safetensors-or-gguf"
+    tokenizer_hash: "PENDING:sha256-of-tokenizer.json"
+    chat_template_hash: "PENDING:sha256-of-tokenizer_config.json"
+    runtime_version: "PENDING:vllm-version-on-gpu-box"
+    runtime_container_digest: "PENDING:docker-inspect-vllm"
+    # adapter_id must match VllmAdapter.adapter_id class constant exactly.
+    adapter_id: "airbench.vllm"
+    adapter_version: "0.5"
+    hardware_profile_id: target_96gb_vram
+    worker_role: reasoning
+    task_kinds:
+      - reasoning
+      - approval_note_draft
+    risk_classes:
+      - inspection_review
+      - low_risk
+    modality: text
+    clearance_ceiling: restricted
+    input_fixture_set_hash: "PENDING:sha256-of-fixture-set-after-design"
+    output_schema_id: "airbench.reasoning_result.v1"
+    tool_permissions: []
+    context_limit: 32768
+    image_token_limit: 0
+    benchmark_scores:
+      inspection_review_accuracy: "PENDING:float-0-to-1"
+      evidence_faithfulness: "PENDING:float-0-to-1"
+      structured_output_validity: "PENDING:float-0-to-1"
+      hallucination_rate: "PENDING:float-0-to-1"
+    pass_rates:
+      structured_output_pass_rate: "PENDING:float-0-to-1"
+      tool_call_pass_rate: "n/a"
+      citation_provenance_retention: "PENDING:float-0-to-1"
+      cancellation_and_timeout: "PENDING:float-0-to-1"
+      safety_injection_resistance: "PENDING:float-0-to-1"
+      no_egress_startup: "PENDING:pass-or-fail"
+    safety_results:
+      injection_resistance_result: "PENDING:pass-fail-partial"
+      cancellation_result: "PENDING:pass-or-fail"
+      timeout_result: "PENDING:pass-or-fail"
+      no_egress_startup_result: "PENDING:pass-or-fail"
+      known_failure_modes: []
+    evaluator_id: "airbench-qualify-harness-v0.1.0"
+    qualified_at: "PENDING:rfc3339-timestamp"
+    expires_at: "2027-09-06T00:00:00Z"
+    requalification_triggers:
+      - artifact_hash_changes
+      - runtime_version_upgrade
+      - evaluation_set_updated
+      - incident_or_drift_signal
+    signer_key_id: "airbench-local-signing-key-v1"
+    signature: "PENDING:hmac-sha256-of-certificate-canonical-json"
+
+  # ── CANDIDATE: Gemma 4 12B — Capable-lane reasoning ───────────────────────
+  # adapter_id reconciled to "airbench.vllm" (VllmAdapter class constant).
+  # All PENDING: fields must be filled after model download and harness run.
+  # DO NOT sign until eval suite passes.
+  - certificate_id: "PENDING:cert-gemma4-12b-reasoning-v0"
+    target_id: airbench-gemma-4-12b
+    artifact_hash: "PENDING:sha256-of-safetensors-files"
+    tokenizer_hash: "PENDING:sha256-of-tokenizer.json"
+    chat_template_hash: "PENDING:sha256-of-tokenizer_config.json"
+    runtime_version: "PENDING:vllm-version-on-gpu-box"
+    runtime_container_digest: "PENDING:docker-inspect-vllm"
+    # adapter_id must match VllmAdapter.adapter_id class constant exactly.
+    adapter_id: "airbench.vllm"
+    adapter_version: "0.5"
+    hardware_profile_id: target_96gb_vram
+    worker_role: reasoning
+    task_kinds:
+      - reasoning
+      - lead_planning
+      - evidence_synthesis
+      - approval_note_draft
+    risk_classes:
+      - inspection_review
+      - high_consequence
+      - low_risk
+    modality: text
+    clearance_ceiling: restricted
+    input_fixture_set_hash: "PENDING:sha256-of-fixture-set-after-design"
+    output_schema_id: "airbench.reasoning_result.v1"
+    tool_permissions: []
+    context_limit: 32768
+    image_token_limit: 0
+    benchmark_scores:
+      inspection_review_accuracy: "PENDING:float-0-to-1"
+      evidence_faithfulness: "PENDING:float-0-to-1"
+      structured_output_validity: "PENDING:float-0-to-1"
+      hallucination_rate: "PENDING:float-0-to-1"
+    pass_rates:
+      structured_output_pass_rate: "PENDING:float-0-to-1"
+      tool_call_pass_rate: "n/a"
+      citation_provenance_retention: "PENDING:float-0-to-1"
+      cancellation_and_timeout: "PENDING:float-0-to-1"
+      safety_injection_resistance: "PENDING:float-0-to-1"
+      no_egress_startup: "PENDING:pass-or-fail"
+    safety_results:
+      injection_resistance_result: "PENDING:pass-fail-partial"
+      cancellation_result: "PENDING:pass-or-fail"
+      timeout_result: "PENDING:pass-or-fail"
+      no_egress_startup_result: "PENDING:pass-or-fail"
+      known_failure_modes: []
+    evaluator_id: "airbench-qualify-harness-v0.1.0"
+    qualified_at: "PENDING:rfc3339-timestamp"
+    expires_at: "2027-09-06T00:00:00Z"
+    requalification_triggers:
+      - artifact_hash_changes
+      - runtime_version_upgrade
+      - evaluation_set_updated
+      - incident_or_drift_signal
+    signer_key_id: "airbench-local-signing-key-v1"
+    signature: "PENDING:hmac-sha256-of-certificate-canonical-json"
+
+  # ── CANDIDATE: Gemma 4 12B — Lead worker ──────────────────────────────────
+  # Separate certificate per role (same target, different role envelope).
+  - certificate_id: "PENDING:cert-gemma4-12b-lead-v0"
+    target_id: airbench-gemma-4-12b
+    artifact_hash: "PENDING:sha256-of-safetensors-files"
+    tokenizer_hash: "PENDING:sha256-of-tokenizer.json"
+    chat_template_hash: "PENDING:sha256-of-tokenizer_config.json"
+    runtime_version: "PENDING:vllm-version-on-gpu-box"
+    runtime_container_digest: "PENDING:docker-inspect-vllm"
+    adapter_id: "airbench.vllm"
+    adapter_version: "0.5"
+    hardware_profile_id: target_96gb_vram
+    worker_role: lead_worker
+    task_kinds:
+      - lead_planning
+      - evidence_synthesis
+      - approval_note_draft
+    risk_classes:
+      - inspection_review
+      - high_consequence
+    modality: text
+    clearance_ceiling: restricted
+    input_fixture_set_hash: "PENDING:sha256-of-fixture-set-after-design"
+    output_schema_id: "airbench.plan_proposal.v1"
+    tool_permissions: []
+    context_limit: 32768
+    image_token_limit: 0
+    benchmark_scores:
+      inspection_review_accuracy: "PENDING:float-0-to-1"
+      evidence_faithfulness: "PENDING:float-0-to-1"
+      structured_output_validity: "PENDING:float-0-to-1"
+      hallucination_rate: "PENDING:float-0-to-1"
+    pass_rates:
+      structured_output_pass_rate: "PENDING:float-0-to-1"
+      tool_call_pass_rate: "n/a"
+      citation_provenance_retention: "PENDING:float-0-to-1"
+      cancellation_and_timeout: "PENDING:float-0-to-1"
+      safety_injection_resistance: "PENDING:float-0-to-1"
+      no_egress_startup: "PENDING:pass-or-fail"
+    safety_results:
+      injection_resistance_result: "PENDING:pass-fail-partial"
+      cancellation_result: "PENDING:pass-or-fail"
+      timeout_result: "PENDING:pass-or-fail"
+      no_egress_startup_result: "PENDING:pass-or-fail"
+      known_failure_modes: []
+    evaluator_id: "airbench-qualify-harness-v0.1.0"
+    qualified_at: "PENDING:rfc3339-timestamp"
+    expires_at: "2027-09-06T00:00:00Z"
+    requalification_triggers:
+      - artifact_hash_changes
+      - runtime_version_upgrade
+      - evaluation_set_updated
+      - incident_or_drift_signal
+    signer_key_id: "airbench-local-signing-key-v1"
+    signature: "PENDING:hmac-sha256-of-certificate-canonical-json"

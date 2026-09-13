@@ -19,6 +19,16 @@ Environment variables (all required unless a config file is supplied):
   AIRBENCH_SIGNING_KEY_PATH    Path to the 32-byte HMAC-SHA256 signing key file (optional).
   AIRBENCH_BUNDLE_MANIFEST_PATH Path to the signed offline bundle manifest (optional).
   AIRBENCH_BUNDLE_ROOT          Root directory used to resolve manifest asset paths (optional).
+
+Model serving is opt-in and fails closed:
+
+  AIRBENCH_MODEL_SERVING_ENABLED    Set to ``1`` to compose the model router.
+  AIRBENCH_POLICY_VERSION_HASH      Routing policy hash (required when enabled).
+  AIRBENCH_MODEL_SIGNING_KEY_PATH   Path to the 32-byte roster signing key.
+  AIRBENCH_MODEL_STORE              Canonical model store (artifact root).
+  AIRBENCH_MODEL_ROSTER_PATH        Signed roster YAML (default under models/roster/v0).
+  AIRBENCH_MODEL_E2B_URL / _12B_URL Loopback endpoint base URLs.
+  HF_HUB_OFFLINE=1, TRANSFORMERS_OFFLINE=1  Required for vLLM adapter no-egress checks.
 """
 
 from __future__ import annotations
@@ -32,6 +42,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# Native import order matters on Windows: the torch/sentence-transformers stack
+# must initialise before pypdf (imported by File Intake) or the process can
+# crash.  Preload it only when retrieval is enabled, before the Node imports.
+os.environ.setdefault("USE_TF", "0")
+os.environ.setdefault("TRANSFORMERS_NO_TF", "1")
+if os.environ.get("AIRBENCH_RETRIEVAL_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+    try:
+        import sentence_transformers  # noqa: F401
+    except ImportError:
+        pass
+
 import yaml
 
 from contracts import (
@@ -43,6 +64,13 @@ from contracts import (
 from contracts.models import NODE_PROTOCOL_VERSION
 from .api import NodeApiConfig, NodeApiService, create_app
 from .bundle import BundleManifest, StartupVerifier
+from .model_serving import (
+    load_model_serving_runtime_from_env,
+    model_serving_enabled,
+    probe_endpoint_readiness,
+)
+from .task_planning import NodeTaskPlanner, PlannerConfig, planner_enabled
+from airbench.knowledge.embedding_runtime import retrieval_enabled, retrieval_runtime_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -393,10 +421,63 @@ def build_node_app(
         require_orchestrator_authorization=False,
     )
 
-    service = NodeApiService(orchestrator, api_config)
+    # Model serving is opt-in.  When enabled the signed roster must load and
+    # every declared artifact must verify, otherwise startup fails loudly.
+    model_router = None
+    if model_serving_enabled():
+        runtime = load_model_serving_runtime_from_env(ledger=ledger)
+        if runtime is not None:
+            model_router = runtime.router
+            logger.info(
+                "Model serving enabled: %d endpoint binding(s)",
+                len(model_router.endpoint_bindings),
+            )
+
+    # Deterministic planning is opt-in and never lets a client drive the loop.
+    task_planner = None
+    if planner_enabled():
+        task_planner = NodeTaskPlanner(orchestrator, PlannerConfig.from_env())
+        logger.info("Task planning enabled (hardware profile configured: %s)", task_planner.has_hardware_profile)
+
+    # Local retrieval (BGE-M3 embeddings + reranker) is opt-in.
+    retrieval_runtime = None
+    if retrieval_enabled():
+        retrieval_runtime = retrieval_runtime_from_env(ledger=ledger)
+        logger.info("Retrieval enabled: embedding=%s reranker=%s",
+                    retrieval_runtime.embedding_model_id, retrieval_runtime.reranker_model_id or "none")
+
+    service = NodeApiService(
+        orchestrator, api_config, model_router=model_router, task_planner=task_planner,
+        retrieval=retrieval_runtime,
+    )
     app = create_app(service)
     add_readiness_route(app, service)
+    add_model_serving_route(app, service)
+    add_retrieval_route(app, service)
     return app
+
+
+def add_retrieval_route(app: Any, service: NodeApiService) -> None:
+    """Attach ``GET /api/v1/node/retrieval`` for the local retrieval stack."""
+    from starlette.requests import Request as StarletteRequest
+    from starlette.responses import JSONResponse as StarletteJSONResponse
+    from starlette.routing import Route
+
+    async def retrieval(request: StarletteRequest) -> StarletteJSONResponse:  # noqa: ARG001
+        runtime = getattr(service, "retrieval", None)
+        if runtime is None:
+            return StarletteJSONResponse(status_code=200, content={"configured": False, "status": "disabled"})
+        return StarletteJSONResponse(status_code=200, content={
+            "configured": True,
+            "status": "ready",
+            "embedding_model": runtime.embedding_model_id,
+            "embedding_qualification_reference": runtime.embedding_qualification_reference,
+            "reranker_model": runtime.reranker_model_id,
+            "reranker_qualification_reference": runtime.reranker_qualification_reference,
+            "indexed_chunks": len(runtime.index.chunks),
+        })
+
+    app.router.routes.insert(0, Route("/api/v1/node/retrieval", endpoint=retrieval, methods=["GET"]))
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +512,42 @@ def add_readiness_route(app: Any, service: NodeApiService) -> None:
     starlette_route = Route("/api/v1/node/readiness", endpoint=readiness, methods=["GET"])
     app.router.routes.insert(0, starlette_route)
 
+
+def add_model_serving_route(app: Any, service: NodeApiService) -> None:
+    """Attach ``GET /api/v1/node/model-serving`` for the two-lane demo.
+
+    Like the readiness probe this endpoint requires no token so deployment
+    checks can reach it.  It reports only endpoint identity, adapter identity,
+    and health/readiness states — never prompts, payloads, credentials, or
+    provider error text.
+    """
+    from starlette.requests import Request as StarletteRequest
+    from starlette.responses import JSONResponse as StarletteJSONResponse
+    from starlette.routing import Route
+
+    async def model_serving(request: StarletteRequest) -> StarletteJSONResponse:  # noqa: ARG001
+        router = getattr(service, "model_router", None)
+        if router is None:
+            return StarletteJSONResponse(
+                status_code=200,
+                content={"configured": False, "status": "disabled", "endpoints": []},
+            )
+        endpoints = probe_endpoint_readiness(router)
+        ready = bool(endpoints) and all(
+            endpoint["health"] == "healthy" and endpoint["readiness"] == "ready"
+            for endpoint in endpoints
+        )
+        return StarletteJSONResponse(
+            status_code=200 if ready else 503,
+            content={
+                "configured": True,
+                "status": "ready" if ready else "degraded",
+                "endpoints": endpoints,
+            },
+        )
+
+    starlette_route = Route("/api/v1/node/model-serving", endpoint=model_serving, methods=["GET"])
+    app.router.routes.insert(0, starlette_route)
 
 
 # ---------------------------------------------------------------------------

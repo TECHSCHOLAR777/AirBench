@@ -676,6 +676,8 @@ fn command_path(command: &NodeCommandEnvelope) -> Result<String, NodeTransportEr
         "task.approve_plan" => "/approve",
         "task.cancel" => "/cancel",
         "task.request_review" => "/review",
+        "task.approve_artifact" => "/approve-artifact",
+        "task.return_artifact" => "/return-artifact",
         _ => {
             return Err(NodeTransportError::CommandSchemaInvalid(
                 "The command type is not supported by the Node transport.".to_string(),
@@ -1715,6 +1717,20 @@ mod tests {
         assert_eq!(
             command_path(&approval).unwrap(),
             "/api/v1/tasks/task-1/approve"
+        );
+
+        let mut approve_artifact = command.clone();
+        approve_artifact.command_type = "task.approve_artifact".to_string();
+        assert_eq!(
+            command_path(&approve_artifact).unwrap(),
+            "/api/v1/tasks/task-1/approve-artifact"
+        );
+
+        let mut return_artifact = command.clone();
+        return_artifact.command_type = "task.return_artifact".to_string();
+        assert_eq!(
+            command_path(&return_artifact).unwrap(),
+            "/api/v1/tasks/task-1/return-artifact"
         );
 
         let mut unsafe_command = command.clone();

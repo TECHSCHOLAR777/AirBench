@@ -1,0 +1,165 @@
+roster:
+  roster_id: airbench-two-endpoint-demo
+  schema_version: '1.0'
+  network_policy: air_loopback_no_egress
+  targets:
+  - target_id: airbench-gemma-4-e2b
+    model_family: gemma4
+    display_name: Gemma 4 E2B Instruction-Tuned QAT W4A16 (Efficient Lane)
+    repository: google/gemma-4-E2B-it-qat-w4a16-ct
+    revision: 971342c08f607aa7779983f6b5289778b5d271a7
+    artifact_hash: 93177bfc1b53823f2e01c7cebc3b94f65d189e373a647d086112f614ba448ab9
+    artifact_path: gemma-4-e2b-it-w4a16-ct
+    artifact_files:
+    - model.safetensors
+    local_storage_hash: 93177bfc1b53823f2e01c7cebc3b94f65d189e373a647d086112f614ba448ab9
+    tokenizer:
+      repository: google/gemma-4-E2B-it-qat-w4a16-ct
+      revision: 971342c08f607aa7779983f6b5289778b5d271a7
+      hash: cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f
+      path: tokenizer.json
+      version: gemma-tokenizer-v4
+    chat_template:
+      template_id: gemma4-it-chat-template
+      hash: 0a2c8073c878ab1da004bee933a998606537bbb62016310352c7285c3f01c5b5
+      path: chat_template.jinja
+    quantization:
+      format: w4a16
+      method: compressed-tensors
+      calibration_artifact_hash: n/a-qat
+    precision_mode: bf16
+    serving:
+      container_digest: sha256:f8fe15a8039343336945db10494eaad80ef941fe2b2a5fa6649fa38636051a65
+      runtime: vllm
+      runtime_version: 0.28.0
+      adapter_id: airbench.vllm
+      adapter_version: '0.5'
+      demo_endpoint_url: http://127.0.0.1:18001
+      demo_served_model_name: airbench-gemma-4-e2b
+    limits:
+      context_tokens: 8192
+      max_output_tokens: 4096
+      image_tokens: 0
+      max_concurrency: 4
+      max_batch_size: 4
+    qualified_roles:
+    - role: reasoning
+      certificate_id: candidate.airbench-gemma-4-e2b.reasoning
+      qualification_hash: 6c10d38206a1e25d39e892f757040c87f92ac70167ce06b86c000d2f5ef7ffd9
+      note: 'UNQUALIFIED CANDIDATE. Must pass inspection_review and approval_note_draft
+        eval suites before this certificate can be signed.
+
+        '
+    tool_call_parser: json
+    structured_output_modes:
+    - json_schema
+    - json_object
+    capabilities:
+    - reasoning
+    - approval_note_draft
+    modalities:
+    - text
+    risk_classes:
+    - inspection_review
+    - low_risk
+    allowed_clearances:
+    - restricted
+    - internal
+    - public
+    pack_refs:
+    - refinery-psu-v0
+    hardware_profile_refs:
+    - workstation-04
+    - target_96gb_vram
+    streaming: true
+    cancellation: true
+    routing_tier: efficient
+    license: gemma-terms-of-use
+    source_evidence: https://ai.google.dev/gemma/docs
+    qualification_expires_at: '2027-09-06T00:00:00Z'
+    qualification_signature: 91b15bbea25016f4a88315e3af425031c2585c3e8d183a92ba002281b9cd27a1
+  - target_id: airbench-gemma-4-12b
+    model_family: gemma4
+    display_name: Gemma 4 12B Instruction-Tuned QAT W4A16 (Capable Lane)
+    repository: google/gemma-4-12B-it-qat-w4a16-ct
+    revision: 1d2c2d7f2466070e69d6fb3fd5ce9a7d75f2f6ee
+    artifact_hash: 60b6e3989502969d8ae04185d72ecbbc7db63978d5af747a493d53895aa6bfa3
+    artifact_path: gemma-4-12b-it-w4a16-ct
+    artifact_files:
+    - model.safetensors
+    local_storage_hash: 60b6e3989502969d8ae04185d72ecbbc7db63978d5af747a493d53895aa6bfa3
+    tokenizer:
+      repository: google/gemma-4-12B-it-qat-w4a16-ct
+      revision: 1d2c2d7f2466070e69d6fb3fd5ce9a7d75f2f6ee
+      hash: cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f
+      path: tokenizer.json
+      version: gemma-tokenizer-v4
+    chat_template:
+      template_id: gemma4-it-chat-template
+      hash: ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4
+      path: chat_template.jinja
+    quantization:
+      format: w4a16
+      method: compressed-tensors
+      calibration_artifact_hash: n/a-qat
+    precision_mode: bf16
+    serving:
+      container_digest: sha256:f8fe15a8039343336945db10494eaad80ef941fe2b2a5fa6649fa38636051a65
+      runtime: vllm
+      runtime_version: 0.28.0
+      adapter_id: airbench.vllm
+      adapter_version: '0.5'
+      demo_endpoint_url: http://127.0.0.1:18002
+      demo_served_model_name: airbench-gemma-4-12b
+    limits:
+      context_tokens: 8192
+      max_output_tokens: 4096
+      image_tokens: 0
+      max_concurrency: 4
+      max_batch_size: 4
+    qualified_roles:
+    - role: reasoning
+      certificate_id: candidate.airbench-gemma-4-12b.reasoning
+      qualification_hash: 237bab2219545a857c7135cad0b484b68cb8cf33b973887d37139645ed18b181
+      note: 'UNQUALIFIED CANDIDATE. Must pass inspection_review, approval_note_draft,
+        and evidence_synthesis eval suites before this certificate can be signed.
+
+        '
+    - role: lead_worker
+      certificate_id: candidate.airbench-gemma-4-12b.lead_worker
+      qualification_hash: aa9147e7ee2e81a1d1b5b1ce67d877210920a822b5b077c1d4b93c5af9c90877
+    tool_call_parser: json
+    structured_output_modes:
+    - json_schema
+    - json_object
+    capabilities:
+    - reasoning
+    - lead_planning
+    - evidence_synthesis
+    - approval_note_draft
+    modalities:
+    - text
+    risk_classes:
+    - inspection_review
+    - high_consequence
+    - low_risk
+    allowed_clearances:
+    - restricted
+    - internal
+    - public
+    pack_refs:
+    - refinery-psu-v0
+    hardware_profile_refs:
+    - workstation-04
+    - target_96gb_vram
+    streaming: true
+    cancellation: true
+    routing_tier: capable
+    license: gemma-terms-of-use
+    source_evidence: https://ai.google.dev/gemma/docs
+    qualification_expires_at: '2027-09-06T00:00:00Z'
+    qualification_signature: 88da242c4a6dd9c15fffe0286b9b7a5f1ff88d2e632eedb2ef193592fec2f0e0
+registry_id: airbench-two-endpoint-demo
+manifest_version: '1.0'
+valid_until: '2027-09-06T00:00:00Z'
+signature: 03c50d09786173ac9f7971bfb0a2e4cf92706cbf34b09d88c8ed0911a689f605

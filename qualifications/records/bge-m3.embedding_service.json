@@ -1,0 +1,13 @@
+{
+  "corpus_size": 3,
+  "embedding_model": "bge-m3",
+  "mrr": 1.0,
+  "qualification_hash": "5bbf06d33e27ff42678d56c1db27b1d2a71a80b6598d1c41a3cba699831d4fda",
+  "qualification_reference": "cert-bge-m3-embedding-v0",
+  "qualified_at": "2026-09-13T14:17:40.930278Z",
+  "query_count": 3,
+  "recall_at_k": 1.0,
+  "target_id": "bge-m3",
+  "top_k": 3,
+  "worker_role": "embedding_service"
+}
