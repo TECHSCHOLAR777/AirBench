@@ -328,6 +328,7 @@ def _write_node_started(
     checks: StartupCheckResult,
     *,
     evidence_dir: Path | None = None,
+    pack: Any = None,
 ) -> dict[str, Any]:
     """Write a ``node.started`` sovereignty evidence record to a JSON sidecar.
 
@@ -353,6 +354,8 @@ def _write_node_started(
         "startup_checks": checks.as_dict(),
         "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
+    if pack is not None:
+        payload["domain_pack"] = pack.to_dict()
     if evidence_dir is not None:
         evidence_dir.mkdir(parents=True, exist_ok=True)
         evidence_path = evidence_dir / f"node_started_{config.node_identity.replace('.', '_')}.json"
@@ -399,10 +402,93 @@ def build_node_app(
 
     ledger = _build_ledger(config)
 
+    # Load and verify the domain pack before anything consumes it.  The pack
+    # declaration is sector knowledge; the core only carries it.  Fails closed
+    # on an unsigned or tampered pack unless AIRBENCH_PACK_ALLOW_UNSIGNED=1.
+    loaded_pack = None
+    pack_dir = os.environ.get("AIRBENCH_PACK_DIR", "").strip()
+    if pack_dir:
+        from .pack_loader import PackError, PackLoader
+
+        try:
+            loaded_pack = PackLoader.from_env().load(pack_dir)
+        except PackError as exc:
+            raise RuntimeError(f"Domain pack load failed ({exc.code}): {exc}") from exc
+        logger.info(
+            "Domain pack loaded: %s v%s (%s)",
+            loaded_pack.manifest.pack_id, loaded_pack.manifest.pack_version,
+            "signed" if loaded_pack.signature_verified else "unsigned",
+        )
+
+    # The committed world-model graph is opt-in.  SQLite gives durable storage
+    # with append-only history; the default JSON seam is also supported.
+    world_model = None
+    wm_path = os.environ.get("AIRBENCH_WORLD_MODEL_PATH", "").strip()
+    wm_backend = os.environ.get("AIRBENCH_WORLD_MODEL_BACKEND", "json").strip().lower() or "json"
+    if wm_path or wm_backend == "sqlite":
+        from airbench.knowledge.graph_store import build_graph_store_from_env
+        from airbench.knowledge.world_model import WorldModelStore
+
+        graph_backend = build_graph_store_from_env(default_path=wm_path or None)
+        world_model = WorldModelStore(ledger=ledger, path=(wm_path or None), backend=graph_backend)
+        logger.info("World model graph enabled (%s)", type(graph_backend).__name__ if graph_backend else "json")
+
+    # Decision consistency is opt-in and backed by a durable decision store.
+    consistency_service = None
+    decision_store_path = os.environ.get("AIRBENCH_DECISION_STORE_PATH", "").strip()
+    if decision_store_path:
+        from airbench.knowledge.consistency import ConsistencyEngine
+        from airbench.knowledge.decision_store import SqliteDecisionStore
+        from .consistency_gateway import LocalNodeConsistencyService
+
+        consistency_service = LocalNodeConsistencyService(
+            engine=ConsistencyEngine(ledger),
+            store=SqliteDecisionStore(decision_store_path),
+            ledger=ledger,
+            clearance_context=config.clearance,
+        )
+        logger.info("Consistency service enabled at %s", decision_store_path)
+
+    # Autonomy scoring is pack-driven: risk mappings compile into risk rules.
+    autonomy_service = None
+    if loaded_pack is not None:
+        from airbench.verification.autonomy import AutonomyGovernor, risk_rules_from_mappings
+        from .autonomy_gateway import LocalNodeAutonomyService
+
+        risk_rules = risk_rules_from_mappings(loaded_pack.risk_mappings)
+        autonomy_service = LocalNodeAutonomyService(
+            governor=AutonomyGovernor(ledger, risk_rules),
+            ledger=ledger,
+            clearance_context=config.clearance,
+            world_model=world_model,
+        )
+        logger.info("Autonomy governor enabled with %d pack risk rule(s)", len(risk_rules))
+
+    # Hardware and qualification projections for the Node settings surface.
+    hardware_profile = None
+    hardware_path = os.environ.get("AIRBENCH_HARDWARE_PROFILE", "").strip() or str(Path("profiles/hardware/workstation_demo.yaml"))
+    if Path(hardware_path).is_file():
+        try:
+            from .hardware_gateway import load_hardware_profile
+
+            hardware_profile = load_hardware_profile(hardware_path)
+            logger.info("Hardware profile loaded: %s", hardware_profile.profile_id)
+        except Exception as exc:  # noqa: BLE001 - surface, do not crash the Node on an optional asset
+            logger.warning("Hardware profile not loaded: %s", exc)
+    qualification_matrix = None
+    matrix_path = os.environ.get("AIRBENCH_QUALIFICATION_MATRIX", "").strip() or str(Path("qualifications/model_qualification_matrix.yaml"))
+    if Path(matrix_path).is_file():
+        try:
+            from .qualification_gateway import load_qualification_matrix
+
+            qualification_matrix = load_qualification_matrix(matrix_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Qualification matrix not loaded: %s", exc)
+
     # Write node-started sovereignty evidence (sidecar JSON, not the task ledger)
     if evidence_dir is None and config.ledger_path:
         evidence_dir = Path(config.ledger_path).parent
-    _write_node_started(config, checks, evidence_dir=evidence_dir)
+    _write_node_started(config, checks, evidence_dir=evidence_dir, pack=loaded_pack)
 
     orchestrator = Orchestrator(ledger)
 
@@ -458,15 +544,66 @@ def build_node_app(
     intake_root = os.environ.get("AIRBENCH_INTAKE_ROOT", "").strip()
     if intake_root:
         from airbench.intake import FileIntakeLayer, LocalIntakeStore
+        from airbench.intake.ocr_provider import build_ocr_provider_from_env
+        from airbench.intake.raster_renderer import PdfRasterPageRenderer
+        from airbench.intake.table_extractor import GridLineTableExtractor
+        from airbench.intake.vision import LocalVisionAdapter, ocr_provider_extractor
         from .intake_gateway import LocalNodeIntakeGateway
         intake_store = LocalIntakeStore(intake_root)
+
+        vision_adapter = None
+        ocr_provider = build_ocr_provider_from_env()
+        if ocr_provider is not None:
+            adapter_id = f"airbench.ocr.{ocr_provider.name}"
+            vision_adapter = LocalVisionAdapter(
+                adapter_id=adapter_id,
+                adapter_version=ocr_provider.version,
+                model_target_id=os.environ.get("OCR_MODEL_TARGET_ID", "target.ocr.local").strip() or "target.ocr.local",
+                qualification_reference=os.environ.get("OCR_QUALIFICATION_REFERENCE", "qualification.ocr.local").strip()
+                or "qualification.ocr.local",
+                extractor=ocr_provider_extractor(
+                    ocr_provider,
+                    adapter_id=adapter_id,
+                    adapter_version=ocr_provider.version,
+                    model_target_id=os.environ.get("OCR_MODEL_TARGET_ID", "target.ocr.local").strip() or "target.ocr.local",
+                    qualification_reference=os.environ.get("OCR_QUALIFICATION_REFERENCE", "qualification.ocr.local").strip()
+                    or "qualification.ocr.local",
+                    table_extractor=GridLineTableExtractor(),
+                ),
+                ledger=ledger,
+                kind="ocr",
+            )
+            logger.info("OCR enabled: provider=%s", ocr_provider.name)
+
+        renderer = PdfRasterPageRenderer() if PdfRasterPageRenderer.available() else None
+        intake_layer = FileIntakeLayer(ledger, store=intake_store, renderer=renderer, vision_adapter=vision_adapter)
         intake_gateway = LocalNodeIntakeGateway(
-            layer=FileIntakeLayer(ledger, store=intake_store),
+            layer=intake_layer,
             store=intake_store,
             ledger=ledger,
             clearance_context=config.clearance,
         )
-        logger.info("File Intake enabled at %s", intake_root)
+        logger.info("File Intake enabled at %s (pdf rasteriser: %s)", intake_root, renderer is not None)
+
+    # Bulk knowledge ingestion is opt-in and confined to an operator root.
+    knowledge_service = None
+    ingest_root = os.environ.get("AIRBENCH_KNOWLEDGE_INGEST_ROOT", "").strip()
+    if ingest_root and intake_root and retrieval_runtime is not None:
+        from .knowledge_gateway import LocalNodeKnowledgeService
+        ingest_task_id = "task.knowledge.ingest"
+        try:
+            orchestrator.create_task(
+                principal_id=config.subject, clearance=config.clearance,
+                request="Bulk knowledge ingestion", domain_pack_ref=config.domain_pack_ref,
+                risk_class="low", autonomy_ceiling="system", task_id=ingest_task_id,
+            )
+        except Exception:  # the task already exists on a restarted Node; its event is already in the ledger
+            logger.debug("Knowledge ingest task already exists")
+        knowledge_service = LocalNodeKnowledgeService(
+            layer=intake_layer, indexer=retrieval_runtime.indexer,
+            ingest_root=ingest_root, task_id=ingest_task_id, clearance_context=config.clearance,
+        )
+        logger.info("Bulk knowledge ingestion enabled at %s", ingest_root)
 
     deliverable_gateway = None
     artifact_root = os.environ.get("AIRBENCH_ARTIFACT_ROOT", "").strip()
@@ -502,13 +639,48 @@ def build_node_app(
     service = NodeApiService(
         orchestrator, api_config, model_router=model_router, task_planner=task_planner,
         retrieval=retrieval_runtime, intake_gateway=intake_gateway,
-        deliverable_gateway=deliverable_gateway, execution=execution,
+        deliverable_gateway=deliverable_gateway, execution=execution, knowledge=knowledge_service,
+        pack=loaded_pack, world_model=world_model, consistency=consistency_service, autonomy=autonomy_service,
+        hardware_profile=hardware_profile, qualification_matrix=qualification_matrix,
     )
     app = create_app(service)
     add_readiness_route(app, service)
     add_model_serving_route(app, service)
     add_retrieval_route(app, service)
+    add_pack_route(app, service)
+    add_node_asset_routes(app, service)
     return app
+
+
+def add_node_asset_routes(app: Any, service: NodeApiService) -> None:
+    """Attach ``GET /api/v1/node/hardware`` and ``/api/v1/node/qualification/{id}``."""
+
+    from starlette.requests import Request as StarletteRequest
+    from starlette.responses import JSONResponse as StarletteJSONResponse
+    from starlette.routing import Route
+
+    async def hardware(request: StarletteRequest) -> StarletteJSONResponse:  # noqa: ARG001
+        return StarletteJSONResponse(status_code=200, content=service.hardware_status())
+
+    async def qualification(request: StarletteRequest) -> StarletteJSONResponse:
+        target_id = request.path_params["target_id"]
+        return StarletteJSONResponse(status_code=200, content=service.qualification_status(target_id))
+
+    app.router.routes.insert(0, Route("/api/v1/node/hardware", endpoint=hardware, methods=["GET"]))
+    app.router.routes.insert(0, Route("/api/v1/node/qualification/{target_id}", endpoint=qualification, methods=["GET"]))
+
+
+def add_pack_route(app: Any, service: NodeApiService) -> None:
+    """Attach ``GET /api/v1/node/pack`` for the Domain Pack settings card."""
+
+    from starlette.requests import Request as StarletteRequest
+    from starlette.responses import JSONResponse as StarletteJSONResponse
+    from starlette.routing import Route
+
+    async def domain_pack(request: StarletteRequest) -> StarletteJSONResponse:  # noqa: ARG001
+        return StarletteJSONResponse(status_code=200, content=service.pack_status())
+
+    app.router.routes.insert(0, Route("/api/v1/node/pack", endpoint=domain_pack, methods=["GET"]))
 
 
 def add_retrieval_route(app: Any, service: NodeApiService) -> None:

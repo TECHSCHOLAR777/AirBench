@@ -30,12 +30,14 @@ LEDGER_EVENT_TYPES = {
     "retrieval.requested", "retrieval.completed", "retrieval.failed",
     "vision.requested", "vision.completed", "vision.failed",
     "world_model.requested", "verification.requested",
+    "world_model.conflict", "world_model.review_required", "world_model.review_resolved",
     "projection.rebuilt", "projection.exported", "checkpoint.committed", "retry.completed",
     "retry.failed", "side_effect.reserved", "side_effect.committed", "side_effect.uncertain",
     "recovery.resumed", "crash.recovered",
     # M8 verification, authority, and consistency decisions
     "verification.evaluator.requested", "verification.evaluator.completed",
     "consistency.checked", "authority.decided", "completion.blocked", "completion.ready",
+    "consistency.justified", "authority.authorized",
     # ── M5.1: Model registry, artifact integrity, qualification ───────────────
     "model.registry.loaded",          # registry manifest loaded and signature verified
     "model.registry.signature.verified",  # manifest HMAC confirmed
@@ -105,6 +107,9 @@ LEDGER_EVENT_TYPES = {
     "resource.admission.degraded",    # admission fell back to degraded mode
     "resource.queue.updated",         # admission queue position updated
     "join_barrier.resolved",          # non-completed barrier outcome
+    # ── M-C: Domain pack loading ──────────────────────────────────────────────
+    "pack.loaded",                    # signed domain pack loaded and registered
+    "pack.load_rejected",             # domain pack failed signature or validation
 }
 
 
@@ -759,6 +764,82 @@ class UntrustedEvidence(Contract):
         issues = super()._validate(hints)
         if self.byte_size < 0 or self.byte_size > 50_000_000: issues.append(ValidationIssue("byte_size", "resource_limit", "must be between 0 and 50,000,000"))
         if self.taint == Taint.clean: issues.append(ValidationIssue("taint", "security", "evidence cannot be clean by default"))
+        return issues
+
+
+@dataclass(frozen=True)
+class BoundingBox(Contract):
+    """Integer page-local pixel region produced by an OCR or vision extractor.
+
+    Coordinates are page-local and never carry a host path.  The record stays
+    untrusted evidence and does not imply any document authority.
+    """
+
+    x: int; y: int; width: int; height: int; page_number: int = 1; unit: str = "px"
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.x < 0 or self.y < 0: issues.append(ValidationIssue("x", "range", "coordinates must be non-negative"))
+        if self.width <= 0 or self.height <= 0: issues.append(ValidationIssue("width", "range", "width and height must be positive"))
+        if self.page_number < 1: issues.append(ValidationIssue("page_number", "range", "page number must be positive"))
+        if self.unit not in {"px", "pt"}: issues.append(ValidationIssue("unit", "enum", "unit must be px or pt"))
+        return issues
+
+
+@dataclass(frozen=True)
+class ConfidenceScore(Contract):
+    """A calibrated-or-declared extraction confidence with its method label."""
+
+    value: float; method: str; calibrated: bool = False
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if not 0 <= self.value <= 1: issues.append(ValidationIssue("value", "range", "confidence must be between 0 and 1"))
+        if not self.method.strip(): issues.append(ValidationIssue("method", "required", "confidence method is required"))
+        return issues
+
+
+@dataclass(frozen=True)
+class PageRegion(Contract):
+    """One sourced text region with a bounding box and extraction confidence."""
+
+    region_id: str; page_number: int; text: str; bounding_box: BoundingBox; confidence: float; extraction_method: str
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.page_number < 1: issues.append(ValidationIssue("page_number", "range", "page number must be positive"))
+        if not 0 <= self.confidence <= 1: issues.append(ValidationIssue("confidence", "range", "confidence must be between 0 and 1"))
+        if not self.text.strip(): issues.append(ValidationIssue("text", "required", "region text is required"))
+        if not self.extraction_method.strip(): issues.append(ValidationIssue("extraction_method", "required", "extraction method is required"))
+        return issues
+
+
+@dataclass(frozen=True)
+class StructuredTable(Contract):
+    """A table recovered from an image or scanned page.
+
+    Values remain strings because the unit context travels in ``units`` keyed
+    by column header, not baked into a parsed number.  Deterministic conversion
+    to typed values happens later, under verification, never inside extraction.
+    """
+
+    table_id: str; page_number: int; headers: tuple[str, ...]; rows: tuple[tuple[str, ...], ...]; confidence: float; extraction_method: str; units: dict[str, str] = field(default_factory=dict); source_ref: str = ""; source_span: str = ""
+
+    def _validate(self, hints):
+        issues = super()._validate(hints)
+        if self.page_number < 1: issues.append(ValidationIssue("page_number", "range", "page number must be positive"))
+        if not 0 <= self.confidence <= 1: issues.append(ValidationIssue("confidence", "range", "confidence must be between 0 and 1"))
+        if not self.headers: issues.append(ValidationIssue("headers", "required", "table headers are required"))
+        if not self.extraction_method.strip(): issues.append(ValidationIssue("extraction_method", "required", "extraction method is required"))
+        width = len(self.headers)
+        for index, row in enumerate(self.rows):
+            if len(row) != width:
+                issues.append(ValidationIssue(f"rows[{index}]", "shape", "row width must match header width"))
+        if len(self.headers) != len(set(self.headers)):
+            issues.append(ValidationIssue("headers", "duplicate", "table headers must be unique"))
+        for column in self.units:
+            if column not in self.headers:
+                issues.append(ValidationIssue(f"units.{column}", "unknown_column", "unit column must match a header"))
         return issues
 
 

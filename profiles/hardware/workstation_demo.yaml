@@ -1,0 +1,29 @@
+# profiles/hardware/workstation_demo.yaml
+# HardwareProfile for the AirBench local demonstration workstation.
+#
+# Values are deployment-supplied measurements. Replace every "PENDING:" value
+# with the measured value for the actual box before a production run; the
+# profile loads structurally as-is so the Node can expose it before the final
+# measurement pass.
+profile_id: workstation-demo
+gpu_model: NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition
+gpu_count: 1
+vram_bytes: 102641958912
+driver_version: "595.84"
+accelerator_runtime: "CUDA 13.2"
+cpu_model: "PENDING:host-cpu-model"
+cpu_cores: 32
+ram_bytes: 134217728000
+storage_bytes: 1099511627776
+scratch_bytes: 8589934592
+model_context_tokens: 8192
+kv_cache_bytes: 4294967296
+safe_parallel_slots: 4
+egress_policy: deny-all
+measurement_hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+supported_execution_modes:
+  - parallel
+  - serial_virtual_team
+network_check_id: network-check.workstation-demo
+sandbox_runtime: firejail
+benchmark_result_ref: benchmarks/model_hardware_results.yaml#workstation-demo
