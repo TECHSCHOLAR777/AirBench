@@ -54,3 +54,6 @@ apps/desktop/logs/
 
 # Local paper drafts and generated LaTeX artifacts
 papers/
+tmp
+Rajput_Not_All_Pixels_Sink_Phase-Guided_Representation_Learning_For_Underwater_Image_CVPRW_2026_paper.pdf
+AIRBENCH.pdf

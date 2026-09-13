@@ -74,7 +74,7 @@ Core engines and frameworks:
 
 External input specified separately:
 
-- The **Engineering Drawing Pipeline** is one source that feeds the World Model Engine. It is owned and documented outside this set. The rest of the architecture treats it as a producer of structured graph fragments with confidence scores, and nothing here depends on how it works internally.
+- The **Engineering Drawing and P&ID Pipeline** (`docs/intake/pid.md`) is one controlled visual-intake adapter that feeds the World Model Engine. The rest of the architecture treats it as a producer of sourced, confidence-bearing candidate graph fragments, and nothing here depends on how it works internally.
 
 ## How the parts fit together
 
