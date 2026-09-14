@@ -840,8 +840,10 @@ def add_readiness_route(app: Any, service: NodeApiService) -> None:
     from starlette.routing import Route
 
     async def readiness(request: StarletteRequest) -> StarletteJSONResponse:  # noqa: ARG001
+        from starlette.concurrency import run_in_threadpool
+
         try:
-            health = service.health()
+            health = await run_in_threadpool(service.health)
             return StarletteJSONResponse(status_code=200, content=health)
         except Exception as exc:
             return StarletteJSONResponse(
@@ -866,13 +868,15 @@ def add_model_serving_route(app: Any, service: NodeApiService) -> None:
     from starlette.routing import Route
 
     async def model_serving(request: StarletteRequest) -> StarletteJSONResponse:  # noqa: ARG001
+        from starlette.concurrency import run_in_threadpool
+
         router = getattr(service, "model_router", None)
         if router is None:
             return StarletteJSONResponse(
                 status_code=200,
                 content={"configured": False, "status": "disabled", "endpoints": []},
             )
-        endpoints = probe_endpoint_readiness(router, timeout_s=2.0)
+        endpoints = await run_in_threadpool(probe_endpoint_readiness, router, timeout_s=2.0)
         ready = bool(endpoints) and all(endpoint.get("reason") == "ready" for endpoint in endpoints)
         return StarletteJSONResponse(
             # Health is a projection, not an admission decision. A degraded

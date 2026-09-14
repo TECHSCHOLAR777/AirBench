@@ -47,7 +47,7 @@ roster:
     limits:
       context_tokens: 8192
       max_output_tokens: 4096
-      image_tokens: 0
+      image_tokens: 2
       max_concurrency: 4
       max_batch_size: 4
     qualified_roles:
@@ -122,7 +122,7 @@ roster:
     limits:
       context_tokens: 8192
       max_output_tokens: 4096
-      image_tokens: 0
+      image_tokens: 2
       max_concurrency: 4
       max_batch_size: 4
     qualified_roles:

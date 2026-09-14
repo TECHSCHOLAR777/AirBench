@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 
 _ENABLED_VALUES = {"1", "true", "yes", "on"}
 
+# Shared, bounded executor for endpoint probes. A per-poll ThreadPoolExecutor
+# leaked one thread per endpoint per request when endpoints hung; a bounded
+# shared pool caps that cost for the life of the process.
+_PROBE_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="airbench-probe")
+
 
 @dataclass(frozen=True, slots=True)
 class LocalEndpointSpec:
@@ -240,14 +245,11 @@ def probe_endpoint_readiness(router: ModelRouter, *, timeout_s: float | None = N
                 # Provider probes must never make the Node status route wait
                 # for the full model-call timeout.  A timed-out probe is a
                 # visible degraded state; routing still fails closed.
-                executor = ThreadPoolExecutor(max_workers=1)
-                future = executor.submit(_probe_adapter, adapter)
+                future = _PROBE_EXECUTOR.submit(_probe_adapter, adapter)
                 try:
                     probe = future.result(timeout=max(0.1, timeout_s))
                 except TimeoutError:
                     probe = _endpoint_probe_unavailable()
-                finally:
-                    executor.shutdown(wait=False, cancel_futures=True)
         except Exception:  # never leak provider detail from a probe
             probe = _endpoint_probe_unavailable()
         identity.update(probe)

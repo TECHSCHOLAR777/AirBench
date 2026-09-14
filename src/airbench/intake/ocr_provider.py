@@ -187,12 +187,15 @@ class TesseractOcrProvider:
     of silently returning empty text, so callers can report honest status.
     """
 
-    def __init__(self, *, name: str = "tesseract", version: str = "1.0", lang: str = "eng") -> None:
+    def __init__(self, *, name: str = "tesseract", version: str = "1.0", lang: str = "eng", timeout_s: float = 60.0) -> None:
         if not name or not version or not lang:
             raise OcrProviderError("invalid_provider", "tesseract provider identity is required")
+        if timeout_s <= 0:
+            raise OcrProviderError("invalid_provider", "tesseract timeout must be positive")
         self.name = name
         self.version = version
         self.lang = lang
+        self.timeout_s = timeout_s
 
     def extract(self, page: OcrPageInput) -> OcrPageResult:
         pytesseract, Image = self._dependencies()
@@ -204,6 +207,7 @@ class TesseractOcrProvider:
                     lang=self.lang,
                     config=f"--dpi {page.dpi}",
                     output_type=pytesseract.Output.DICT,
+                    timeout=self.timeout_s,
                 )
         except OcrProviderError:
             raise

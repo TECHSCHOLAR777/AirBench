@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from typing import Callable, Protocol, Sequence
 
@@ -98,7 +99,16 @@ class VllmRerankerAdapter:
         request = self._request_builder(query, tuple(passages))
         if not isinstance(request, BackendRequest):
             raise RerankerAdapterError("invalid_backend_request", "reranker request builder returned an invalid request")
-        response = self._backend.complete(request)
+        # The backend protocol has no timeout parameter; a hung local model
+        # server must not hang knowledge_search indefinitely.
+        from airbench.concurrency import run_with_timeout
+
+        timeout_ms = int(getattr(request, "timeout_ms", 0) or 0)
+        timeout_s = (timeout_ms / 1000.0) if timeout_ms > 0 else 120.0
+        try:
+            response = run_with_timeout(lambda: self._backend.complete(request), timeout_s)
+        except FutureTimeout as exc:
+            raise RerankerAdapterError("reranker_timeout", "the reranker backend timed out") from exc
         output = getattr(response, "output", "")
         text = output if isinstance(output, str) else json.dumps(output, sort_keys=True, separators=(",", ":"), default=str)
         values = tuple(float(value) for value in self._parser(text, len(passages)))

@@ -644,7 +644,7 @@ class DeliverableEngine:
             payload=payload,
             clearance=clearance,
             idempotency=key,
-            sequence=len(self.ledger.events),
+            sequence=len(self.ledger),
             previous_event_hash=self.ledger.head_hash,
         )
         try:
@@ -656,7 +656,7 @@ class DeliverableEngine:
         return self._event_by_key(key) or event
 
     def _event_by_key(self, key: str) -> LedgerEventEnvelope | None:
-        return next((event for event in self.ledger.events if event.idempotency_key == key), None)
+        return self.ledger.find_by_idempotency(key)
 
 
 def _bounded_text(value: Any, maximum: int, label: str) -> str:

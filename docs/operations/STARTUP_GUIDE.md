@@ -1,74 +1,90 @@
-# AirBench Startup Guide
+# AirBench Operator Startup Guide (Two-Endpoint Demo)
 
-This document outlines the standard 4-terminal procedure to start the AirBench Core Node and the Desktop UI for local development, assuming your models are served from a remote GPU.
+This guide documents how to start the AirBench Node with the controlled two-endpoint demonstration roster (E2B and 12B). It walks through generating the local signing key, opening the SSH tunnel, running the preflight checks, and verifying that the Node admits both lanes.
 
-## Terminal 1 — Remote GPU Server
+## 1. Generate the local signing key
 
-Start the model-serving containers on your remote server (e.g., `mmmut-server`) and monitor the GPUs.
+AirBench refuses to load unsigned model targets. To run the demo, you must have a local signing key at `.airbench_signing_key` in the repository root. This key is used to sign the demo roster so the Node trusts it.
 
-```bash
-ssh mmmut-server
-docker start airbench-vllm-e2b airbench-vllm-12b
-watch -n 1 nvidia-smi
-```
-
-## Terminal 2 — Laptop SSH Tunnel
-
-Forward the model serving ports from the remote server to your local machine. Leave this terminal open.
+Run the idempotent setup script to create the key:
 
 ```powershell
-ssh -N -L 127.0.0.1:18001:127.0.0.1:8001 -L 127.0.0.1:18002:127.0.0.1:8002 mmmut-server
+powershell -ExecutionPolicy Bypass -File scripts\setup_demo_signing_key.ps1
 ```
 
-## Terminal 3 — Laptop AirBench Node
+> [!CAUTION]
+> This key is 32 cryptographically random bytes and is excluded by `.gitignore`. **Never commit it.**
 
-From the root of the AirBench repository, start the backend Core Node using the provided startup script. Be sure to point `-ModelStore` to wherever you store your model hashes locally.
+## 2. Generate actual hashes for the model targets
 
-The startup script first runs the model endpoint preflight (`scripts/model_endpoint_preflight.py`): it verifies the signed roster, checks each tunnelled lane's HTTP health, and confirms the exact served model name matches the roster. The Node refuses to start when a lane is down unless you pass `-AllowDegradedLane` (debugging only — plan approval is then refused with `model_lane_not_ready` until the lane recovers).
+The handoff model roster initially contains `PENDING:` placeholders for the artifact, tokenizer, and chat template hashes. You must hash the downloaded model files in your store.
 
-You can also run the preflight on its own:
+Run the hashing script:
 
 ```powershell
-python scripts\model_endpoint_preflight.py
+# E.g., if models are in C:\airbench-models
+$env:AIRBENCH_MODEL_STORE = "C:\airbench-models"
+python scripts\airbench_hash.py --target airbench-gemma-4-e2b --target airbench-gemma-4-12b
 ```
+
+## 3. Build the signed demo roster
+
+Once the hashes are measured and written to the `models/roster/v0/model_roster.yaml` file (replacing the `PENDING` placeholders), generate the demo-specific roster. This script extracts the two demo targets, promotes them to candidate status, and signs the manifest.
 
 ```powershell
-# Run from the root of the repository
-powershell -ExecutionPolicy Bypass -File scripts\start_demo_node.ps1 `
-  -Mode Fresh `               # Fresh: delete local demo state so old tasks cannot leak in (default: Resume)
-  -Retrieval `
-  -ModelStore "C:\airbench-models" `
-  -Token "dev-token-123" `
-  -Subject "demo.operator"
+python scripts\airbench_demo_roster.py
 ```
 
-The script refuses to start when port 8765 is already owned by another
-process (it prints the owning PID), runs the model endpoint preflight, and
-prints a machine-readable `NODE_STARTUP_SUMMARY` line (stores, execution mode,
-model serving, ledger head) plus a preflight report before the Node binds.
-You can inspect the port/Node state at any time with:
+This creates the signed file at `models/roster/demo/two_endpoint_roster.yaml`.
+
+## 4. Open the SSH tunnel
+
+The Node connects to the remote GPU workstation using loopback HTTP endpoints on ports `18001` and `18002`.
+
+Open a **dedicated PowerShell window** and run the tunnel wrapper script:
 
 ```powershell
-python scripts\node_preflight.py --json
+powershell -ExecutionPolicy Bypass -File scripts\open_ssh_tunnel.ps1
 ```
 
-## Terminal 4 — Laptop Desktop UI
+> [!IMPORTANT]
+> Keep this window open for the duration of the demo. Closing it kills the tunnel.
 
-Launch the frontend application. It will copy the approved node profile into its configuration folder and start the development server.
+## 5. Run the model preflight
+
+Before starting the Node, prove that both lanes are actually up, that they match the expected model ID, and that the tunnel works. The start script does this for you automatically, but you can also run it directly:
 
 ```powershell
-# Navigate to the desktop app folder
-cd apps\desktop
-
-# Create the AppData folder for the desktop app
-New-Item -Path "$env:APPDATA\org.airbench.desktop" -ItemType Directory -Force
-
-# Copy the trusted profile to the AppData folder so the UI can discover it
-Copy-Item `
-  "..\..\approved-node-profiles.json" `
-  "$env:APPDATA\org.airbench.desktop\approved-node-profiles.json" `
-  -Force
-
-# Launch the Tauri Desktop App in development mode
-npm run tauri:dev
+python scripts\model_endpoint_preflight.py `
+  --roster models\roster\demo\two_endpoint_roster.yaml `
+  --signing-key .airbench_signing_key
 ```
+
+If it fails, verify the tunnel and the status of the vLLM containers on the remote machine.
+
+## 6. Start the AirBench Node
+
+In a new window, start the Node. By default, it runs in "Resume" mode to keep your existing ledger and corpus state.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start_demo_node.ps1
+```
+
+If you want a totally fresh demo (wipes local database, ledger, intakes, and chroma), pass `-Mode Fresh`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start_demo_node.ps1 -Mode Fresh
+```
+
+Wait until the console outputs `Starting AirBench Node ...` (after it finishes hashing the models).
+
+## 7. Verify endpoints
+
+Open another terminal and verify the Node has successfully mounted both endpoints:
+
+```powershell
+$env:AIRBENCH_BEARER_TOKEN="dev-token-123"
+curl -H "Authorization: Bearer dev-token-123" http://127.0.0.1:8765/api/v1/node/model-serving
+```
+
+You should see `"configured": true` and `"status": "ready"` with both the E2B and 12B endpoints listed in the response payload.

@@ -107,6 +107,12 @@ class NodePreflightScriptTests(unittest.TestCase):
     def setUp(self) -> None:
         self.module = _load_script("node_preflight")
         self.json_argv = ["--json"]
+        # Class-level handler state is shared across tests; reset it so one
+        # degraded-lane test cannot pollute the next healthy-node test.
+        _ReadinessHandler.readiness_status = 200
+        _ReadinessHandler.readiness_payload = {"status": "ok"}
+        _ReadinessHandler.serving_payload = {"configured": True, "status": "ready", "endpoints": [
+            {"target_id": "t", "health": "healthy", "readiness": "ready", "reason": "ready"}]}
 
     def test_free_port_reports_ready_to_start(self) -> None:
         with patch("sys.stdout"):
@@ -229,6 +235,7 @@ class TypedTerminalStateTests(unittest.TestCase):
         self.client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=create_app(service)), base_url="http://node.typed",
         )
+        self.service = service
         task = self.orchestrator.create_task(
             principal_id="principal.typed", clearance=Clearance.internal,
             request="typed terminal failures", domain_pack_ref="pack.fake",
@@ -244,16 +251,6 @@ class TypedTerminalStateTests(unittest.TestCase):
 
     def _approve(self, execution) -> httpx.Response:
         # Rebind the service's execution coordinator for this approval.
-        service = self.client._transport.app  # noqa: SLF001 - test seam
-        # create_app closes over the service; reach it through the route table.
-        for route in service.routes:
-            if getattr(route, "path", "") == "/api/v1/tasks/{task_id}/approve":
-                service_execution = route.endpoint.__closure__
-        # Simpler: patch the service attribute directly.
-        app = self.client._transport.app  # noqa: SLF001
-        # FastAPI app object; the service is captured. Use the module-level
-        # pattern instead: rebuild is unnecessary because NodeApiService stores
-        # execution as a public attribute we can swap.
         self.service.execution = execution
         command = {
             "command_id": "command.typed.approve", "task_id": "task.typed", "actor": "principal.typed",

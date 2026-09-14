@@ -77,7 +77,7 @@ def _append(
         event_type=event_type, task_id=task_id, actor_id=actor, actor_type="orchestrator",
         payload_contract="M9RunEvent", payload_version="1.0", payload=payload,
         clearance=clearance, idempotency=idempotency_key(event_type, task_id, json.dumps(payload, sort_keys=True)),
-        sequence=len(ledger.events), previous_event_hash=ledger.head_hash,
+        sequence=len(ledger), previous_event_hash=ledger.head_hash,
     )
     return ledger.append(event)
 
@@ -125,7 +125,7 @@ class RefineryPack:
             raise SignedPackError("pack could not be read") from exc
         if not actual or not hmac.compare_digest(str(actual), expected):
             raise SignedPackError("pack signature verification failed")
-        if manifest.get("status") == "draft_pending_external_acceptance" and not actual:
+        if manifest.get("status") == "draft_pending_external_acceptance":
             raise SignedPackError("draft packs cannot be loaded")
         required = {
             "document_profiles", "world_schema", "field_rules", "decision_types",
@@ -473,179 +473,190 @@ class RefineryVerticalSlice:
         event("execution.mode.selected", {"mode": mode, "safe_parallel_slots": safe_parallel_slots, "hardware_modes": list(supported_modes), "hardware_profile_id": hardware_profile.profile_id if hardware_profile else None})
         event("team.created", {"team_id": stable_id("team", task_id), "required_verification": True, "pack_workflow": "refinery_inspection_review"})
         event("team.execution.started", {"team_id": stable_id("team", task_id), "mode": mode})
-        workflow = self.pack.workers.get("workflows", {}).get("refinery_inspection_review", {})
-        required_workers = tuple(str(worker) for worker in workflow.get("required_workers", ()))
-        capabilities = {
-            "lead_worker": "coordination",
-            "evidence_vision_worker": "vision",
-            "reasoning_worker": "reasoning",
-            "independent_verification_worker": "verification",
-            "render_review_worker": "render",
-        }
-        if not required_workers or any(worker not in capabilities for worker in required_workers):
-            raise SignedPackError("refinery workflow has an unsupported worker declaration")
-        route_specs = tuple((worker, capabilities[worker]) for worker in required_workers)
-        routes = tuple(WorkerRoute(f"worker.m9.{role}", role, capability, mode, route_map.get(role, f"local.{capability}.qualified")) for role, capability in route_specs)
-        for route in routes:
-            event("worker.assigned", {"worker_id": route.worker_id, "role": route.role, "capability": route.capability, "mode": mode, "model_route": route.model_route})
-            event("routing.decided", {"worker_id": route.worker_id, "role": route.role, "capability": route.capability, "target_id": route.model_route, "hardware_profile_id": hardware_profile.profile_id if hardware_profile else None, "qualified": True})
-            event("worker.started", {"worker_id": route.worker_id, "role": route.role, "stage": route.capability})
-        findings: list[InspectionFinding] = []
-        for page_id, text in report_pages.items():
-            for index, line in enumerate(text.splitlines(), 1):
-                match = re.match(r"\s*(?:finding\s*)?(?P<id>[A-Z]+[-_]?[0-9]+)\s*[:|-]\s*(?P<equipment>[A-Za-z0-9_.-]+)\s*[:|-]\s*(?P<severity>critical|high|medium|low)\s*[:|-]\s*(?P<description>.+)", line, re.I)
-                if not match: continue
-                data = match.groupdict(); fid = data["id"].replace("_", "-").lower()
-                source = f"{report_source_ref}#{page_id}"
-                confidence = (page_confidences or {}).get(page_id, 0.85)
-                fact = FactEnvelope(stable_id("fact", task_id, fid), data["description"].strip(), source, confidence, clearance, Taint.untrusted, "local_ocr_vision", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
-                findings.append(InspectionFinding(fid, data["equipment"], data["severity"].lower(), data["description"].strip(), fact, f"{page_id}:line={index}"))
-                event("fact.candidate", {"fact_id": fact.fact_id, "source_ref": source, "confidence": fact.confidence, "clearance": clearance.value, "taint": fact.taint.value})
-                event("fact.committed", {"fact_id": fact.fact_id, "source_ref": source, "confidence": fact.confidence, "clearance": clearance.value, "taint": fact.taint.value, "scope": "task", "promotion": "provenance_gate"})
-        if not findings:
+        terminal_failure_emitted = False
+        try:
+            workflow = self.pack.workers.get("workflows", {}).get("refinery_inspection_review", {})
+            required_workers = tuple(str(worker) for worker in workflow.get("required_workers", ()))
+            capabilities = {
+                "lead_worker": "coordination",
+                "evidence_vision_worker": "vision",
+                "reasoning_worker": "reasoning",
+                "independent_verification_worker": "verification",
+                "render_review_worker": "render",
+            }
+            if not required_workers or any(worker not in capabilities for worker in required_workers):
+                raise SignedPackError("refinery workflow has an unsupported worker declaration")
+            route_specs = tuple((worker, capabilities[worker]) for worker in required_workers)
+            routes = tuple(WorkerRoute(f"worker.m9.{role}", role, capability, mode, route_map.get(role, f"local.{capability}.qualified")) for role, capability in route_specs)
             for route in routes:
-                event("worker.failed", {
-                    "worker_id": route.worker_id,
-                    "role": route.role,
-                    "stage": route.capability,
+                event("worker.assigned", {"worker_id": route.worker_id, "role": route.role, "capability": route.capability, "mode": mode, "model_route": route.model_route})
+                event("routing.decided", {"worker_id": route.worker_id, "role": route.role, "capability": route.capability, "target_id": route.model_route, "hardware_profile_id": hardware_profile.profile_id if hardware_profile else None, "qualified": True})
+                event("worker.started", {"worker_id": route.worker_id, "role": route.role, "stage": route.capability})
+            findings: list[InspectionFinding] = []
+            for page_id, text in report_pages.items():
+                for index, line in enumerate(text.splitlines(), 1):
+                    match = re.match(r"\s*(?:finding\s*)?(?P<id>[A-Z]+[-_]?[0-9]+)\s*[:|-]\s*(?P<equipment>[A-Za-z0-9_.-]+)\s*[:|-]\s*(?P<severity>critical|high|medium|low)\s*[:|-]\s*(?P<description>.+)", line, re.I)
+                    if not match: continue
+                    data = match.groupdict(); fid = data["id"].replace("_", "-").lower()
+                    source = f"{report_source_ref}#{page_id}"
+                    confidence = (page_confidences or {}).get(page_id, 0.85)
+                    fact = FactEnvelope(stable_id("fact", task_id, fid), data["description"].strip(), source, confidence, clearance, Taint.untrusted, "local_ocr_vision", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
+                    findings.append(InspectionFinding(fid, data["equipment"], data["severity"].lower(), data["description"].strip(), fact, f"{page_id}:line={index}"))
+                    event("fact.candidate", {"fact_id": fact.fact_id, "provenance": {"source_ref": source, "confidence": fact.confidence, "clearance": clearance.value, "taint": fact.taint.value}})
+                    event("fact.committed", {"fact_id": fact.fact_id, "scope": "task", "promotion": "provenance_gate", "provenance": {"source_ref": source, "confidence": fact.confidence, "clearance": clearance.value, "taint": fact.taint.value}})
+            if not findings:
+                for route in routes:
+                    event("worker.failed", {
+                        "worker_id": route.worker_id,
+                        "role": route.role,
+                        "stage": route.capability,
+                        "failure_code": "no_sourced_findings",
+                        "retryable": False,
+                    })
+                event("team.execution.failed", {
+                    "team_id": stable_id("team", task_id),
                     "failure_code": "no_sourced_findings",
                     "retryable": False,
                 })
-            event("team.execution.failed", {
-                "team_id": stable_id("team", task_id),
-                "failure_code": "no_sourced_findings",
-                "retryable": False,
-            })
-            raise ValueError("inspection report contained no sourced findings")
-        manual_hits = tuple((key, value) for key, value in manuals.items() if any(token in value.lower() for finding in findings for token in finding.description.lower().split() if len(token) > 4))
-        retrieved_refs = retrieved_manual_refs if retrieved_manual_refs is not None else tuple(key for key, _ in manual_hits)
-        event("retrieval.completed", {"manual_refs": list(retrieved_refs), "finding_count": len(findings), "local_only": True})
-        values = {"finding_count": len(findings), "critical_finding_count": sum(f.severity == "critical" for f in findings), "manual_match_count": len(retrieved_refs)}
-        event("tool.requested", {"tool": "deterministic.computation", "worker_id": "worker.m9.reasoning_worker", "source_ref": "computed:m9", "taint": Taint.untrusted.value})
-        event("tool.authorized", {"tool": "deterministic.computation", "worker_id": "worker.m9.reasoning_worker", "authorization": "task_policy"})
-        event("tool.result", {"tool": "deterministic.computation", "values": values, "source_ref": "computed:m9", "taint": Taint.clean.value, "clearance": clearance.value})
-        for route in routes:
-            event("worker.completed", {"worker_id": route.worker_id, "role": route.role, "stage": route.capability, "status": "proposed_result"})
-        team_id = stable_id("team", task_id)
-        for source, destination in zip(routes, routes[1:]):
-            packet = WorkPacket(
-                packet_id=stable_id("packet", task_id, source.worker_id, destination.worker_id),
-                task_id=task_id,
-                team_id=team_id,
-                source_worker_id=source.worker_id,
-                destination_stage=destination.capability,
-                fact_refs=tuple(f.fact.fact_id for f in findings),
+                terminal_failure_emitted = True
+                raise ValueError("inspection report contained no sourced findings")
+            manual_hits = tuple((key, value) for key, value in manuals.items() if any(token in value.lower() for finding in findings for token in finding.description.lower().split() if len(token) > 4))
+            retrieved_refs = retrieved_manual_refs if retrieved_manual_refs is not None else tuple(key for key, _ in manual_hits)
+            event("retrieval.completed", {"manual_refs": list(retrieved_refs), "finding_count": len(findings), "local_only": True})
+            values = {"finding_count": len(findings), "critical_finding_count": sum(f.severity == "critical" for f in findings), "manual_match_count": len(retrieved_refs)}
+            event("tool.requested", {"tool": "deterministic.computation", "worker_id": "worker.m9.reasoning_worker", "source_ref": "computed:m9", "taint": Taint.untrusted.value})
+            event("tool.authorized", {"tool": "deterministic.computation", "worker_id": "worker.m9.reasoning_worker", "authorization": "task_policy"})
+            event("tool.result", {"tool": "deterministic.computation", "values": values, "provenance": {"source_ref": "computed:m9", "confidence": 1.0, "clearance": clearance.value, "taint": Taint.clean.value}})
+            for route in routes:
+                event("worker.completed", {"worker_id": route.worker_id, "role": route.role, "stage": route.capability, "status": "proposed_result"})
+            team_id = stable_id("team", task_id)
+            for source, destination in zip(routes, routes[1:]):
+                packet = WorkPacket(
+                    packet_id=stable_id("packet", task_id, source.worker_id, destination.worker_id),
+                    task_id=task_id,
+                    team_id=team_id,
+                    source_worker_id=source.worker_id,
+                    destination_stage=destination.capability,
+                    fact_refs=tuple(f.fact.fact_id for f in findings),
+                    evidence_refs=tuple(f.fact.source_ref for f in findings),
+                    artifact_refs=(),
+                    checks={"source_bound": True, "confidence_bound": True},
+                    unresolved_questions=("human review remains required",),
+                    proposed_next_result=f"handoff from {source.role} to {destination.role}",
+                    clearance=clearance,
+                    taint=Taint.untrusted,
+                    packet_hash="",
+                )
+                packet = WorkPacket.from_dict({**packet.to_dict(), "packet_hash": work_packet_hash(packet)})
+                handoff = HandoffSubmission(
+                    handoff_id=stable_id("handoff", task_id, source.worker_id, destination.worker_id),
+                    task_id=task_id,
+                    team_id=team_id,
+                    source_assignment_id=stable_id("assignment", task_id, source.worker_id),
+                    source_worker_id=source.worker_id,
+                    destination_assignment_id=stable_id("assignment", task_id, destination.worker_id),
+                    destination_stage=destination.capability,
+                    packet=packet,
+                    packet_hash=packet.packet_hash,
+                    barrier_id=stable_id("barrier", task_id, destination.worker_id),
+                    barrier_version=1,
+                    source_lease_id=stable_id("lease", task_id, source.worker_id),
+                    plan_version=self.pack.manifest.get("pack_version", "1.0"),
+                    policy_version_hash=_sha(_canonical(self.pack.manifest)),
+                    clearance=clearance,
+                    taint=Taint.untrusted,
+                    submitted_at="2026-01-01T00:00:00Z",
+                    deadline="2026-01-01T00:10:00Z",
+                    idempotency_key=idempotency_key("m9-handoff", task_id, source.worker_id, destination.worker_id),
+                )
+                event("worker.handoff", {
+                    "handoff": handoff.to_dict(),
+                    "packet_hash": handoff.packet_hash,
+                    "source_assignment_id": handoff.source_assignment_id,
+                    "destination_assignment_id": handoff.destination_assignment_id,
+                    "provenance": {
+                        "source_ref": f"work-packet:{packet.packet_id}",
+                        "confidence": 1.0,
+                        "clearance": clearance.value,
+                        "taint": Taint.untrusted.value,
+                    },
+                })
+            event("team.execution.completed", {"team_id": stable_id("team", task_id), "worker_count": len(routes), "finding_count": len(findings)})
+            artifact_path = self.artifact_dir / f"{task_id}-approval-note.docx"
+            template = next((item for item in self.pack.templates.get("templates", ()) if item.get("id") == "refinery_psu_approval_note_v0"), None)
+            if not isinstance(template, dict) or template.get("format") != "docx":
+                raise SignedPackError("approval-note DOCX template contract is unavailable")
+            artifact = ApprovalNoteRenderer().render(
+                artifact_path, findings=tuple(findings), manual_refs=tuple(retrieved_refs),
+                values=values, review_status="verified draft for human review", template=template,
+            )
+            event("artifact.staged", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "path": str(artifact_path)})
+            event("artifact.checked", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "structural": artifact.structural, "visual": artifact.visual, "visual_backend": artifact.visual_backend, "check_reason": artifact.check_reason, "path": artifact.path})
+            status = "verified draft for human review" if artifact.structural == "passed" and artifact.visual == "passed" else "needs_review"
+            fact_values = tuple(fact.fact for fact in findings)
+            verification = VerificationRunner(self.ledger, actor_id="worker.m9.independent_verification_worker").run(VerificationRequest(
+                verification_id=stable_id("verification", task_id, artifact.artifact_id), task_id=task_id,
+                rules=(
+                    VerificationRule(
+                        rule_id=stable_id("rule", task_id, "source"), kind="source",
+                        fact_ids=tuple(f.fact.fact_id for f in findings), source_prefixes=(report_source_ref,),
+                    ),
+                    VerificationRule(
+                        rule_id=stable_id("rule", task_id, "confidence"), kind="confidence",
+                        fact_ids=tuple(f.fact.fact_id for f in findings), confidence_floor=0.80,
+                    ),
+                ),
+                facts=fact_values, clearance=clearance,
                 evidence_refs=tuple(f.fact.source_ref for f in findings),
-                artifact_refs=(),
-                checks={"source_bound": True, "confidence_bound": True},
-                unresolved_questions=("human review remains required",),
-                proposed_next_result=f"handoff from {source.role} to {destination.role}",
-                clearance=clearance,
-                taint=Taint.untrusted,
-                packet_hash="",
+                rule_set_version=self.pack.manifest.get("pack_version", "1.0"),
+                idempotency_key=idempotency_key("m9-verification", task_id, artifact.artifact_id),
+            ))
+            criteria = ("artifact_rendered", "artifact_checked", "sources_attached", "deterministic_values_checked")
+            evaluation_request = EvaluatorInput(
+                task_id=task_id, evaluation_id=stable_id("evaluation", task_id, artifact.artifact_id),
+                generator_worker_id="worker.m9.reasoning_worker",
+                evaluator_worker_id="worker.m9.independent_verification_worker",
+                proposal_ref=artifact.artifact_id,
+                work_packet_refs=tuple(stable_id("packet", task_id, route.worker_id) for route in routes),
+                evidence_refs=tuple(f.fact.source_ref for f in findings) + tuple(retrieved_refs) + (artifact.artifact_id,),
+                completion_criteria=criteria, clearance=clearance,
+                confidence=verification.confidence, taint=verification.taint,
             )
-            packet = WorkPacket.from_dict({**packet.to_dict(), "packet_hash": work_packet_hash(packet)})
-            handoff = HandoffSubmission(
-                handoff_id=stable_id("handoff", task_id, source.worker_id, destination.worker_id),
-                task_id=task_id,
-                team_id=team_id,
-                source_assignment_id=stable_id("assignment", task_id, source.worker_id),
-                source_worker_id=source.worker_id,
-                destination_assignment_id=stable_id("assignment", task_id, destination.worker_id),
-                destination_stage=destination.capability,
-                packet=packet,
-                packet_hash=packet.packet_hash,
-                barrier_id=stable_id("barrier", task_id, destination.worker_id),
-                barrier_version=1,
-                source_lease_id=stable_id("lease", task_id, source.worker_id),
-                plan_version=self.pack.manifest.get("pack_version", "1.0"),
-                policy_version_hash=_sha(_canonical(self.pack.manifest)),
-                clearance=clearance,
-                taint=Taint.untrusted,
-                submitted_at="2026-01-01T00:00:00Z",
-                deadline="2026-01-01T00:10:00Z",
-                idempotency_key=idempotency_key("m9-handoff", task_id, source.worker_id, destination.worker_id),
+            def evaluate(_: EvaluatorInput) -> EvaluatorResult:
+                passed = verification.outcome == VerificationOutcome.passed and artifact.structural == "passed" and artifact.visual == "passed"
+                return EvaluatorResult(
+                    evaluation_id=evaluation_request.evaluation_id, task_id=task_id,
+                    outcome="passed" if passed else "needs_review",
+                    criteria=tuple((criterion, passed) for criterion in criteria),
+                    reason="independent checks passed" if passed else "artifact or deterministic verification remains incomplete",
+                    confidence=verification.confidence if passed else min(verification.confidence, 0.5),
+                    clearance=clearance, taint=verification.taint,
+                    evaluator_worker_id=evaluation_request.evaluator_worker_id,
+                )
+            evaluation = IndependentEvaluator(
+                self.ledger, evaluator=evaluate,
+                evaluator_worker_id="worker.m9.independent_verification_worker",
+            ).evaluate(evaluation_request)
+            completion = CompletionGate(self.ledger).decide(
+                evaluation_request, evaluation,
+                deterministic_checks={
+                    "verification": verification.outcome.value,
+                    "artifact_structural": artifact.structural,
+                    "artifact_visual": artifact.visual,
+                }, evidence_refs=evaluation_request.evidence_refs,
             )
-            event("worker.handoff", {
-                "handoff": handoff.to_dict(),
-                "packet_hash": handoff.packet_hash,
-                "source_assignment_id": handoff.source_assignment_id,
-                "destination_assignment_id": handoff.destination_assignment_id,
-                "provenance": {
-                    "source_ref": f"work-packet:{packet.packet_id}",
-                    "confidence": 1.0,
-                    "clearance": clearance.value,
-                    "taint": Taint.untrusted.value,
-                },
-            })
-        event("team.execution.completed", {"team_id": stable_id("team", task_id), "worker_count": len(routes), "finding_count": len(findings)})
-        artifact_path = self.artifact_dir / f"{task_id}-approval-note.docx"
-        template = next((item for item in self.pack.templates.get("templates", ()) if item.get("id") == "refinery_psu_approval_note_v0"), None)
-        if not isinstance(template, dict) or template.get("format") != "docx":
-            raise SignedPackError("approval-note DOCX template contract is unavailable")
-        artifact = ApprovalNoteRenderer().render(
-            artifact_path, findings=tuple(findings), manual_refs=tuple(retrieved_refs),
-            values=values, review_status="verified draft for human review", template=template,
-        )
-        event("artifact.staged", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "path": str(artifact_path)})
-        event("artifact.checked", {"artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash, "generator_version": artifact.generator_version, "structural": artifact.structural, "visual": artifact.visual, "visual_backend": artifact.visual_backend, "check_reason": artifact.check_reason, "path": artifact.path})
-        status = "verified draft for human review" if artifact.structural == "passed" and artifact.visual == "passed" else "needs_review"
-        fact_values = tuple(fact.fact for fact in findings)
-        verification = VerificationRunner(self.ledger, actor_id="worker.m9.independent_verification_worker").run(VerificationRequest(
-            verification_id=stable_id("verification", task_id, artifact.artifact_id), task_id=task_id,
-            rules=(
-                VerificationRule(
-                    rule_id=stable_id("rule", task_id, "source"), kind="source",
-                    fact_ids=tuple(f.fact.fact_id for f in findings), source_prefixes=(report_source_ref,),
-                ),
-                VerificationRule(
-                    rule_id=stable_id("rule", task_id, "confidence"), kind="confidence",
-                    fact_ids=tuple(f.fact.fact_id for f in findings), confidence_floor=0.80,
-                ),
-            ),
-            facts=fact_values, clearance=clearance,
-            evidence_refs=tuple(f.fact.source_ref for f in findings),
-            rule_set_version=self.pack.manifest.get("pack_version", "1.0"),
-            idempotency_key=idempotency_key("m9-verification", task_id, artifact.artifact_id),
-        ))
-        criteria = ("artifact_rendered", "artifact_checked", "sources_attached", "deterministic_values_checked")
-        evaluation_request = EvaluatorInput(
-            task_id=task_id, evaluation_id=stable_id("evaluation", task_id, artifact.artifact_id),
-            generator_worker_id="worker.m9.reasoning_worker",
-            evaluator_worker_id="worker.m9.independent_verification_worker",
-            proposal_ref=artifact.artifact_id,
-            work_packet_refs=tuple(stable_id("packet", task_id, route.worker_id) for route in routes),
-            evidence_refs=tuple(f.fact.source_ref for f in findings) + tuple(retrieved_refs) + (artifact.artifact_id,),
-            completion_criteria=criteria, clearance=clearance,
-            confidence=verification.confidence, taint=verification.taint,
-        )
-        def evaluate(_: EvaluatorInput) -> EvaluatorResult:
-            passed = verification.outcome == VerificationOutcome.passed and artifact.structural == "passed" and artifact.visual == "passed"
-            return EvaluatorResult(
-                evaluation_id=evaluation_request.evaluation_id, task_id=task_id,
-                outcome="passed" if passed else "needs_review",
-                criteria=tuple((criterion, passed) for criterion in criteria),
-                reason="independent checks passed" if passed else "artifact or deterministic verification remains incomplete",
-                confidence=verification.confidence if passed else min(verification.confidence, 0.5),
-                clearance=clearance, taint=verification.taint,
-                evaluator_worker_id=evaluation_request.evaluator_worker_id,
-            )
-        evaluation = IndependentEvaluator(
-            self.ledger, evaluator=evaluate,
-            evaluator_worker_id="worker.m9.independent_verification_worker",
-        ).evaluate(evaluation_request)
-        completion = CompletionGate(self.ledger).decide(
-            evaluation_request, evaluation,
-            deterministic_checks={
-                "verification": verification.outcome.value,
-                "artifact_structural": artifact.structural,
-                "artifact_visual": artifact.visual,
-            }, evidence_refs=evaluation_request.evidence_refs,
-        )
-        final_status = "verified draft for human review" if completion.outcome == "complete" else "needs_review"
-        event("human.review.required", {"artifact_id": artifact.artifact_id, "review_status": final_status, "completion_ref": completion.ledger_event_id})
-        task_events = tuple(event.event_id for event in self.ledger.events if event.task_id == task_id)
-        return M9RunResult(task_id, completion.outcome, final_status, mode, tuple(findings), values, tuple(retrieved_refs), routes, artifact, task_events)
+            final_status = "verified draft for human review" if completion.outcome == "complete" else "needs_review"
+            event("human.review.required", {"artifact_id": artifact.artifact_id, "review_status": final_status, "completion_ref": completion.ledger_event_id})
+            task_events = tuple(event.event_id for event in self.ledger.events if event.task_id == task_id)
+            return M9RunResult(task_id, completion.outcome, final_status, mode, tuple(findings), values, tuple(retrieved_refs), routes, artifact, task_events)
+        except BaseException as exc:
+            if not terminal_failure_emitted:
+                try:
+                    event("team.execution.failed", {"team_id": stable_id("team", task_id), "failure_code": "m9_run_failed", "retryable": False, "error": f"{type(exc).__name__}"})
+                    event("task.failed", {"failure_code": "m9_run_failed"})
+                except Exception:
+                    pass
+            raise
 
 
 __all__ = ["ArtifactCheck", "InspectionFinding", "M9RunResult", "RefineryPack", "RefineryVerticalSlice", "SignedPackError", "WorkerRoute"]

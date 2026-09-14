@@ -105,7 +105,10 @@ class LocalNodeAutonomyService:
             world_model=self._world_model,
         )
         wire = _decision_wire(decision)
-        if decision.outcome == "allow":
+        # An escalation that a human has already authorized is a resolved
+        # escalation: re-scoring the same action (for example when execution
+        # re-checks its gate) must not re-block the task.
+        if decision.outcome == "allow" or self.is_authorized(task_id, decision.action_id):
             self._holds.pop(task_id, None)
         else:
             self._holds[task_id] = wire
@@ -139,12 +142,16 @@ class LocalNodeAutonomyService:
         target = action_id or (self._holds.get(task_id) or {}).get("action_id") or ""
         if not target:
             return False
-        return any(
-            event.task_id == task_id
-            and event.event_type == "authority.authorized"
-            and isinstance(event.payload, dict)
-            and event.payload.get("action_id") == target
-            for event in self._ledger.events
+        return self._recorded_authorization(task_id, target) is not None
+
+    def _recorded_authorization(self, task_id: str, action_id: str):
+        return next(
+            (
+                event for event in reversed(self._ledger.events)
+                if event.task_id == task_id and event.event_type == "authority.authorized"
+                and isinstance(event.payload, dict) and event.payload.get("action_id") == action_id
+            ),
+            None,
         )
 
     def clear(self, task_id: str) -> None:
@@ -152,11 +159,19 @@ class LocalNodeAutonomyService:
         self._holds.pop(task_id, None)
 
     def authorize(self, *, task_id: str, operator_id: str, action_id: str = "", operator_roles: tuple[str, ...] = ()) -> dict[str, Any]:
-        hold = self._holds.get(task_id)
-        if hold is None:
-            raise AutonomyServiceError("no_escalation", "there is no autonomy escalation to authorize")
         if not operator_id.strip():
             raise AutonomyServiceError("invalid_operator", "an operator identity is required to authorize")
+        hold = self._holds.get(task_id)
+        target = action_id or (hold or {}).get("action_id") or ""
+        # Idempotent replay: an authorization already recorded on the ledger
+        # (by the operator's plan approval, or before a Node restart) is a
+        # committed fact.  Re-authorizing the same action must return that
+        # record, never append a conflicting duplicate event.
+        if target and self._recorded_authorization(task_id, target) is not None:
+            self._holds.pop(task_id, None)
+            return {"task_id": task_id, "authorized": True, "action_id": target}
+        if hold is None:
+            raise AutonomyServiceError("no_escalation", "there is no autonomy escalation to authorize")
         if hold.get("required_authority") and hold["required_authority"] not in operator_roles:
             raise AutonomyServiceError("insufficient_authority", f"the operator lacks the required role {hold['required_authority']}")
         self._ledger.append(build_event(
@@ -164,21 +179,21 @@ class LocalNodeAutonomyService:
             payload_contract="AuthorityAuthorization", payload_version="1.0",
             payload={
                 "task_id": task_id,
-                "action_id": action_id or hold.get("action_id"),
+                "action_id": target,
                 "operator_id": operator_id,
                 "escalation_event_ref": hold.get("ledger_event_id"),
                 "reason": hold.get("reason"),
                 "provenance": {
-                    "source_ref": f"autonomy:{action_id or hold.get('action_id')}", "confidence": 1.0,
+                    "source_ref": f"autonomy:{target}", "confidence": 1.0,
                     "clearance": self._clearance.value, "taint": Taint.clean.value,
                 },
             },
             clearance=self._clearance,
-            idempotency=idempotency_key("authority.authorized", task_id, operator_id, action_id or str(hold.get("action_id"))),
-            sequence=len(self._ledger.events), previous_event_hash=self._ledger.head_hash,
+            idempotency=idempotency_key("authority.authorized", task_id, operator_id, target),
+            sequence=len(self._ledger), previous_event_hash=self._ledger.head_hash,
         ))
         self._holds.pop(task_id, None)
-        return {"task_id": task_id, "authorized": True, "action_id": action_id or hold.get("action_id")}
+        return {"task_id": task_id, "authorized": True, "action_id": target}
 
 
 __all__ = ["AutonomyServiceError", "LocalNodeAutonomyService", "select_execution_action_kind"]

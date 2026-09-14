@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Protocol
@@ -17,6 +17,7 @@ from typing import Callable, Protocol
 from contracts import BoundingBox, Clearance, EventLedger, StructuredTable, Taint, build_event, stable_id
 from contracts.model.backend import BackendAdapter, BackendRequest, CancellationToken
 
+from airbench.concurrency import run_with_timeout
 from .ocr_provider import OcrPageInput, OcrPageResult, OcrProvider
 from .table_extractor import TableExtractor, extract_tables
 
@@ -144,10 +145,8 @@ class LocalVisionAdapter:
         if len(request.content) > self._max_input_bytes:
             raise VisionError("resource_exhausted", "vision page exceeds the configured input limit")
         self._event("vision.requested", request, {"adapter_id": self.adapter_id, "kind": self.kind})
-        executor = ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(self._extractor, request)
         try:
-            result = future.result(timeout=self._timeout_s)
+            result = run_with_timeout(lambda: self._extractor(request), self._timeout_s)
             if cancellation and cancellation.cancelled:
                 raise VisionError("cancelled", "vision extraction was cancelled")
             self._validate_result(request, result)
@@ -157,7 +156,6 @@ class LocalVisionAdapter:
             })
             return result
         except FutureTimeout as exc:
-            future.cancel()
             self._event("vision.failed", request, {"code": "timeout"})
             raise VisionError("timeout", "vision extraction timed out") from exc
         except VisionError as exc:
@@ -166,8 +164,6 @@ class LocalVisionAdapter:
         except Exception as exc:
             self._event("vision.failed", request, {"code": "adapter_failed"})
             raise VisionError("adapter_failed", "qualified vision adapter failed") from exc
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
 
     def _validate_result(self, request: VisionRequest, result: VisionResult) -> None:
         if result.task_id != request.task_id or result.intake_id != request.intake_id:
@@ -186,7 +182,7 @@ class LocalVisionAdapter:
     def _event(self, event_type: str, request: VisionRequest, payload: dict[str, str]) -> None:
         if self._ledger is None:
             return
-        sequence = len(self._ledger.events)
+        sequence = len(self._ledger)
         self._ledger.append(build_event(
             event_type=event_type,
             task_id=request.task_id,
