@@ -2,6 +2,18 @@
 
 This document outlines the standard procedure to start the AirBench Core Node and the Desktop UI for local development and demonstration.
 
+## 0. Connect to the Remote GPU (If using a remote server)
+
+If you are using remote GPU servers to serve the models (e.g. `workstation-04`), you must forward their model serving ports to your local machine so the AirBench Node can connect to them.
+
+Open a PowerShell terminal and run the SSH loopback forward:
+
+```powershell
+# Forward both model ports from workstation-04 to your local machine.
+# Keep this terminal open while the Node is running.
+ssh -N -L 18001:127.0.0.1:18001 -L 18002:127.0.0.1:18002 user@workstation-04
+```
+
 ## 1. Start the AirBench Node (Backend)
 
 The backend Node requires specific environment variables to establish its operational identity, clearance level, and available models. 
