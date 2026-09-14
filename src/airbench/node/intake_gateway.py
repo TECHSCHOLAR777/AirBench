@@ -291,7 +291,7 @@ class LocalNodeIntakeGateway:
 
     def _record_access(self, manifest: IntakeManifest, operation: str, reference: str, page: PageRecord) -> str:
         key = idempotency_key("node-intake-access", operation, manifest.intake_id)
-        existing = next((event for event in self._ledger.events if event.idempotency_key == key), None)
+        existing = self._ledger.find_by_idempotency(key)
         if existing is not None:
             return existing.event_id
         event_type = (
@@ -324,7 +324,7 @@ class LocalNodeIntakeGateway:
             },
             clearance=manifest.clearance,
             idempotency=key,
-            sequence=len(self._ledger.events),
+            sequence=len(self._ledger),
             previous_event_hash=self._ledger.head_hash,
         )
         try:

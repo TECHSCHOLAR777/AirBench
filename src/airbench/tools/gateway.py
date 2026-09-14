@@ -328,7 +328,7 @@ class ToolGateway:
 
     def _append(self, *, event_type: str, action: ToolAction, call_id: str,
                 payload: dict[str, Any], key: str) -> str:
-        existing = next((event for event in self._ledger.events if event.idempotency_key == key), None)
+        existing = self._ledger.find_by_idempotency(key)
         if existing is not None:
             return existing.event_id
         event = build_event(
@@ -341,7 +341,7 @@ class ToolGateway:
             payload={"call_id": call_id, "action_id": action.action_id, "tool_name": action.tool_name, **payload},
             clearance=action.clearance,
             idempotency=key,
-            sequence=len(self._ledger.events),
+            sequence=len(self._ledger),
             previous_event_hash=self._ledger.head_hash,
         )
         try:

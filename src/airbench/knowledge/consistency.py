@@ -132,7 +132,7 @@ class ConsistencyEngine:
             event_type="consistency.checked", task_id=current.task_id, actor_id="consistency-engine", actor_type="policy",
             payload_contract="ConsistencyResult", payload_version="1.0", payload=payload, clearance=clearance,
             idempotency=idempotency_key("consistency.checked", current.task_id, current.decision_id),
-            sequence=len(self.ledger.events), previous_event_hash=self.ledger.head_hash,
+            sequence=len(self.ledger), previous_event_hash=self.ledger.head_hash,
         ))
         return ConsistencyResult(
             current.task_id, current.decision_id, tuple(item.decision_id for item in active),

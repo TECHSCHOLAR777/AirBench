@@ -60,6 +60,7 @@ from contracts import (
     ModelRouter, ModelTarget, Orchestrator, TeamPlan,
 )
 from devtools.gemini_adapter import GeminiApiAdapter
+from starlette.concurrency import run_in_threadpool
 
 # ---------------------------------------------------------------------------
 # Helpers (inlined from run_gemini_e2e.py so the server is self-contained)
@@ -328,7 +329,7 @@ async def list_models() -> dict[str, Any]:
     if not os.environ.get("GEMINI_API_KEY"):
         raise HTTPException(status_code=400, detail="GEMINI_API_KEY not set")
     adapter = GeminiApiAdapter("model-discovery")
-    all_models = adapter.available_models()
+    all_models = await run_in_threadpool(adapter.available_models)
     text_models = [
         name for name in all_models
         if name.startswith("gemini-")
@@ -358,18 +359,21 @@ async def query(request: Request) -> JSONResponse:
     _query_counter += 1
     index = _query_counter
 
-    attachments = tuple(
-        BackendContent(
-            kind=a["kind"],
-            media_ref=a["data_uri"],
-            media_type=a["mime_type"],
-            content_hash=a.get("hash", "a" * 64),
+    try:
+        attachments = tuple(
+            BackendContent(
+                kind=a["kind"],
+                media_ref=a["data_uri"],
+                media_type=a["mime_type"],
+                content_hash=a.get("hash", "a" * 64),
+            )
+            for a in attachments_raw
         )
-        for a in attachments_raw
-    )
+    except (KeyError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=f"invalid attachment: missing {exc}") from exc
 
     try:
-        result = run_pipeline(model, index, q, stream=stream_mode, attachments=attachments)
+        result = await run_in_threadpool(run_pipeline, model, index, q, stream=stream_mode, attachments=attachments)
         return JSONResponse(result)
     except Exception as exc:
         tb = traceback.format_exc()
@@ -426,15 +430,19 @@ async def run_tests() -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="test_gemini_adapter.py not found")
 
     env = {**os.environ, "PYTHONPATH": str(_SRC)}
-    result = subprocess.run(
-        [sys.executable, "-m", "unittest", "discover", "-s", "tests",
-         "-p", "test_gemini_adapter.py", "-v"],
-        capture_output=True,
-        text=True,
-        cwd=str(_REPO_ROOT),
-        env=env,
-        timeout=60,
-    )
+    try:
+        result = await run_in_threadpool(
+            subprocess.run,
+            [sys.executable, "-m", "unittest", "discover", "-s", "tests",
+             "-p", "test_gemini_adapter.py", "-v"],
+            capture_output=True,
+            text=True,
+            cwd=str(_REPO_ROOT),
+            env=env,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="unit tests timed out after 60s")
     raw_output = result.stdout + result.stderr
     passed = result.returncode == 0
     lines = [l.strip() for l in raw_output.splitlines() if l.strip()]

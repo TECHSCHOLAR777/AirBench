@@ -404,8 +404,13 @@ class ModelRegistry:
         return tuple(target for target in self.targets if target.matches(request, pack_ref=pack_ref, hardware_profile_ref=hardware_profile_ref, now=now))
 
     @classmethod
-    def load_roster_file(cls, path: Path, *, signing_key: bytes, artifact_root: Path, now: datetime | None = None) -> "ModelRegistry":
-        """Load the repository's nested YAML roster without permitting remote I/O."""
+    def load_roster_file(cls, path: Path, *, signing_key: bytes, artifact_root: Path, now: datetime | None = None, verify_artifacts: bool = True) -> "ModelRegistry":
+        """Load the repository's nested YAML roster without permitting remote I/O.
+
+        ``verify_artifacts=False`` skips the on-disk artifact re-hash so
+        readiness preflights stay fast; full artifact verification remains a
+        mandatory part of Node startup, which always uses the default.
+        """
         if not isinstance(signing_key, bytes) or not signing_key:
             raise RegistryError("signing_key is required")
         if path.suffix.lower() not in {".yaml", ".yml"}:
@@ -444,7 +449,8 @@ class ModelRegistry:
         current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         if current >= expiry:
             raise RegistryError("stale model registry")
-        registry.verify_artifacts(artifact_root)
+        if verify_artifacts:
+            registry.verify_artifacts(artifact_root)
         return registry
 
 

@@ -29,8 +29,8 @@ describe("buildOperationalProjection", () => {
       verified: true,
       hardware,
       modelServing: { configured: true, status: "ready", endpoints: [
-        { target_id: "a", health: "healthy", readiness: "ready" },
-        { target_id: "b", health: "healthy", readiness: "ready" },
+        { target_id: "a", health: "healthy", readiness: "ready", reason: "" },
+        { target_id: "b", health: "healthy", readiness: "ready", reason: "" },
       ] },
       qualification: { configured: true, count: 2, targets: [
         { target_id: "a", status: "qualified", routing_tier: "efficient", measurement_pending: false, reason: null },

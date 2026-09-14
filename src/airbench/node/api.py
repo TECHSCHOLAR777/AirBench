@@ -10,6 +10,7 @@ configured backend adapter and records the decision and result.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import hashlib
 import json
@@ -22,6 +23,7 @@ from threading import RLock
 from typing import Any, Protocol
 
 from fastapi import FastAPI, Request
+from starlette.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 
@@ -73,6 +75,7 @@ MAX_MULTIPART_BODY_BYTES = MAX_QUERY_UPLOAD_BYTES + 64 * 1024
 MAX_EVENT_BATCH = 128
 MAX_EVIDENCE_ITEMS = 1_000
 MAX_ROUTE_ITEMS = 1_000
+BODY_READ_TIMEOUT_S = 120.0
 logger = logging.getLogger(__name__)
 TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 NODE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -90,6 +93,10 @@ class LedgerView(Protocol):
 
     @property
     def head_hash(self) -> str | None: ...
+
+    def __len__(self) -> int: ...
+
+    def find_by_idempotency(self, key: str) -> LedgerEventEnvelope | None: ...
 
 
 class NodeApiError(RuntimeError):
@@ -221,26 +228,27 @@ class NodeApiService:
         ).to_dict()
 
     def health(self) -> dict[str, Any]:
-        with self._lock:
-            try:
-                verify_chain = getattr(self._ledger, "verify_chain", None)
-                if callable(verify_chain):
-                    verify_chain()
-                events = self._ledger.events
-                return {
-                    "status": "ready",
-                    "node_identity": self.config.node_identity,
-                    "protocol_version": self.config.protocol_version,
-                    "clearance_context": self.config.clearance_context.value,
-                    "ledger": {
-                        "event_count": len(events),
-                        "head_hash": self._ledger.head_hash,
-                        "chain_verified": True,
-                    },
-                    "sovereignty_evidence_ref": self.config.sovereignty_evidence_ref,
-                }
-            except Exception as exc:
-                raise NodeApiError(503, "ledger_unavailable", "The local ledger could not be verified.") from exc
+        # Read-only ledger projection; never serialized behind the command
+        # lock so health probes stay responsive during long executions.
+        try:
+            verify_chain = getattr(self._ledger, "verify_chain", None)
+            if callable(verify_chain):
+                verify_chain()
+            events = self._ledger.events
+            return {
+                "status": "ready",
+                "node_identity": self.config.node_identity,
+                "protocol_version": self.config.protocol_version,
+                "clearance_context": self.config.clearance_context.value,
+                "ledger": {
+                    "event_count": len(events),
+                    "head_hash": self._ledger.head_hash,
+                    "chain_verified": True,
+                },
+                "sovereignty_evidence_ref": self.config.sovereignty_evidence_ref,
+            }
+        except Exception as exc:
+            raise NodeApiError(503, "ledger_unavailable", "The local ledger could not be verified.") from exc
 
     def query_upload(self, subject: str, *, task_id: str, file_name: str, content: bytes) -> dict[str, Any]:
         with self._lock:
@@ -256,20 +264,18 @@ class NodeApiService:
                 raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
 
     def safe_preview(self, preview_ref: str) -> dict[str, Any]:
-        with self._lock:
-            gateway = self._require_intake_gateway()
-            try:
-                return gateway.preview(preview_ref=preview_ref)
-            except NodeIntakeError as exc:
-                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+        gateway = self._require_intake_gateway()
+        try:
+            return gateway.preview(preview_ref=preview_ref)
+        except NodeIntakeError as exc:
+            raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
 
     def intake_status(self, intake_id: str) -> dict[str, Any]:
-        with self._lock:
-            gateway = self._require_intake_gateway()
-            try:
-                return gateway.status(intake_id=intake_id)
-            except NodeIntakeError as exc:
-                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+        gateway = self._require_intake_gateway()
+        try:
+            return gateway.status(intake_id=intake_id)
+        except NodeIntakeError as exc:
+            raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
 
     def pid_extract(self, subject: str, *, task_id: str, file_name: str, content: bytes) -> dict[str, Any]:
         from hashlib import sha256
@@ -338,7 +344,7 @@ class NodeApiService:
                 },
                 clearance=task.clearance,
                 idempotency=idempotency_key("pid.extracted", task_id, intake_id),
-                sequence=len(self._ledger.events), previous_event_hash=self._ledger.head_hash,
+                sequence=len(self._ledger), previous_event_hash=self._ledger.head_hash,
             )
             try:
                 self._ledger.append(event)
@@ -559,6 +565,8 @@ class NodeApiService:
             )
         except ConsistencyServiceError as exc:
             raise NodeApiError(409, exc.code, str(exc)) from exc
+        except (StorageFailure, LedgerError) as exc:
+            raise NodeApiError(503, "transition_not_committed", "The justification could not be committed to the ledger.") from exc
 
     def _require_consistency(self) -> Any:
         if self.consistency is None:
@@ -748,32 +756,30 @@ class NodeApiService:
             raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
 
     def artifact_preview(self, artifact_id: str) -> dict[str, Any]:
-        with self._lock:
-            if self.deliverable_gateway is not None:
-                try:
-                    return self.deliverable_gateway.artifact_preview(artifact_id=artifact_id)
-                except NodeIntakeError as exc:
-                    if exc.code not in {"deliverable_not_found", "invalid_reference"}:
-                        raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
-            gateway = self._require_intake_gateway()
+        if self.deliverable_gateway is not None:
             try:
-                return gateway.artifact_preview(artifact_id=artifact_id)
+                return self.deliverable_gateway.artifact_preview(artifact_id=artifact_id)
             except NodeIntakeError as exc:
-                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+                if exc.code not in {"deliverable_not_found", "invalid_reference"}:
+                    raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+        gateway = self._require_intake_gateway()
+        try:
+            return gateway.artifact_preview(artifact_id=artifact_id)
+        except NodeIntakeError as exc:
+            raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
 
     def artifact_download(self, artifact_id: str) -> NodeArtifactDownload:
-        with self._lock:
-            if self.deliverable_gateway is not None:
-                try:
-                    return self.deliverable_gateway.download(artifact_id=artifact_id)
-                except NodeIntakeError as exc:
-                    if exc.code not in {"deliverable_not_found", "invalid_reference"}:
-                        raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
-            gateway = self._require_intake_gateway()
+        if self.deliverable_gateway is not None:
             try:
-                return gateway.download(artifact_id=artifact_id)
+                return self.deliverable_gateway.download(artifact_id=artifact_id)
             except NodeIntakeError as exc:
-                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+                if exc.code not in {"deliverable_not_found", "invalid_reference"}:
+                    raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+        gateway = self._require_intake_gateway()
+        try:
+            return gateway.download(artifact_id=artifact_id)
+        except NodeIntakeError as exc:
+            raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
 
     def _require_intake_gateway(self) -> NodeIntakeGateway:
         if self.intake_gateway is None:
@@ -914,7 +920,8 @@ class NodeApiService:
                 except NodeTaskExecutionError as exc:
                     logger.exception("Node task execution failed", extra={"task_id": task_id})
                     if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
-                        self.orchestrator.transition(task_id, "task.failed", {"failure_code": "task_execution_prepare_failed"})
+                        self.orchestrator.transition(task_id, "task.failed", {
+                            "failure_code": getattr(exc, "failure_code", "task_execution_prepare_failed")})
                     raise NodeApiError(409, "task_execution_prepare_failed", "The Node could not prepare the admitted plan for execution.") from exc
             return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
 
@@ -929,6 +936,40 @@ class NodeApiService:
             review = self.plan(task_id)
             if review["plan_state"] != "ready":
                 raise NodeApiError(409, "plan_not_approvable", "The Node has not produced an approvable plan and hardware admission.")
+            # Phase 1 model-lane preflight: the approval must not be committed
+            # when no ready, qualified model lane can serve the worker step.
+            # The task stays plan-ready so the operator can retry once the
+            # remote containers and SSH tunnel are healthy.
+            if self.execution is not None:
+                from .task_execution import ModelLaneNotReady
+                try:
+                    self.execution.preflight(task_id)
+                except ModelLaneNotReady as exc:
+                    raise NodeApiError(
+                        503, "model_lane_not_ready",
+                        "The required model lane is not ready. Start the remote vLLM containers and open the SSH tunnel, "
+                        f"then retry the approval. Routing reason: {exc.reason}",
+                    ) from exc
+            # Autonomy preflight: the operator's approval is the named human
+            # authority the governor requires for work inherited from untrusted
+            # input.  It is recorded BEFORE the approval is committed, so a
+            # role gap is a typed authorization failure and the plan stays
+            # approvable once the operator holds the required role (roadmap
+            # Phase 3: commit approval only after preflight succeeds).
+            if self.execution is not None and self.autonomy is not None and hasattr(self.execution, "authorize"):
+                from .autonomy_gateway import AutonomyServiceError
+
+                required_role = getattr(self.pack, "required_human_authority", "human_reviewer") if self.pack else "human_reviewer"
+                if required_role not in self.config.authenticated_roles:
+                    raise NodeApiError(403, "human_authority_role_required", f"The authenticated operator is not assigned the pack-required {required_role} role.")
+                try:
+                    self.execution.authorize(subject, task_id, operator_roles=self.config.authenticated_roles)
+                except AutonomyServiceError as exc:
+                    raise NodeApiError(
+                        403, "autonomy_authority_insufficient",
+                        f"The operator does not hold the authority this task's execution action requires ({exc}). "
+                        "Restart the Node with the required operator role and retry the approval.",
+                    ) from exc
             approval_ref = _text(command.arguments, "approval_ref", 512)
             try:
                 result = self.orchestrator.approve_plan(
@@ -944,24 +985,29 @@ class NodeApiService:
                 raise NodeApiError(409, "transition_rejected", "The plan cannot be approved from its current task state.") from exc
             except (StorageFailure, LedgerError) as exc:
                 raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the plan approval.") from exc
-            if self.execution is not None:
-                from .task_execution import NodeTaskExecutionError
-                try:
-                    # The operator's approval is the named human authority the
-                    # autonomy governor requires before running work inherited
-                    # from untrusted input.
-                    if self.autonomy is not None and hasattr(self.execution, "authorize"):
-                        required_role = getattr(self.pack, "required_human_authority", "human_reviewer") if self.pack else "human_reviewer"
-                        if required_role not in self.config.authenticated_roles:
-                            raise NodeApiError(403, "human_authority_role_required", f"The authenticated operator is not assigned the pack-required {required_role} role.")
-                        self.execution.authorize(subject, task_id, operator_roles=self.config.authenticated_roles)
-                    self.execution.execute(task_id)
-                except NodeTaskExecutionError as exc:
-                    logger.exception("Node task execution failed", extra={"task_id": task_id})
-                    if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
-                        self.orchestrator.transition(task_id, "task.failed", {"failure_code": "task_execution_failed"})
-                    raise NodeApiError(503, "task_execution_failed", "The approved plan did not produce a verified draft.") from exc
-            return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
+        # The full team execution (model calls, verification, rendering) runs
+        # OUTSIDE the command lock: holding it here froze every other endpoint
+        # (including health/readiness) for the whole execution. The orchestrator
+        # ledger remains the authority for concurrent state transitions.
+        if self.execution is not None:
+            from .task_execution import NodeTaskExecutionError
+            try:
+                self.execution.execute(task_id)
+            except NodeTaskExecutionError as exc:
+                logger.exception("Node task execution failed", extra={"task_id": task_id})
+                if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
+                    self.orchestrator.transition(task_id, "task.failed", {
+                        "failure_code": getattr(exc, "failure_code", "task_execution_failed")})
+                raise NodeApiError(503, "task_execution_failed", "The approved plan did not produce a verified draft.") from exc
+            except Exception as exc:  # noqa: BLE001 - Phase 3: unexpected failures become typed terminal states
+                logger.exception("Node task execution hit an unexpected failure", extra={"task_id": task_id})
+                if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
+                    self.orchestrator.transition(task_id, "task.failed", {
+                        "failure_code": "task_execution_internal_error"})
+                raise NodeApiError(503, "task_execution_internal_error",
+                                   "The approved plan hit an unexpected internal failure. The task was moved to a "
+                                   "terminal failed state instead of leaving a partial commit.") from exc
+        return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
 
     def cancel(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -1124,30 +1170,34 @@ class NodeApiService:
 
             hardware_profile_ref = _text(arguments, "hardware_profile_ref", 512)
             router = self._require_model_router()
-            try:
-                execution = self.orchestrator.execute_model_call(
-                    request, router=router, pack_ref=task.domain_pack_ref,
-                    hardware_profile_ref=hardware_profile_ref,
-                    messages=messages, output=output, tools=tools, stream=False,
-                )
-            except PlanRejected as exc:
-                raise NodeApiError(409, "model_request_rejected", "The model request conflicts with the task authority.") from exc
-            except TransitionRejected as exc:
-                raise NodeApiError(409, "transition_rejected", "The task is not in a state that admits a model call.") from exc
-            except BackendCallError as exc:
-                raise NodeApiError(502, "model_backend_failed", "The selected model backend failed.") from exc
-            except StepTimeout as exc:
-                raise NodeApiError(504, "model_timeout", "The model call exceeded its timeout.") from exc
-            except RetryExhausted as exc:
-                raise NodeApiError(502, "model_retry_exhausted", "The model call failed after its retries were exhausted.") from exc
-            except CircuitOpen as exc:
-                raise NodeApiError(503, "model_circuit_open", "The model dependency circuit is open.") from exc
-            except (StorageFailure, LedgerError) as exc:
-                raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the model call.") from exc
+        # The model HTTP call runs OUTSIDE the command lock so a slow backend
+        # cannot freeze every other endpoint for the adapter timeout duration.
+        # Concurrent duplicate commands are rejected by the orchestrator's
+        # ledger state machine (TransitionRejected / IdempotencyConflict).
+        try:
+            execution = self.orchestrator.execute_model_call(
+                request, router=router, pack_ref=task.domain_pack_ref,
+                hardware_profile_ref=hardware_profile_ref,
+                messages=messages, output=output, tools=tools, stream=False,
+            )
+        except PlanRejected as exc:
+            raise NodeApiError(409, "model_request_rejected", "The model request conflicts with the task authority.") from exc
+        except TransitionRejected as exc:
+            raise NodeApiError(409, "transition_rejected", "The task is not in a state that admits a model call.") from exc
+        except BackendCallError as exc:
+            raise NodeApiError(502, "model_backend_failed", "The selected model backend failed.") from exc
+        except StepTimeout as exc:
+            raise NodeApiError(504, "model_timeout", "The model call exceeded its timeout.") from exc
+        except RetryExhausted as exc:
+            raise NodeApiError(502, "model_retry_exhausted", "The model call failed after its retries were exhausted.") from exc
+        except CircuitOpen as exc:
+            raise NodeApiError(503, "model_circuit_open", "The model dependency circuit is open.") from exc
+        except (StorageFailure, LedgerError) as exc:
+            raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the model call.") from exc
 
-            if execution.response is None or execution.step is None or isinstance(execution.response, tuple):
-                raise NodeApiError(503, "model_not_admitted", execution.route.decision.reason or "No qualified model target was admitted.")
-            return self._model_call_result(command, task_id, execution)
+        if execution.response is None or execution.step is None or isinstance(execution.response, tuple):
+            raise NodeApiError(503, "model_not_admitted", execution.route.decision.reason or "No qualified model target was admitted.")
+        return self._model_call_result(command, task_id, execution)
 
     def _replay_model_call(self, command: NodeCommandEnvelope, task_id: str, request_id: str) -> dict[str, Any] | None:
         event = next(
@@ -1251,242 +1301,237 @@ class NodeApiService:
         raise NodeApiError(503, "event_unreadable", "The committed command sequence could not be read back.")
 
     def snapshot(self, task_id: str) -> dict[str, Any]:
-        with self._lock:
-            task = self._visible_task(task_id)
-            events = self._stream_events(task)
-            state = self.orchestrator.state(task.task_id)
-            evidence, facts = self._evidence_and_facts(events)
-            artifact_refs = sorted({
-                str(event.payload.get("artifact_id"))
-                for event in events
-                if event.event_type in {"artifact.staged", "artifact.checked"}
-                and isinstance(event.payload.get("artifact_id"), str)
+        task = self._visible_task(task_id)
+        events = self._stream_events(task)
+        state = self.orchestrator.state(task.task_id)
+        evidence, facts = self._evidence_and_facts(events)
+        artifact_refs = sorted({
+            str(event.payload.get("artifact_id"))
+            for event in events
+            if event.event_type in {"artifact.staged", "artifact.checked"}
+            and isinstance(event.payload.get("artifact_id"), str)
+        })
+        unresolved = sorted({
+            question
+            for event in events
+            for question in _string_list(event.payload.get("unresolved_questions"))
+        })
+        latest_ref = self._ledger.head_hash or (events[-1].event_id if events else "")
+        try:
+            snapshot = NodeTaskSnapshot.from_wire_dict({
+                "taskId": task.task_id,
+                "snapshotId": stable_id("node-snapshot", task.task_id, len(events), latest_ref),
+                "asOfSequence": len(events),
+                "title": _title(task.request),
+                "requestSummary": _bounded_text(task.request, 2_000),
+                "status": _status_for_state(state),
+                "phase": _phase_for_state(state),
+                "clearanceContext": self.config.clearance_context.value,
+                "inputManifestRef": _input_manifest_ref(events),
+                "evidence": evidence,
+                "facts": facts,
+                "artifactRefs": artifact_refs,
+                "unresolvedQuestions": unresolved,
+                "nodeConnectionRef": self.config.node_identity,
+                "ledgerHeadRef": latest_ref,
             })
-            unresolved = sorted({
-                question
-                for event in events
-                for question in _string_list(event.payload.get("unresolved_questions"))
-            })
-            latest_ref = self._ledger.head_hash or (events[-1].event_id if events else "")
-            try:
-                snapshot = NodeTaskSnapshot.from_wire_dict({
-                    "taskId": task.task_id,
-                    "snapshotId": stable_id("node-snapshot", task.task_id, len(events), latest_ref),
-                    "asOfSequence": len(events),
-                    "title": _title(task.request),
-                    "requestSummary": _bounded_text(task.request, 2_000),
-                    "status": _status_for_state(state),
-                    "phase": _phase_for_state(state),
-                    "clearanceContext": self.config.clearance_context.value,
-                    "inputManifestRef": _input_manifest_ref(events),
-                    "evidence": evidence,
-                    "facts": facts,
-                    "artifactRefs": artifact_refs,
-                    "unresolvedQuestions": unresolved,
-                    "nodeConnectionRef": self.config.node_identity,
-                    "ledgerHeadRef": latest_ref,
-                })
-            except ContractValidationError as exc:
-                raise NodeApiError(503, "snapshot_contract_corrupt", "The task snapshot could not be verified.") from exc
-            return snapshot.to_wire_dict()
+        except ContractValidationError as exc:
+            raise NodeApiError(503, "snapshot_contract_corrupt", "The task snapshot could not be verified.") from exc
+        return snapshot.to_wire_dict()
 
     def plan(self, task_id: str) -> dict[str, Any]:
-        with self._lock:
-            task = self._visible_task(task_id)
-            events = self._stream_events(task)
-            plan_event = next((event for event in reversed(events) if event.event_type == "task.plan.committed"), None)
-            resource_event = next((event for event in reversed(events) if event.event_type in {
-                "team.resource_plan.admitted", "team.resource_plan.queued", "team.resource_plan.degraded_needs_review", "team.resource_plan.rejected"
-            }), None)
-            authority = "operator_approval" if task.autonomy_ceiling == "review_required" else "policy_permitted"
-            authority_reason = (
-                "An authorized operator must approve this plan before execution."
-                if authority == "operator_approval" else
-                "The current autonomy policy permits execution after the Node plan is admitted."
-            )
-            if plan_event is None:
-                return TaskPlanReview(
-                    task_id=task.task_id,
-                    node_identity=self.config.node_identity,
-                    protocol_version=self.config.protocol_version,
-                    clearance_context=self.config.clearance_context,
-                    plan_state="not_ready",
-                    task_sequence=len(events),
-                    team_id=None,
-                    assignments=(),
-                    dependency_graph={},
-                    concurrency_ceiling=0,
-                    execution_mode="not_selected",
-                    worker_capabilities={},
-                    hardware_profile_ref=None,
-                    hardware_reason="The Node has accepted the task but has not committed a plan yet.",
-                    required_verification=True,
-                    completion_criteria=task.verification_criteria,
-                    required_authority=authority,
-                    authority_reason=authority_reason,
-                    plan_version_hash=None,
-                    policy_version_hash=None,
-                    ledger_event_ref=None,
-                    failure_code="plan_not_ready",
-                    failure_reason="The orchestration engine has not committed a validated plan.",
-                ).to_dict()
-
-            raw_plan = plan_event.payload.get("plan")
-            try:
-                plan = TeamPlan.from_dict(raw_plan) if isinstance(raw_plan, dict) else None
-            except ContractValidationError as exc:
-                raise NodeApiError(503, "plan_contract_corrupt", "The committed plan could not be verified.") from exc
-            if plan is None:
-                raise NodeApiError(503, "plan_contract_corrupt", "The committed plan does not contain its typed contract.")
-
-            resource = _resource_plan_values(resource_event.payload if resource_event else None)
-            admission = resource.get("admission")
-            mode = resource.get("execution_mode")
-            failure_code: str | None = None
-            failure_reason: str | None = None
-            if resource_event is None:
-                plan_state = "needs_review"
-                mode = "not_selected"
-                hardware_reason = "Hardware admission evidence is missing, so execution mode cannot be shown safely."
-                failure_code = "hardware_admission_missing"
-                failure_reason = hardware_reason
-            elif admission in {"rejected", "stopped"}:
-                plan_state = "rejected"
-                hardware_reason = resource.get("reason") or "The hardware admission policy rejected this plan."
-                failure_code = "hardware_admission_rejected"
-                failure_reason = hardware_reason
-            elif admission == "queued":
-                plan_state = "queued"
-                hardware_reason = resource.get("reason") or "The plan is waiting for an available hardware reservation."
-            elif admission == "degraded_needs_review":
-                plan_state = "needs_review"
-                hardware_reason = resource.get("reason") or "The Node admitted a degraded execution mode that requires review."
-                failure_code = "degraded_hardware_mode"
-                failure_reason = hardware_reason
-            elif admission == "admitted" and mode in {"parallel", "pipelined", "serial_virtual_team"}:
-                plan_state = "ready"
-                hardware_reason = resource.get("reason") or "Hardware admission was committed by the Node."
-            else:
-                plan_state = "needs_review"
-                mode = "not_selected"
-                hardware_reason = "The hardware admission record is incomplete, so execution cannot be approved safely."
-                failure_code = "hardware_admission_invalid"
-                failure_reason = hardware_reason
-
+        task = self._visible_task(task_id)
+        events = self._stream_events(task)
+        plan_event = next((event for event in reversed(events) if event.event_type == "task.plan.committed"), None)
+        resource_event = next((event for event in reversed(events) if event.event_type in {
+            "team.resource_plan.admitted", "team.resource_plan.queued", "team.resource_plan.degraded_needs_review", "team.resource_plan.rejected"
+        }), None)
+        authority = "operator_approval" if task.autonomy_ceiling == "review_required" else "policy_permitted"
+        authority_reason = (
+            "An authorized operator must approve this plan before execution."
+            if authority == "operator_approval" else
+            "The current autonomy policy permits execution after the Node plan is admitted."
+        )
+        if plan_event is None:
             return TaskPlanReview(
                 task_id=task.task_id,
                 node_identity=self.config.node_identity,
                 protocol_version=self.config.protocol_version,
                 clearance_context=self.config.clearance_context,
-                plan_state=plan_state,
+                plan_state="not_ready",
                 task_sequence=len(events),
-                team_id=plan.team_id,
-                assignments=plan.assignments,
-                dependency_graph=plan.dependency_graph,
-                concurrency_ceiling=resource.get("concurrency_ceiling", plan.concurrency_ceiling),
-                execution_mode=mode,
-                worker_capabilities=resource.get("worker_capabilities", {}),
-                hardware_profile_ref=resource.get("hardware_profile_ref"),
-                hardware_reason=hardware_reason,
-                required_verification=plan.required_verification,
-                completion_criteria=plan.completion_criteria,
+                team_id=None,
+                assignments=(),
+                dependency_graph={},
+                concurrency_ceiling=0,
+                execution_mode="not_selected",
+                worker_capabilities={},
+                hardware_profile_ref=None,
+                hardware_reason="The Node has accepted the task but has not committed a plan yet.",
+                required_verification=True,
+                completion_criteria=task.verification_criteria,
                 required_authority=authority,
                 authority_reason=authority_reason,
-                plan_version_hash=plan.plan_version_hash,
-                policy_version_hash=plan.policy_version_hash,
-                ledger_event_ref=plan_event.event_id,
-                failure_code=failure_code,
-                failure_reason=failure_reason,
+                plan_version_hash=None,
+                policy_version_hash=None,
+                ledger_event_ref=None,
+                failure_code="plan_not_ready",
+                failure_reason="The orchestration engine has not committed a validated plan.",
             ).to_dict()
+
+        raw_plan = plan_event.payload.get("plan")
+        try:
+            plan = TeamPlan.from_dict(raw_plan) if isinstance(raw_plan, dict) else None
+        except ContractValidationError as exc:
+            raise NodeApiError(503, "plan_contract_corrupt", "The committed plan could not be verified.") from exc
+        if plan is None:
+            raise NodeApiError(503, "plan_contract_corrupt", "The committed plan does not contain its typed contract.")
+
+        resource = _resource_plan_values(resource_event.payload if resource_event else None)
+        admission = resource.get("admission")
+        mode = resource.get("execution_mode")
+        failure_code: str | None = None
+        failure_reason: str | None = None
+        if resource_event is None:
+            plan_state = "needs_review"
+            mode = "not_selected"
+            hardware_reason = "Hardware admission evidence is missing, so execution mode cannot be shown safely."
+            failure_code = "hardware_admission_missing"
+            failure_reason = hardware_reason
+        elif admission in {"rejected", "stopped"}:
+            plan_state = "rejected"
+            hardware_reason = resource.get("reason") or "The hardware admission policy rejected this plan."
+            failure_code = "hardware_admission_rejected"
+            failure_reason = hardware_reason
+        elif admission == "queued":
+            plan_state = "queued"
+            hardware_reason = resource.get("reason") or "The plan is waiting for an available hardware reservation."
+        elif admission == "degraded_needs_review":
+            plan_state = "needs_review"
+            hardware_reason = resource.get("reason") or "The Node admitted a degraded execution mode that requires review."
+            failure_code = "degraded_hardware_mode"
+            failure_reason = hardware_reason
+        elif admission == "admitted" and mode in {"parallel", "pipelined", "serial_virtual_team"}:
+            plan_state = "ready"
+            hardware_reason = resource.get("reason") or "Hardware admission was committed by the Node."
+        else:
+            plan_state = "needs_review"
+            mode = "not_selected"
+            hardware_reason = "The hardware admission record is incomplete, so execution cannot be approved safely."
+            failure_code = "hardware_admission_invalid"
+            failure_reason = hardware_reason
+
+        return TaskPlanReview(
+            task_id=task.task_id,
+            node_identity=self.config.node_identity,
+            protocol_version=self.config.protocol_version,
+            clearance_context=self.config.clearance_context,
+            plan_state=plan_state,
+            task_sequence=len(events),
+            team_id=plan.team_id,
+            assignments=plan.assignments,
+            dependency_graph=plan.dependency_graph,
+            concurrency_ceiling=resource.get("concurrency_ceiling", plan.concurrency_ceiling),
+            execution_mode=mode,
+            worker_capabilities=resource.get("worker_capabilities", {}),
+            hardware_profile_ref=resource.get("hardware_profile_ref"),
+            hardware_reason=hardware_reason,
+            required_verification=plan.required_verification,
+            completion_criteria=plan.completion_criteria,
+            required_authority=authority,
+            authority_reason=authority_reason,
+            plan_version_hash=plan.plan_version_hash,
+            policy_version_hash=plan.policy_version_hash,
+            ledger_event_ref=plan_event.event_id,
+            failure_code=failure_code,
+            failure_reason=failure_reason,
+        ).to_dict()
 
     def event_batch(self, task_id: str, after_sequence: int) -> dict[str, Any]:
         if after_sequence < 0:
             raise NodeApiError(400, "cursor_invalid", "The event cursor must be non-negative.")
-        with self._lock:
-            task = self._visible_task(task_id)
-            events = self._stream_events(task)
-            total = len(events)
-            if after_sequence > total:
-                raise NodeApiError(409, "cursor_ahead", "The event cursor is ahead of the task stream.")
-            selected = events[after_sequence:after_sequence + MAX_EVENT_BATCH]
-            try:
-                event_models = [self._event_model(event, task, after_sequence + index + 1) for index, event in enumerate(selected)]
-            except ContractValidationError as exc:
-                raise NodeApiError(503, "event_contract_corrupt", "The task event stream could not be verified.") from exc
-            next_sequence = after_sequence + len(selected)
-            try:
-                batch = NodeTaskEventBatch.from_dict({
-                    "stream_id": task.task_id,
-                    "node_identity": self.config.node_identity,
-                    "protocol_version": self.config.protocol_version,
-                    "clearance_context": self.config.clearance_context,
-                    "events": tuple(event_models),
-                    "next_sequence": next_sequence,
-                    "has_more": next_sequence < total,
-                    "ledger_event_refs": tuple(event.ledger_event_ref for event in event_models),
-                })
-            except ContractValidationError as exc:
-                raise NodeApiError(503, "event_batch_contract_corrupt", "The task event batch could not be verified.") from exc
-            return batch.to_dict()
+        task = self._visible_task(task_id)
+        events = self._stream_events(task)
+        total = len(events)
+        if after_sequence > total:
+            raise NodeApiError(409, "cursor_ahead", "The event cursor is ahead of the task stream.")
+        selected = events[after_sequence:after_sequence + MAX_EVENT_BATCH]
+        try:
+            event_models = [self._event_model(event, task, after_sequence + index + 1) for index, event in enumerate(selected)]
+        except ContractValidationError as exc:
+            raise NodeApiError(503, "event_contract_corrupt", "The task event stream could not be verified.") from exc
+        next_sequence = after_sequence + len(selected)
+        try:
+            batch = NodeTaskEventBatch.from_dict({
+                "stream_id": task.task_id,
+                "node_identity": self.config.node_identity,
+                "protocol_version": self.config.protocol_version,
+                "clearance_context": self.config.clearance_context,
+                "events": tuple(event_models),
+                "next_sequence": next_sequence,
+                "has_more": next_sequence < total,
+                "ledger_event_refs": tuple(event.ledger_event_ref for event in event_models),
+            })
+        except ContractValidationError as exc:
+            raise NodeApiError(503, "event_batch_contract_corrupt", "The task event batch could not be verified.") from exc
+        return batch.to_dict()
 
     def evidence(self, task_id: str) -> dict[str, Any]:
-        with self._lock:
-            task = self._visible_task(task_id)
-            evidence, facts = self._evidence_and_facts(self._stream_events(task))
-            return {
-                "taskId": task.task_id,
-                "schemaVersion": self.config.protocol_version,
-                "clearanceContext": self.config.clearance_context.value,
-                "evidence": evidence,
-                "facts": facts,
-            }
+        task = self._visible_task(task_id)
+        evidence, facts = self._evidence_and_facts(self._stream_events(task))
+        return {
+            "taskId": task.task_id,
+            "schemaVersion": self.config.protocol_version,
+            "clearanceContext": self.config.clearance_context.value,
+            "evidence": evidence,
+            "facts": facts,
+        }
 
     def route_trace(self, task_id: str) -> dict[str, Any]:
-        with self._lock:
-            task = self._visible_task(task_id)
-            entries: list[dict[str, Any]] = []
-            for sequence, event in enumerate(self._stream_events(task), start=1):
-                if event.event_type not in _ROUTE_EVENT_TYPES:
-                    continue
-                payload = event.payload
-                entry: dict[str, Any] = {
-                    "sequence": sequence,
-                    "eventType": event.event_type,
-                    "occurredAt": event.occurred_at,
-                    "actor": event.actor_id,
-                    "clearanceContext": self.config.clearance_context.value,
-                    "ledgerEventRef": event.event_id,
-                    "payloadHash": event.payload_hash,
-                }
-                for key in ("request_id", "worker_id", "role", "task_kind", "required_capability", "selected_target", "decision_source", "rule_or_threshold", "qualification_certificate", "fallback_target", "reason", "status"):
-                    source = payload
-                    if key not in source and isinstance(payload.get("decision"), dict):
-                        source = payload["decision"]
-                    if key in source:
-                        entry[key] = _safe_value(source[key])
-                decision = payload.get("decision") if isinstance(payload.get("decision"), dict) else {}
-                selected_target = entry.get("selected_target") or _safe_value(payload.get("target_id")) or _safe_value(decision.get("target_id"))
-                if selected_target:
-                    entry["selected_target"] = selected_target
-                    model_name = self._model_display_name(selected_target)
-                    if model_name:
-                        entry["selected_model_name"] = model_name
-                if "eligible_targets" in payload:
-                    entry["eligible_targets"] = _string_list(payload["eligible_targets"])[:100]
-                entries.append(entry)
-                if len(entries) >= MAX_ROUTE_ITEMS:
-                    break
-            try:
-                trace = NodeRouteTrace.from_wire_dict({
-                    "taskId": task.task_id,
-                    "nodeIdentity": self.config.node_identity,
-                    "protocolVersion": self.config.protocol_version,
-                    "clearanceContext": self.config.clearance_context.value,
-                    "entries": entries,
-                })
-            except ContractValidationError as exc:
-                raise NodeApiError(503, "route_trace_contract_corrupt", "The routing trace could not be verified.") from exc
-            return trace.to_wire_dict()
+        task = self._visible_task(task_id)
+        entries: list[dict[str, Any]] = []
+        for sequence, event in enumerate(self._stream_events(task), start=1):
+            if event.event_type not in _ROUTE_EVENT_TYPES:
+                continue
+            payload = event.payload
+            entry: dict[str, Any] = {
+                "sequence": sequence,
+                "eventType": event.event_type,
+                "occurredAt": event.occurred_at,
+                "actor": event.actor_id,
+                "clearanceContext": self.config.clearance_context.value,
+                "ledgerEventRef": event.event_id,
+                "payloadHash": event.payload_hash,
+            }
+            for key in ("request_id", "worker_id", "role", "task_kind", "required_capability", "selected_target", "decision_source", "rule_or_threshold", "qualification_certificate", "fallback_target", "reason", "status"):
+                source = payload
+                if key not in source and isinstance(payload.get("decision"), dict):
+                    source = payload["decision"]
+                if key in source:
+                    entry[key] = _safe_value(source[key])
+            decision = payload.get("decision") if isinstance(payload.get("decision"), dict) else {}
+            selected_target = entry.get("selected_target") or _safe_value(payload.get("target_id")) or _safe_value(decision.get("target_id"))
+            if selected_target:
+                entry["selected_target"] = selected_target
+                model_name = self._model_display_name(selected_target)
+                if model_name:
+                    entry["selected_model_name"] = model_name
+            if "eligible_targets" in payload:
+                entry["eligible_targets"] = _string_list(payload["eligible_targets"])[:100]
+            entries.append(entry)
+            if len(entries) >= MAX_ROUTE_ITEMS:
+                break
+        try:
+            trace = NodeRouteTrace.from_wire_dict({
+                "taskId": task.task_id,
+                "nodeIdentity": self.config.node_identity,
+                "protocolVersion": self.config.protocol_version,
+                "clearanceContext": self.config.clearance_context.value,
+                "entries": entries,
+            })
+        except ContractValidationError as exc:
+            raise NodeApiError(503, "route_trace_contract_corrupt", "The routing trace could not be verified.") from exc
+        return trace.to_wire_dict()
 
     def _model_display_name(self, target_id: str) -> str | None:
         router = self.model_router
@@ -1497,41 +1542,39 @@ class NodeApiService:
         return name.strip() or None
 
     def review(self, task_id: str) -> dict[str, Any]:
-        with self._lock:
-            task = self._visible_task(task_id)
-            required = None
-            signoff = None
-            for event in self._stream_events(task):
-                if event.event_type == "human.review.required":
-                    required = event
-                elif event.event_type == "human.signoff":
-                    signoff = event
-            if signoff is not None:
-                state = "recorded"
-                event = signoff
-            elif required is not None:
-                state = "pending"
-                event = required
-            else:
-                state = "not_required"
-                event = None
-            return {
-                "taskId": task.task_id,
-                "schemaVersion": self.config.protocol_version,
-                "state": state,
-                "reason": _bounded_text((event.payload.get("reason") if event else "") or "", 4_096),
-                "ledgerEventRef": event.event_id if event else None,
-                "clearanceContext": self.config.clearance_context.value,
-            }
+        task = self._visible_task(task_id)
+        required = None
+        signoff = None
+        for event in self._stream_events(task):
+            if event.event_type == "human.review.required":
+                required = event
+            elif event.event_type == "human.signoff":
+                signoff = event
+        if signoff is not None:
+            state = "recorded"
+            event = signoff
+        elif required is not None:
+            state = "pending"
+            event = required
+        else:
+            state = "not_required"
+            event = None
+        return {
+            "taskId": task.task_id,
+            "schemaVersion": self.config.protocol_version,
+            "state": state,
+            "reason": _bounded_text((event.payload.get("reason") if event else "") or "", 4_096),
+            "ledgerEventRef": event.event_id if event else None,
+            "clearanceContext": self.config.clearance_context.value,
+        }
 
     def artifact_review(self, task_id: str) -> dict[str, Any]:
-        with self._lock:
-            if self.deliverable_gateway is None:
-                raise NodeApiError(503, "deliverable_unavailable", "The local Deliverable Engine is not configured.")
-            try:
-                return self.deliverable_gateway.artifact_review(task_id=task_id)
-            except NodeIntakeError as exc:
-                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+        if self.deliverable_gateway is None:
+            raise NodeApiError(503, "deliverable_unavailable", "The local Deliverable Engine is not configured.")
+        try:
+            return self.deliverable_gateway.artifact_review(task_id=task_id)
+        except NodeIntakeError as exc:
+            raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
 
     def _visible_task(self, task_id: str) -> TaskEnvelope:
         _validate_task_id(task_id)
@@ -1724,6 +1767,7 @@ def create_app(service: NodeApiService) -> FastAPI:
     """Build an API app with documentation endpoints disabled by default."""
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app.state.service = service
 
     @app.exception_handler(NodeApiError)
     async def node_error_handler(_: Request, error: NodeApiError) -> JSONResponse:
@@ -1752,10 +1796,17 @@ def create_app(service: NodeApiService) -> FastAPI:
             except ValueError as exc:
                 raise NodeApiError(400, "content_length_invalid", "The request content length is invalid.") from exc
         data = bytearray()
-        async for chunk in request.stream():
-            data.extend(chunk)
-            if len(data) > MAX_JSON_BODY_BYTES:
-                raise NodeApiError(413, "body_too_large", "The request body exceeds the local limit.")
+
+        async def read_all() -> None:
+            async for chunk in request.stream():
+                data.extend(chunk)
+                if len(data) > MAX_JSON_BODY_BYTES:
+                    raise NodeApiError(413, "body_too_large", "The request body exceeds the local limit.")
+
+        try:
+            await asyncio.wait_for(read_all(), timeout=BODY_READ_TIMEOUT_S)
+        except asyncio.TimeoutError as exc:
+            raise NodeApiError(408, "body_read_timeout", "The request body was not received in time.") from exc
         try:
             value = json.loads(bytes(data))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -1777,10 +1828,17 @@ def create_app(service: NodeApiService) -> FastAPI:
             except ValueError as exc:
                 raise NodeApiError(400, "content_length_invalid", "The upload content length is invalid.") from exc
         data = bytearray()
-        async for chunk in request.stream():
-            data.extend(chunk)
-            if len(data) > MAX_MULTIPART_BODY_BYTES:
-                raise NodeApiError(413, "upload_too_large", "The upload exceeds the local query-upload limit.")
+
+        async def read_all() -> None:
+            async for chunk in request.stream():
+                data.extend(chunk)
+                if len(data) > MAX_MULTIPART_BODY_BYTES:
+                    raise NodeApiError(413, "upload_too_large", "The upload exceeds the local query-upload limit.")
+
+        try:
+            await asyncio.wait_for(read_all(), timeout=BODY_READ_TIMEOUT_S)
+        except asyncio.TimeoutError as exc:
+            raise NodeApiError(408, "body_read_timeout", "The upload was not received in time.") from exc
         try:
             raw_message = (
                 b"Content-Type: " + content_type.encode("utf-8")
@@ -1838,109 +1896,117 @@ def create_app(service: NodeApiService) -> FastAPI:
     @app.get("/api/v1/node/handshake")
     async def handshake(request: Request) -> dict[str, Any]:
         auth(request)
-        return service.handshake()
+        return await run_in_threadpool(service.handshake)
 
     @app.get("/api/v1/health")
     async def health(request: Request) -> dict[str, Any]:
         auth(request)
-        return service.health()
+        return await run_in_threadpool(service.health)
 
     @app.post("/api/v1/intake/query-upload", status_code=200)
     async def query_upload(request: Request) -> dict[str, Any]:
         subject = auth(request)
         task_id, file_name, content = await multipart_document(request)
-        return service.query_upload(subject, task_id=task_id, file_name=file_name, content=content)
+        return await run_in_threadpool(service.query_upload, subject, task_id=task_id, file_name=file_name, content=content)
 
     @app.post("/api/v1/intake/pid", status_code=200)
     async def pid_extract(request: Request) -> dict[str, Any]:
         subject = auth(request)
         task_id, file_name, content = await multipart_document(request)
-        return service.pid_extract(subject, task_id=task_id, file_name=file_name, content=content)
+        return await run_in_threadpool(service.pid_extract, subject, task_id=task_id, file_name=file_name, content=content)
 
     @app.get("/api/v1/intake/{preview_ref}/preview")
     async def safe_intake_preview(preview_ref: str, request: Request) -> dict[str, Any]:
         auth(request)
-        return service.safe_preview(preview_ref)
+        return await run_in_threadpool(service.safe_preview, preview_ref)
 
     @app.get("/api/v1/intake/status/{intake_id}")
     async def intake_status(intake_id: str, request: Request) -> dict[str, Any]:
         auth(request)
-        return service.intake_status(intake_id)
+        return await run_in_threadpool(service.intake_status, intake_id)
 
     @app.get("/api/v1/knowledge/status")
     async def knowledge_status(request: Request) -> dict[str, Any]:
         auth(request)
-        return service.knowledge_status()
+        return await run_in_threadpool(service.knowledge_status)
 
     @app.post("/api/v1/knowledge/search", status_code=200)
     async def knowledge_search(request: Request) -> dict[str, Any]:
         auth(request)
-        return service.knowledge_search(await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.knowledge_search, body)
 
     @app.post("/api/v1/knowledge/ingest", status_code=202)
     async def knowledge_ingest(request: Request) -> dict[str, Any]:
         auth(request)
-        return service.knowledge_ingest(await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.knowledge_ingest, body)
 
     @app.get("/api/v1/knowledge/graph/stats")
     async def graph_stats(request: Request) -> dict[str, Any]:
         auth(request)
-        return service.graph_status()
+        return await run_in_threadpool(service.graph_status)
 
     @app.post("/api/v1/knowledge/graph/query", status_code=200)
     async def graph_query(request: Request) -> dict[str, Any]:
         auth(request)
-        return service.graph_query(await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.graph_query, body)
 
     @app.get("/api/v1/knowledge/graph/review-queue")
     async def graph_review_queue(request: Request) -> dict[str, Any]:
         auth(request)
-        return service.graph_review_queue()
+        return await run_in_threadpool(service.graph_review_queue)
 
     @app.post("/api/v1/knowledge/graph/review/resolve", status_code=200)
     async def graph_resolve_review(request: Request) -> dict[str, Any]:
         auth(request)
-        return service.graph_resolve_review(await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.graph_resolve_review, body)
 
     @app.get("/api/v1/tasks/{task_id}/consistency")
     async def consistency_report(task_id: str, request: Request) -> dict[str, Any]:
         auth(request)
-        return service.consistency_report(task_id)
+        return await run_in_threadpool(service.consistency_report, task_id)
 
     @app.post("/api/v1/tasks/{task_id}/consistency/evaluate", status_code=200)
     async def consistency_evaluate(task_id: str, request: Request) -> dict[str, Any]:
         auth(request)
-        return service.consistency_evaluate(task_id, await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.consistency_evaluate, task_id, body)
 
     @app.post("/api/v1/tasks/{task_id}/consistency/justify", status_code=200)
     async def consistency_justify(task_id: str, request: Request) -> dict[str, Any]:
         subject = auth(request)
-        return service.consistency_justify(subject, task_id, await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.consistency_justify, subject, task_id, body)
 
     @app.get("/api/v1/tasks/{task_id}/autonomy")
     async def autonomy_records(task_id: str, request: Request) -> dict[str, Any]:
         auth(request)
-        return service.autonomy_records(task_id)
+        return await run_in_threadpool(service.autonomy_records, task_id)
 
     @app.post("/api/v1/tasks/{task_id}/autonomy/score", status_code=200)
     async def autonomy_score(task_id: str, request: Request) -> dict[str, Any]:
         auth(request)
-        return service.autonomy_score(task_id, await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.autonomy_score, task_id, body)
 
     @app.post("/api/v1/tasks/{task_id}/autonomy/authorize", status_code=200)
     async def autonomy_authorize(task_id: str, request: Request) -> dict[str, Any]:
         subject = auth(request)
-        return service.autonomy_authorize(subject, task_id, await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.autonomy_authorize, subject, task_id, body)
 
     @app.get("/api/v1/artifacts/{artifact_id}/preview")
     async def artifact_preview(artifact_id: str, request: Request) -> dict[str, Any]:
         auth(request)
-        return service.artifact_preview(artifact_id)
+        return await run_in_threadpool(service.artifact_preview, artifact_id)
 
     @app.get("/api/v1/artifacts/{artifact_id}/download")
     async def artifact_download(artifact_id: str, request: Request) -> Response:
         auth(request)
-        result = service.artifact_download(artifact_id)
+        result = await run_in_threadpool(service.artifact_download, artifact_id)
         return Response(
             content=result.content,
             media_type=result.media_type,
@@ -1953,77 +2019,85 @@ def create_app(service: NodeApiService) -> FastAPI:
     @app.post("/api/v1/tasks", status_code=201)
     async def create_task(request: Request) -> dict[str, Any]:
         subject = auth(request)
-        return service.create_task(subject, await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.create_task, subject, body)
 
     @app.get("/api/v1/tasks/{task_id}")
     async def task_snapshot(task_id: str, request: Request) -> dict[str, Any]:
         auth(request)
-        return service.snapshot(task_id)
+        return await run_in_threadpool(service.snapshot, task_id)
 
     @app.get("/api/v1/tasks/{task_id}/plan")
     async def task_plan(task_id: str, request: Request) -> dict[str, Any]:
         auth(request)
-        return service.plan(task_id)
+        return await run_in_threadpool(service.plan, task_id)
 
     @app.get("/api/v1/tasks/{task_id}/events")
     async def task_events(task_id: str, request: Request, after_sequence: int = 0) -> dict[str, Any]:
         auth(request)
-        return service.event_batch(task_id, after_sequence)
+        return await run_in_threadpool(service.event_batch, task_id, after_sequence)
 
     @app.get("/api/v1/tasks/{task_id}/evidence")
     async def task_evidence(task_id: str, request: Request) -> dict[str, Any]:
         auth(request)
-        return service.evidence(task_id)
+        return await run_in_threadpool(service.evidence, task_id)
 
     @app.get("/api/v1/tasks/{task_id}/route-trace")
     async def task_route_trace(task_id: str, request: Request) -> dict[str, Any]:
         auth(request)
-        return service.route_trace(task_id)
+        return await run_in_threadpool(service.route_trace, task_id)
 
     @app.get("/api/v1/tasks/{task_id}/review")
     async def task_review(task_id: str, request: Request) -> dict[str, Any]:
         auth(request)
-        return service.review(task_id)
+        return await run_in_threadpool(service.review, task_id)
 
     @app.get("/api/v1/tasks/{task_id}/artifact-review")
     async def task_artifact_review(task_id: str, request: Request) -> dict[str, Any]:
         auth(request)
-        return service.artifact_review(task_id)
+        return await run_in_threadpool(service.artifact_review, task_id)
 
     @app.post("/api/v1/tasks/{task_id}/authorize", status_code=202)
     async def authorize_task(task_id: str, request: Request) -> dict[str, Any]:
         subject = auth(request)
-        return service.authorize(subject, task_id, await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.authorize, subject, task_id, body)
 
     @app.post("/api/v1/tasks/{task_id}/approve", status_code=202)
     async def approve_task_plan(task_id: str, request: Request) -> dict[str, Any]:
         subject = auth(request)
-        return service.approve_plan(subject, task_id, await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.approve_plan, subject, task_id, body)
 
     @app.post("/api/v1/tasks/{task_id}/cancel", status_code=202)
     async def cancel_task(task_id: str, request: Request) -> dict[str, Any]:
         subject = auth(request)
-        return service.cancel(subject, task_id, await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.cancel, subject, task_id, body)
 
     @app.post("/api/v1/tasks/{task_id}/review", status_code=202)
     async def review_task(task_id: str, request: Request) -> dict[str, Any]:
         subject = auth(request)
-        return service.request_review(subject, task_id, await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.request_review, subject, task_id, body)
 
     @app.post("/api/v1/tasks/{task_id}/approve-artifact", status_code=202)
     async def approve_artifact(task_id: str, request: Request) -> dict[str, Any]:
         subject = auth(request)
-        return service.approve_artifact(subject, task_id, await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.approve_artifact, subject, task_id, body)
 
     @app.post("/api/v1/tasks/{task_id}/return-artifact", status_code=202)
     async def return_artifact(task_id: str, request: Request) -> dict[str, Any]:
         subject = auth(request)
-        return service.return_artifact(subject, task_id, await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.return_artifact, subject, task_id, body)
 
     @app.post("/api/v1/tasks/{task_id}/model-call", status_code=202)
     async def model_call(task_id: str, request: Request) -> dict[str, Any]:
         subject = auth(request)
-        return service.call_model(subject, task_id, await json_body(request))
+        body = await json_body(request)
+        return await run_in_threadpool(service.call_model, subject, task_id, body)
 
     return app
 
