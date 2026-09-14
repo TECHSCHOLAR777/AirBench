@@ -816,7 +816,7 @@ def add_model_serving_route(app: Any, service: NodeApiService) -> None:
                 status_code=200,
                 content={"configured": False, "status": "disabled", "endpoints": []},
             )
-        endpoints = probe_endpoint_readiness(router)
+        endpoints = probe_endpoint_readiness(router, timeout_s=2.0)
         ready = bool(endpoints) and all(
             endpoint["health"] == "healthy" and endpoint["readiness"] == "ready"
             for endpoint in endpoints
