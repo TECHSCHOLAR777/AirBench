@@ -60,6 +60,7 @@ export interface WorkTraceRouting {
   selectedTarget: string | null;
   fallbackReason: string | null;
   policyReason: string | null;
+  selectedModelName: string | null;
   routeEntries: NodeRouteTraceEntry[];
 }
 
@@ -271,12 +272,14 @@ function routingFromPlan(plan: TaskPlanReview | null, routeTrace: NodeRouteTrace
       planVersionHash: null,
       policyVersionHash: null,
       selectedTarget: null,
+      selectedModelName: null,
       fallbackReason: null,
       policyReason: null,
       routeEntries,
     };
   }
   const latestSelectedTarget = [...routeEntries].reverse().find((entry) => entry.selectedTarget)?.selectedTarget ?? null;
+  const latestSelectedModelName = [...routeEntries].reverse().find((entry) => entry.selectedModelName)?.selectedModelName ?? null;
   const fallbackEntry = [...routeEntries].reverse().find((entry) => entry.fallbackTarget || entry.eventType === "routing.fallback.selected" || entry.eventType === "fallback.selected");
   const policyEntry = [...routeEntries].reverse().find((entry) => entry.decisionSource || entry.ruleOrThreshold || entry.reason);
   const fallbackReason = fallbackEntry ? [fallbackEntry.fallbackTarget, fallbackEntry.reason].filter(Boolean).join(" / ") || "Fallback was recorded by the Node." : null;
@@ -291,6 +294,7 @@ function routingFromPlan(plan: TaskPlanReview | null, routeTrace: NodeRouteTrace
     planVersionHash: plan?.plan_version_hash ?? null,
     policyVersionHash: plan?.policy_version_hash ?? null,
     selectedTarget: latestSelectedTarget,
+    selectedModelName: latestSelectedModelName,
     fallbackReason,
     policyReason,
     routeEntries,

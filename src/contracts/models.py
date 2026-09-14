@@ -401,6 +401,7 @@ class NodeRouteTraceEntry(NodeWireContract):
     task_kind: str | None = None
     required_capability: str | None = None
     selected_target: str | None = None
+    selected_model_name: str | None = None
     decision_source: str | None = None
     rule_or_threshold: str | None = None
     qualification_certificate: str | None = None

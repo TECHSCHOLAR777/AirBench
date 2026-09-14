@@ -713,6 +713,7 @@ export interface NodeRouteTraceEntry extends NodeWireContractEnvelope {
   taskKind?: string | null;
   requiredCapability?: string | null;
   selectedTarget?: string | null;
+  selectedModelName?: string | null;
   decisionSource?: string | null;
   ruleOrThreshold?: string | null;
   qualificationCertificate?: string | null;
