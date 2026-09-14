@@ -888,7 +888,12 @@ class LedgerSink(Protocol):
 
 def _append_evidence_event(ledger: LedgerSink, manifest: IntakeManifest) -> str:
     key = idempotency_key("intake.evidence.created", manifest.task_id, manifest.intake_id)
-    existing = ledger.find_by_idempotency(key)
+    # Minimal ledger sinks used by intake integrations may only implement the
+    # append/head/events surface.  Durable ledgers expose idempotency lookup,
+    # but its absence must not turn an otherwise valid append into an
+    # AttributeError before the ledger can report its own failure.
+    find_by_idempotency = getattr(ledger, "find_by_idempotency", None)
+    existing = find_by_idempotency(key) if callable(find_by_idempotency) else None
     if existing is not None:
         return existing.event_id
     event = build_event(
@@ -921,7 +926,7 @@ def _append_evidence_event(ledger: LedgerSink, manifest: IntakeManifest) -> str:
         },
         clearance=manifest.clearance,
             idempotency=key,
-        sequence=len(ledger),
+        sequence=len(ledger.events),
         previous_event_hash=ledger.head_hash,
         occurred_at=manifest.ingested_at,
     )

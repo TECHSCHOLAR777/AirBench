@@ -1305,6 +1305,18 @@ class StageSignals(Contract):
     recent_production: bool = False
     test_result: str = "not_run"
     context_pressure: str = "normal"
+    capable_route_requested: bool = False
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "StageSignals":
+        # Older orchestrator envelopes used the derived property name as an
+        # explicit input signal.  Accept that representation at the boundary
+        # and normalize it to a typed field; do not leave a raw compatibility
+        # key in the contract or silently discard an escalation request.
+        value = dict(payload)
+        if "requires_capable_route" in value and "capable_route_requested" not in value:
+            value["capable_route_requested"] = value.pop("requires_capable_route")
+        return super().from_dict(value)  # type: ignore[return-value]
 
     def _validate(self, hints):
         issues = super()._validate(hints)
@@ -1314,11 +1326,15 @@ class StageSignals(Contract):
             issues.append(ValidationIssue("test_result", "enum", "invalid test result"))
         if self.context_pressure not in {"normal", "elevated", "critical"}:
             issues.append(ValidationIssue("context_pressure", "enum", "invalid context pressure"))
+        if type(self.capable_route_requested) is not bool:
+            issues.append(ValidationIssue("capable_route_requested", "type", "must be a boolean"))
         return issues
 
     @property
     def requires_capable_route(self) -> bool:
         return (
+            self.capable_route_requested
+            or
             self.exploration
             or self.spinning
             or self.error_severity in {"recoverable", "critical"}

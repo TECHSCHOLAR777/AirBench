@@ -418,6 +418,7 @@ export interface StageSignals extends ContractEnvelope {
   recent_production?: boolean;
   test_result?: string;
   context_pressure?: string;
+  capable_route_requested?: boolean;
 }
 
 export interface ModelCallRequest extends ContractEnvelope {

@@ -562,9 +562,6 @@ fn certificate_pin(response: &reqwest::Response) -> Option<String> {
 }
 
 pub(crate) fn credential_token(profile: &NodeProfile) -> Result<String, NodeTransportError> {
-    if profile.credential_ref == "dev-token-123" {
-        return Ok("dev-token-123".to_string());
-    }
     let entry =
         keyring::Entry::new("org.airbench.desktop", &profile.credential_ref).map_err(|_| {
             NodeTransportError::CredentialUnavailable(

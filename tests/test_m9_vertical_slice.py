@@ -27,9 +27,14 @@ def signed_pack(tmp_path: Path) -> RefineryPack:
     target = tmp_path / "pack"
     shutil.copytree(PACK, target)
     key = b"test-only-m9-key"
-    signature = RefineryPack.sign(target, key)
+    # The repository pack is intentionally draft-gated for production.  The
+    # deterministic unit slice needs an accepted copy so it can exercise the
+    # runtime after signature verification without weakening that gate.
     manifest_path = target / "manifest.yaml"
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["status"] = "accepted"
+    manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    signature = RefineryPack.sign(target, key)
     manifest["signature"] = signature
     manifest_path.write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
     return RefineryPack.load(target, key)

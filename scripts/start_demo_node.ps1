@@ -8,8 +8,14 @@
 #   ssh -N -L 127.0.0.1:18001:127.0.0.1:8001 -L 127.0.0.1:18002:127.0.0.1:8002 mmmut-server
 param(
     [string]$ModelStore = "C:\airbench-models",
-    [string]$Token = "dev-token-123",
+    [string]$Token = $env:AIRBENCH_BEARER_TOKEN,
     [string]$Port = "8765",
+    [string]$E2BUrl = $env:AIRBENCH_MODEL_E2B_URL,
+    [string]$TwelveBUrl = $env:AIRBENCH_MODEL_12B_URL,
+    [string]$E2BTargetId = $env:AIRBENCH_MODEL_E2B_TARGET_ID,
+    [string]$TwelveBTargetId = $env:AIRBENCH_MODEL_12B_TARGET_ID,
+    [string]$E2BServedName = $env:AIRBENCH_MODEL_E2B_SERVED_NAME,
+    [string]$TwelveBServedName = $env:AIRBENCH_MODEL_12B_SERVED_NAME,
     [string]$Subject = "demo.operator",
     [string]$DomainPackRef = "refinery-psu-v0",
     [string]$CorpusZip = "",
@@ -25,6 +31,19 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 $py = if (Test-Path "$repo\.venv-deep\Scripts\python.exe") { "$repo\.venv-deep\Scripts\python.exe" } else { "python" }
+
+if ([string]::IsNullOrWhiteSpace($Token)) {
+    Write-Error "A bearer token is required. Set AIRBENCH_BEARER_TOKEN or pass -Token explicitly."
+}
+foreach ($modelSetting in @{
+    E2BUrl = $E2BUrl; TwelveBUrl = $TwelveBUrl; E2BTargetId = $E2BTargetId;
+    TwelveBTargetId = $TwelveBTargetId; E2BServedName = $E2BServedName;
+    TwelveBServedName = $TwelveBServedName
+}.GetEnumerator()) {
+    if ([string]::IsNullOrWhiteSpace($modelSetting.Value)) {
+        Write-Error "Model setting '$($modelSetting.Key)' is required. Pass the corresponding parameter or set its AIRBENCH_MODEL_* environment variable."
+    }
+}
 
 # Phase 0: one Node per port. Refuse to compete with a live listener and print
 # the owning process so the operator can stop it deliberately.
@@ -102,8 +121,12 @@ $env:AIRBENCH_MODEL_ROSTER_PATH      = "$repo\models\roster\demo\two_endpoint_ro
 $env:AIRBENCH_MODEL_SIGNING_KEY      = ""
 $env:AIRBENCH_MODEL_SIGNING_KEY_PATH = "$repo\.airbench_signing_key"
 $env:AIRBENCH_MODEL_STORE            = $ModelStore
-$env:AIRBENCH_MODEL_E2B_URL          = "http://127.0.0.1:18001"
-$env:AIRBENCH_MODEL_12B_URL          = "http://127.0.0.1:18002"
+$env:AIRBENCH_MODEL_E2B_URL          = $E2BUrl
+$env:AIRBENCH_MODEL_12B_URL          = $TwelveBUrl
+$env:AIRBENCH_MODEL_E2B_TARGET_ID    = $E2BTargetId
+$env:AIRBENCH_MODEL_12B_TARGET_ID    = $TwelveBTargetId
+$env:AIRBENCH_MODEL_E2B_SERVED_NAME  = $E2BServedName
+$env:AIRBENCH_MODEL_12B_SERVED_NAME  = $TwelveBServedName
 $env:HF_HUB_OFFLINE                  = "1"
 $env:TRANSFORMERS_OFFLINE            = "1"
 
