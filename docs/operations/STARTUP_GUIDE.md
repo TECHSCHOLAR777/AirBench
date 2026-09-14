@@ -1,61 +1,55 @@
 # AirBench Startup Guide
 
-This document outlines the standard procedure to start the AirBench Core Node and the Desktop UI for local development and demonstration.
+This document outlines the standard 4-terminal procedure to start the AirBench Core Node and the Desktop UI for local development, assuming your models are served from a remote GPU.
 
-## 0. Connect to the Remote GPU (If using a remote server)
+## Terminal 1 — Remote GPU Server
 
-If you are using remote GPU servers to serve the models (e.g. `workstation-04`), you must forward their model serving ports to your local machine so the AirBench Node can connect to them.
+Start the model-serving containers on your remote server (e.g., `mmmut-server`) and monitor the GPUs.
 
-Open a PowerShell terminal and run the SSH loopback forward:
-
-```powershell
-# Forward both model ports from workstation-04 to your local machine.
-# Keep this terminal open while the Node is running.
-ssh -N -L 18001:127.0.0.1:18001 -L 18002:127.0.0.1:18002 user@workstation-04
+```bash
+ssh mmmut-server
+docker start airbench-vllm-e2b airbench-vllm-12b
+watch -n 1 nvidia-smi
 ```
 
-## 1. Start the AirBench Node (Backend)
+## Terminal 2 — Laptop SSH Tunnel
 
-The backend Node requires specific environment variables to establish its operational identity, clearance level, and available models. 
-
-Open a PowerShell terminal in the repository root and run:
+Forward the model serving ports from the remote server to your local machine. Leave this terminal open.
 
 ```powershell
-# Core Node authorization and identity
-$env:AIRBENCH_NODE_IDENTITY       = "node.demo.local"
-$env:AIRBENCH_BEARER_TOKEN        = "dev-token-123"
-$env:AIRBENCH_DOMAIN_PACK_REF     = "refinery-psu-v0"
-$env:AIRBENCH_CLEARANCE           = "internal"
-$env:AIRBENCH_SUBJECT             = "demo.operator"
-$env:AIRBENCH_POLICY_VERSION_HASH = "policy-v0.1"
-
-# Enable Model Serving and point to your Tunneled GPU models
-$env:AIRBENCH_MODEL_SERVING_PORT = "18000"
-$env:AIRBENCH_LOCAL_MODELS       = "airbench-gemma-4-e2b,airbench-gemma-4-12b"
-
-# Launch the node
-python -m airbench.node.server --host 127.0.0.1 --port 8000
+ssh -N -L 127.0.0.1:18001:127.0.0.1:8001 -L 127.0.0.1:18002:127.0.0.1:8002 mmmut-server
 ```
 
-The server will begin listening on port 8000. Keep this terminal open.
+## Terminal 3 — Laptop AirBench Node
 
-## 2. Start the AirBench Desktop App (Frontend)
-
-The desktop application requires an approved Node profile to successfully handshake with the backend. We use the `approved-node-profiles.json` which contains the trusted identity footprint of the node we just started.
-
-Open a **new** PowerShell terminal and navigate to `apps/desktop`.
+From the root of the AirBench repository, start the backend Core Node using the provided startup script. Be sure to point `-ModelStore` to wherever you store your model hashes locally.
 
 ```powershell
-cd apps/desktop
+# Run from the root of the repository
+powershell -ExecutionPolicy Bypass -File scripts\start_demo_node.ps1 `
+  -Retrieval `
+  -ModelStore "C:\airbench-models" `
+  -Token "dev-token-123" `
+  -Subject "demo.operator"
+```
+
+## Terminal 4 — Laptop Desktop UI
+
+Launch the frontend application. It will copy the approved node profile into its configuration folder and start the development server.
+
+```powershell
+# Navigate to the desktop app folder
+cd apps\desktop
 
 # Create the AppData folder for the desktop app
 New-Item -Path "$env:APPDATA\org.airbench.desktop" -ItemType Directory -Force
 
 # Copy the trusted profile to the AppData folder so the UI can discover it
-Copy-Item ..\..\approved-node-profiles.json "$env:APPDATA\org.airbench.desktop\approved-node-profiles.json" -Force
+Copy-Item `
+  "..\..\approved-node-profiles.json" `
+  "$env:APPDATA\org.airbench.desktop\approved-node-profiles.json" `
+  -Force
 
 # Launch the Tauri Desktop App in development mode
-npm run tauri dev
+npm run tauri:dev
 ```
-
-The desktop UI will open and automatically use the trusted profile to perform a secure handshake with the Node running on port 8000.
