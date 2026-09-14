@@ -152,8 +152,18 @@ class LocalSubprocessProvider:
         try:
             raw_stdout, raw_stderr = process.communicate(request.stdin, timeout=request.timeout_seconds)
         except subprocess.TimeoutExpired:
+            # A fork()ed child inherits the pipe write-ends, so draining
+            # without a deadline after kill() can block forever.  Retry-kill
+            # with a bounded drain instead.
             process.kill()
-            raw_stdout, raw_stderr = process.communicate()
+            try:
+                raw_stdout, raw_stderr = process.communicate(timeout=10.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                try:
+                    raw_stdout, raw_stderr = process.communicate(timeout=10.0)
+                except subprocess.TimeoutExpired:
+                    raw_stdout, raw_stderr = "", ""
             return SandboxExecutionResponse(
                 "timed_out",
                 None,
@@ -391,6 +401,9 @@ _WORKER = textwrap.dedent(
     os.execve = deny_network
     os.spawnv = deny_network
     os.spawnve = deny_network
+    for _spawn_primitive in ("fork", "forkpty", "posix_spawn", "posix_spawnp", "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe"):
+        if hasattr(os, _spawn_primitive):
+            setattr(os, _spawn_primitive, deny_network)
     blocked_imports = {"ctypes", "ensurepip", "pip", "setuptools", "socket", "urllib", "http", "subprocess"}
     _import = builtins.__import__
     def guarded_import(name, *args, **kwargs):
@@ -457,7 +470,7 @@ def _append_tool_event(ledger: LedgerSink, *, event_type: str, action: ToolActio
         payload={"execution_id": execution_id, "action_id": action.action_id, "tool_name": action.tool_name, **payload},
         clearance=action.clearance,
         idempotency=idempotency_key(f"sandbox.{event_type}", action.task_id, action.action_id, execution_id),
-        sequence=len(ledger.events),
+        sequence=len(ledger),
         previous_event_hash=ledger.head_hash,
         occurred_at=occurred_at,
     )
@@ -598,6 +611,12 @@ class SandboxRunner:
                 status = "failed"
         except (OSError, ValueError):
             stderr = "sandbox worker could not be started"
+            status = "failed"
+        except SandboxError as exc:
+            # The provider re-verifies on execute; a failure after
+            # tool.requested/tool.authorized were committed must still produce
+            # a tool.result so the authorized action is not left dangling.
+            stderr = f"sandbox provider failed: {exc.code}"
             status = "failed"
         finally:
             if run_dir is not None:

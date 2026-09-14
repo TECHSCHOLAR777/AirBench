@@ -184,7 +184,7 @@ class WorldModelStore:
     def _emit(self, event_type: str, task_id: str, clearance: Clearance, payload: dict[str, str]) -> None:
         if self._ledger is None:
             return
-        sequence = len(self._ledger.events)
+        sequence = len(self._ledger)
         self._ledger.append(build_event(
             event_type=event_type,
             task_id=task_id,
@@ -408,7 +408,7 @@ class WorldModelStore:
     def _event(self, event_type: str, request: WorldModelQuery, payload: dict[str, str]) -> None:
         if self._ledger is None:
             return
-        sequence = len(self._ledger.events)
+        sequence = len(self._ledger)
         self._ledger.append(build_event(
             event_type=event_type,
             task_id=request.task_id,
@@ -458,12 +458,14 @@ class CandidateFactWriter:
         if not self._verification_gate(candidate):
             raise WorldModelError("verification_failed", "candidate failed the verification gate")
         self._store._validate_commit(candidate.fact, candidate.relations)
+        # Commit to the store BEFORE writing the ledger event: a failed store
+        # commit must not leave the ledger claiming a fact was committed.
+        self._store._commit(candidate.fact, candidate.relations)
         self._event("fact.committed", candidate, {
             "candidate_id": candidate.candidate_id,
             "fact_id": candidate.fact.fact_id,
             "state": "committed",
         })
-        self._store._commit(candidate.fact, candidate.relations)
         del self._candidates[candidate.candidate_id]
         return candidate.fact
 
@@ -498,7 +500,7 @@ class CandidateFactWriter:
         if self._ledger is None:
             return
         provenance = candidate.fact
-        sequence = len(self._ledger.events)
+        sequence = len(self._ledger)
         body = {
             **payload,
             "task_id": candidate.task_id,

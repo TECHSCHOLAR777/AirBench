@@ -107,7 +107,6 @@ class LocalNodeConsistencyService:
             raise ConsistencyServiceError("invalid_justification", "the justification is too long")
         if not report.get("deviation"):
             raise ConsistencyServiceError("no_deviation", "the decision is consistent; no justification is needed")
-        self._justified[task_id] = text
         self._ledger.append(build_event(
             event_type="consistency.justified", task_id=task_id, actor_id=operator_id, actor_type="operator",
             payload_contract="ConsistencyJustification", payload_version="1.0",
@@ -122,9 +121,12 @@ class LocalNodeConsistencyService:
             },
             clearance=self._clearance,
             idempotency=idempotency_key("consistency.justified", task_id, operator_id, report.get("decision_id", "")),
-            sequence=len(self._ledger.events), previous_event_hash=self._ledger.head_hash,
+            sequence=len(self._ledger), previous_event_hash=self._ledger.head_hash,
             occurred_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         ))
+        # Mark justified only AFTER the ledger commit succeeds; otherwise a
+        # failed append would silently bypass the review gate (is_blocked -> False).
+        self._justified[task_id] = text
         return self.latest(task_id)
 
     def is_blocked(self, task_id: str) -> bool:

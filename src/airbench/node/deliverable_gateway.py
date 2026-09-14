@@ -214,7 +214,7 @@ class LocalDeliverableGateway:
 
     def _record_access(self, event, event_type: str) -> str:
         key = idempotency_key("node-deliverable-access", event_type, event.payload["artifact_id"])
-        existing = next((item for item in self._ledger.events if item.idempotency_key == key), None)
+        existing = self._ledger.find_by_idempotency(key)
         if existing is not None:
             return existing.event_id
         access = build_event(
@@ -231,7 +231,7 @@ class LocalDeliverableGateway:
             },
             clearance=event.clearance,
             idempotency=key,
-            sequence=len(self._ledger.events),
+            sequence=len(self._ledger),
             previous_event_hash=self._ledger.head_hash,
         )
         try:

@@ -36,6 +36,8 @@ export function AppIcon({ name, size = 18 }: AppIconProps) {
   };
 
   switch (name) {
+    case "close":
+      return <svg aria-hidden="true" {...common}><path d="M6 2L18 2 18 6 6 6 6 2" /></svg>;
     case "airbench":
       return <svg aria-hidden="true" {...common}><path d="M5.5 18.5 10.7 5.5h2.6l5.2 13" /><path d="M8 13.1h8" /><path d="m4.4 18.5 1.9-4.8m11.4 0 1.9 4.8" /></svg>;
     case "archive":

@@ -60,7 +60,8 @@ if (-not (Test-Path "$repo\models\roster\demo\two_endpoint_roster.yaml")) {
     Write-Error "Signed demo roster missing. Run: python scripts\airbench_demo_roster.py"
 }
 if (-not (Test-Path "$repo\.airbench_signing_key")) {
-    Write-Error "Signing key missing at $repo\.airbench_signing_key"
+    Write-Host "Signing key missing. Auto-generating..." -ForegroundColor Yellow
+    powershell -ExecutionPolicy Bypass -File "$repo\scripts\setup_demo_signing_key.ps1"
 }
 
 # Phase 1 model endpoint preflight: prove both tunnelled lanes are healthy and

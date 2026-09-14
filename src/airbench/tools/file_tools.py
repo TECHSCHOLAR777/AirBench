@@ -257,14 +257,14 @@ class FileToolRunner:
     def _append(self, *, event_type: str, task_id: str, operation_id: str,
                 clearance: Clearance, payload: dict[str, Any]) -> str:
         key = idempotency_key("file-tool", task_id, operation_id, event_type)
-        existing = next((event for event in self._ledger.events if event.idempotency_key == key), None)
+        existing = self._ledger.find_by_idempotency(key)
         if existing is not None:
             return existing.event_id
         event = build_event(
             event_type=event_type, task_id=task_id, actor_id="file-tools.local",
             actor_type="service", payload_contract="FileToolResult", payload_version="1.0",
             payload=payload, clearance=clearance, idempotency=key,
-            sequence=len(self._ledger.events), previous_event_hash=self._ledger.head_hash,
+            sequence=len(self._ledger), previous_event_hash=self._ledger.head_hash,
         )
         try:
             self._ledger.append(event)
@@ -361,14 +361,14 @@ class SpreadsheetTool:
 
     def _append(self, *, task_id: str, operation_id: str, clearance: Clearance, payload: dict[str, Any]) -> str:
         key = idempotency_key("spreadsheet-tool", task_id, operation_id)
-        existing = next((event for event in self._ledger.events if event.idempotency_key == key), None)
+        existing = self._ledger.find_by_idempotency(key)
         if existing is not None:
             return existing.event_id
         event = build_event(
             event_type="artifact.checked", task_id=task_id, actor_id="spreadsheet-tools.local",
             actor_type="service", payload_contract="SpreadsheetResult", payload_version="1.0",
             payload=payload, clearance=clearance, idempotency=key,
-            sequence=len(self._ledger.events), previous_event_hash=self._ledger.head_hash,
+            sequence=len(self._ledger), previous_event_hash=self._ledger.head_hash,
         )
         try:
             self._ledger.append(event)

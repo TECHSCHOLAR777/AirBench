@@ -300,7 +300,7 @@ class CodeExecutionRunner:
             },
         }
         key = idempotency_key("code-execution.manifest", action.task_id, action.action_id, action.idempotency_key)
-        existing = next((event for event in self._ledger.events if event.idempotency_key == key), None)
+        existing = self._ledger.find_by_idempotency(key)
         if existing is not None:
             return existing.event_id
         event = build_event(
@@ -313,7 +313,7 @@ class CodeExecutionRunner:
             payload=payload,
             clearance=action.clearance,
             idempotency=key,
-            sequence=len(self._ledger.events),
+            sequence=len(self._ledger),
             previous_event_hash=self._ledger.head_hash,
         )
         try:

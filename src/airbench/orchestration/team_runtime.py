@@ -17,7 +17,7 @@ import hashlib
 import json
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, wait
+from concurrent.futures import Future, wait
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -422,13 +422,15 @@ class TeamRuntime:
         self._notify(phase, assignment_id=assignment_id, payload=payload)
 
     def execute(self) -> TeamExecutionReport:
-        if self._running:
-            raise TeamRuntimeError("team runtime is already executing")
-        self._running = True
+        with self._cancel_lock:
+            if self._running:
+                raise TeamRuntimeError("team runtime is already executing")
+            self._running = True
         completed: set[str] = set()
         terminal: set[str] = set()
         records: list[WorkerRunRecord] = []
         task_started = False
+        team_executing = False
         try:
             self._notify("before_task")
             task_started = True
@@ -436,6 +438,7 @@ class TeamRuntime:
             self._ensure_assignments()
             self._audit_team_start()
             self._notify("after_team_plan")
+            team_executing = True
             completed, terminal = self._replay_worker_outcomes()
             pending = set(self.team_plan.assignments) - terminal
 
@@ -450,6 +453,11 @@ class TeamRuntime:
                 capacity = 1 if self.schedule.plan.execution_mode == "serial_virtual_team" else self.schedule.plan.concurrency_ceiling
                 batch = tuple(ready[:max(1, capacity)])
                 outcomes = self._run_batch(batch)
+                # Commit EVERY outcome in the batch before aborting: returning
+                # on the first failure dropped already-finished siblings' results
+                # (no worker.completed events, lost handoffs, duplicated work on replay).
+                abort_failure: str | None = None
+                abort_cancelled = False
                 for outcome in outcomes:
                     pending.discard(outcome.assignment_id)
                     record = self._commit_outcome(outcome)
@@ -457,10 +465,14 @@ class TeamRuntime:
                     if record.status == "completed":
                         completed.add(outcome.assignment_id)
                     elif record.status == "cancelled":
-                        return self._finish_cancelled(records)
-                    else:
-                        self._fail_team(record.failure_code or "worker_failed", pending=pending)
-                        return self._finish_failed(records, record.failure_code or "worker_failed")
+                        abort_cancelled = True
+                    elif abort_failure is None:
+                        abort_failure = record.failure_code or "worker_failed"
+                if abort_cancelled:
+                    return self._finish_cancelled(records)
+                if abort_failure is not None:
+                    self._fail_team(abort_failure, pending=pending)
+                    return self._finish_failed(records, abort_failure)
 
             if self._cancel_requested():
                 return self._finish_cancelled(records)
@@ -485,6 +497,13 @@ class TeamRuntime:
             return report
         except (TeamRuntimeError, ContractValidationError):
             self._cleanup_active_leases()
+            # A lifecycle veto raised after workers started must still record a
+            # terminal state; previously the task stayed in `executing` forever.
+            if team_executing and self.orchestrator.state(self.task.task_id) not in {"failed", "cancelled"}:
+                try:
+                    self._fail_team("runtime_failure", pending=set())
+                except Exception:  # noqa: BLE001 - the original error is authoritative
+                    pass
             raise
         except Exception as exc:
             self._cleanup_active_leases()
@@ -493,6 +512,28 @@ class TeamRuntime:
             raise TeamExecutionFailure("team runtime failed closed") from exc
         finally:
             self._running = False
+            self._cleanup_workspace()
+
+    def _cleanup_workspace(self) -> None:
+        """Best-effort removal of this team's worker scratch tree.
+
+        Scratch directories are deterministic but were never deleted, so every
+        task/team/worker execution leaked a directory until the disk filled
+        and all sandbox executions started failing.  Contexts are recreated
+        on demand by ``create_worker_context`` so removal is always safe.
+        """
+        import shutil
+
+        team_dir = (
+            self.workspace_root
+            / f"task-{stable_id('worker-task', self.task.task_id)}"
+            / f"team-{stable_id('worker-team', self.team_plan.team_id)}"
+        )
+        try:
+            if team_dir.is_relative_to(self.workspace_root):
+                shutil.rmtree(team_dir, ignore_errors=True)
+        except OSError:
+            pass
 
     def rebuild_context(self, assignment_id: str) -> ContextCompaction:
         """Rebuild a metadata-only context manifest from the append-only ledger."""
@@ -566,7 +607,7 @@ class TeamRuntime:
         self._notify("before_context_compaction", assignment_id=assignment_id)
         compaction = self.rebuild_context(assignment_id)
         key = idempotency_key("team-runtime.compaction", self.task.task_id, assignment_id, compaction.context_digest)
-        existing = next((event for event in self.orchestrator.store.events if event.idempotency_key == key), None)
+        existing = self.orchestrator.store.find_by_idempotency(key)
         if existing is not None:
             compacted = ContextCompaction.from_dict(existing.payload["compaction"])
         else:
@@ -752,20 +793,51 @@ class TeamRuntime:
             raise
 
         started_at = {assignment_id: time.monotonic() for assignment_id in assignment_ids}
-        executor = ThreadPoolExecutor(max_workers=len(assignment_ids), thread_name_prefix="airbench-worker")
-        futures: dict[str, Future[WorkerExecution | WorkerResult]] = {
-            assignment_id: executor.submit(self._call_worker, assignment_id, prepared[assignment_id][0])
-            for assignment_id in assignment_ids
+        # Daemon worker threads: a timed-out (abandoned) worker must never
+        # block interpreter exit. ThreadPoolExecutor threads are non-daemon
+        # and are joined at process shutdown, which hung the whole Node.
+        futures: dict[str, Future[WorkerExecution | WorkerResult]] = {}
+        for assignment_id in assignment_ids:
+            future: Future[WorkerExecution | WorkerResult] = Future()
+
+            def _run(aid: str = assignment_id, fut: Future = future) -> None:
+                if not fut.set_running_or_notify_cancel():
+                    return
+                try:
+                    fut.set_result(self._call_worker(aid, prepared[aid][0]))
+                except BaseException as exc:  # noqa: BLE001 - forwarded to the future
+                    fut.set_exception(exc)
+
+            thread = threading.Thread(target=_run, daemon=True, name=f"airbench-worker-{assignment_id[:12]}")
+            thread.start()
+            futures[assignment_id] = future
+        deadlines = {assignment_id: _parse_time(self.assignments[assignment_id].deadline) for assignment_id in assignment_ids}
+        # Wait per assignment deadline: using the batch MINIMUM deadline
+        # timed out every sibling as soon as the shortest deadline expired.
+        # Deadlines are converted to monotonic-relative timeouts once so an
+        # injected fixed ``now_provider`` (tests, replay) still converges.
+        batch_started = time.monotonic()
+        relative_deadlines = {
+            futures[assignment_id]: max(0.0, (deadline - _now_utc(self._now_provider())).total_seconds())
+            for assignment_id, deadline in deadlines.items()
         }
-        deadlines = [_parse_time(self.assignments[assignment_id].deadline) for assignment_id in assignment_ids]
-        remaining = max(0.0, min((deadline - _now_utc(self._now_provider())).total_seconds() for deadline in deadlines))
-        done, not_done = wait(tuple(futures.values()), timeout=remaining)
+        pending_futures: set[Future] = set(futures.values())
+        while pending_futures:
+            now_monotonic = time.monotonic()
+            expired = {future for future in pending_futures if batch_started + relative_deadlines[future] <= now_monotonic}
+            if expired:
+                pending_futures -= expired
+                continue
+            next_deadline = min(batch_started + relative_deadlines[future] for future in pending_futures)
+            remaining = max(0.0, next_deadline - now_monotonic)
+            done_now, _ = wait(pending_futures, timeout=remaining)
+            pending_futures -= done_now
         outcomes: list[_WorkerOutcome] = []
         for assignment_id in sorted(assignment_ids):
             future = futures[assignment_id]
             elapsed = int((time.monotonic() - started_at[assignment_id]) * 1000)
             lease = prepared[assignment_id][1]
-            if future in not_done:
+            if not future.done():
                 future.cancel()
                 outcomes.append(_WorkerOutcome(assignment_id, lease, None, "worker_timeout", None, elapsed))
                 continue
@@ -777,7 +849,6 @@ class TeamRuntime:
                     assignment_id, lease, None, "worker_failure", _digest({"type": type(exc).__name__, "message": str(exc)}), elapsed,
                     cancelled=self._cancel_requested(),
                 ))
-        executor.shutdown(wait=False, cancel_futures=True)
         return tuple(sorted(outcomes, key=lambda outcome: outcome.assignment_id))
 
     def _call_worker(self, assignment_id: str, invocation: WorkerInvocation) -> WorkerExecution | WorkerResult:
