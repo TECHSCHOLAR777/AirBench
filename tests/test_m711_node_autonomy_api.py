@@ -44,7 +44,7 @@ class NodeAutonomyApiTests(unittest.TestCase):
                 node_identity="node.autonomy.test", protocol_version="0.1", clearance_context=Clearance.internal,
                 authenticated_subject="principal.api", domain_pack_ref="pack.refinery.v0", bearer_token="test-token",
                 handshake_ledger_event_ref="ledger.handshake.test", sovereignty_evidence_ref="evidence.sovereignty.test",
-                require_orchestrator_authorization=False,
+                authenticated_roles=("authorized_approver",), require_orchestrator_authorization=False,
             ),
             autonomy=self.autonomy,
         )

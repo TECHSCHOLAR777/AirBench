@@ -517,6 +517,14 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .workspace-plan strong { color: var(--ink); font-size: 13px; }
 .workspace-plan span { color: var(--muted); font-size: 10px; line-height: 1.45; }
 .workspace-plan small { color: var(--faint); font-family: var(--font-mono); font-size: 9px; }
+.model-indicator-card { display: flex; align-items: center; gap: 9px; margin-top: 12px; padding: 11px 13px; color: var(--muted); background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 11px; }
+.model-indicator-card svg { flex: none; }
+.model-indicator-card.tone-active { color: var(--trust-ink); border-color: color-mix(in srgb, var(--trust) 32%, var(--line)); background: var(--trust-soft); }
+.model-indicator-card.tone-warning { color: var(--attention-ink); border-color: color-mix(in srgb, var(--attention) 35%, var(--line)); background: var(--attention-soft); }
+.worktrace-evidence-list .proof-record-button small, .worktrace-facts .proof-record-button small, .activity-row > div > small { display: none; }
+.plan-review-footer > small { display: none; }
+.artifact-record-name { font-size: 0; }
+.artifact-record-name::after { content: "Generated artifact"; font-size: 10px; }
 .command-outcome { display: grid; gap: 9px; width: 100%; padding: 11px 13px; color: var(--muted); background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 10px; line-height: 1.45; }
 .command-outcome-positive { color: var(--trust-ink); background: var(--trust-soft); border-color: color-mix(in srgb, var(--trust) 32%, var(--line)); }
 .command-outcome-attention { color: var(--attention-ink); background: var(--attention-soft); border-color: color-mix(in srgb, var(--attention) 35%, var(--line)); }
@@ -781,6 +789,12 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .task-empty-note { margin: 6px 0 0; color: var(--faint); font-size: 10px; line-height: 1.55; }
 
 .record-gateway { display: grid; gap: 18px; max-width: 810px; margin: 34px auto 0; }
+.knowledge-ingest-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 15px 17px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.knowledge-ingest-card > div { display: grid; gap: 4px; }
+.knowledge-ingest-card .eyebrow { margin: 0; color: var(--info); }
+.knowledge-ingest-card strong { color: var(--ink-soft); font-size: 12px; }
+.knowledge-ingest-card p:not(.eyebrow) { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.record-gateway-empty { margin: 0; padding: 18px; color: var(--muted); background: var(--surface-subtle); border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); text-align: center; }
 .record-gateway header { max-width: 740px; }
 .record-gateway header h1 { margin: 0 0 8px; font-size: clamp(29px, 3.5vw, 42px); }
 .record-gateway-state { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: flex-start; gap: 12px; padding: 17px; color: var(--info); background: color-mix(in srgb, var(--info-soft) 55%, var(--surface)); border: 1px solid color-mix(in srgb, var(--info) 28%, var(--line)); border-radius: var(--radius-md); box-shadow: var(--shadow-small); }

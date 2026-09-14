@@ -35,8 +35,11 @@ import { AutonomyPanel } from "../components/AutonomyPanel";
 import { ConsistencyPanel } from "../components/ConsistencyPanel";
 import { HardwareCard } from "../components/HardwareCard";
 import { ModelRoster } from "../components/ModelRoster";
-import { clearNodeOperationalProjection, type NodeOperationalProjection } from "../platform/node/nodeOperationalProjection";
+import { ModelIndicatorCard } from "../components/ModelIndicatorCard";
+import { AdvancedDetails } from "../components/AdvancedDetails";
+import { clearNodeOperationalProjection, fetchNodeOperationalProjection, type NodeOperationalProjection } from "../platform/node/nodeOperationalProjection";
 import { classifyIntakeFailure, intakeConfidenceCopy, intakeStateFromManifest, intakeStatusCopy, isIntakeConfidenceBand, type IntakeUiState } from "../features/intake/intakeState";
+import { KnowledgeView } from "../features/knowledge/KnowledgeView";
 
 type SelectedFile = { selection_id: string; file_name: string; byte_size: number };
 type RecoveryGuidance = { preserved: string; retry: string; nextAction: string };
@@ -57,6 +60,7 @@ const primaryNav: Array<{ id: Screen; label: string; icon: AppIconName }> = [
 ];
 
 const recordNav: Array<{ id: Screen; label: string; icon: AppIconName }> = [
+  { id: "knowledge", label: "Knowledge", icon: "search" },
   { id: "artifacts", label: "Artifacts", icon: "archive" },
   { id: "history", label: "History", icon: "history" },
   { id: "audit", label: "Audit", icon: "audit" },
@@ -129,8 +133,24 @@ function App() {
   const nodeConnected = connection.state === "connected" && controller.canSendConsequential();
   const taskCommandReady = taskProjection !== null && maySendConsequentialCommand(taskProjection, eventSyncState?.status ?? "idle");
 
+  const connectedProfile = useMemo(() => profiles.find((profile) => profile.profileId === connection.profileId) ?? null, [profiles, connection.profileId]);
+
+  useEffect(() => {
+    let active = true;
+    if (connection.state !== "connected" || !connectedProfile) {
+      setNodeOperationalProjection({ hardware: null, modelServing: null, qualification: null });
+      return;
+    }
+    fetchNodeOperationalProjection(connectedProfile).then((projection) => {
+      if (active) {
+        setNodeOperationalProjection(projection);
+      }
+    });
+    return () => { active = false; };
+  }, [connection.state, connectedProfile]);
+
   const screenTitle = useMemo(() => {
-    const titles: Record<Screen, string> = { home: "Home", tasks: "Tasks", review: "Review", artifacts: "Artifacts", history: "History", audit: "Audit", node: "Node and settings" };
+    const titles: Record<Screen, string> = { home: "Home", tasks: "Tasks", review: "Review", artifacts: "Artifacts", history: "History", audit: "Audit", knowledge: "Knowledge", node: "Node and settings" };
     return titles[state.screen];
   }, [state.screen]);
 
@@ -454,7 +474,7 @@ function App() {
     }
   };
 
-  const inspectTaskArtifact = async (artifactId: string) => {
+  const inspectTaskArtifact = async (artifactId: string, taskIdOverride?: string) => {
     const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
     setTaskArtifactPreview(null);
     setTaskArtifactReview(null);
@@ -467,9 +487,10 @@ function App() {
       return;
     }
     setTaskArtifactPreviewState("loading");
+    const reviewTaskId = taskIdOverride ?? taskProjection?.taskId;
     const [previewResult, reviewResult] = await Promise.allSettled([
       fetchArtifactPreview(profile, artifactId),
-      taskProjection ? fetchTaskArtifactReview(profile, taskProjection.taskId) : Promise.reject(new Error("The current task is not available.")),
+      reviewTaskId ? fetchTaskArtifactReview(profile, reviewTaskId) : Promise.reject(new Error("The current task is not available.")),
     ]);
     if (previewResult.status === "fulfilled") {
       setTaskArtifactPreview(previewResult.value);
@@ -756,8 +777,16 @@ function App() {
       const result = await sendTaskCommand(profile, command);
       setPlanApprovalResult(result);
       setNotice(commandOutcomeGuidance("Plan approval", result).detail);
-    } catch {
-      setNotice("The Node did not accept this plan approval. No local execution state was changed.");
+      // Approval starts Node-owned execution. Reconcile immediately so the
+      // UI cannot remain on the pre-approval planning snapshot while the Node
+      // has already completed or failed the run.
+      await refreshTask();
+    } catch (error) {
+      // A failed execution is still an authoritative Node transition. Pull it
+      // before showing the notice so the user sees Failed/Needs review and
+      // the actual recovery path instead of a stale Planning badge.
+      await refreshTask();
+      setNotice(boundaryErrorMessage(error));
     } finally {
       setApprovingPlan(false);
     }
@@ -834,7 +863,8 @@ function App() {
         <header className="topbar"><div className="breadcrumb"><span>AirBench</span><span className="breadcrumb-slash">/</span><strong>{screenTitle}</strong></div><div className="topbar-actions"><button ref={commandMenuTriggerRef} className="command-menu-button" type="button" onClick={(event) => openCommandPalette(event.currentTarget)} aria-haspopup="dialog" aria-expanded={showCommandPalette} aria-controls="workspace-command-palette"><AppIcon name="search" size={16} /><span>Command</span><kbd>Ctrl K</kbd></button><button type="button" className={`sovereignty-status ${nodeConnected ? "is-verified" : ""}`} onClick={() => selectScreen("node")} aria-label="Open Node and settings"><AppIcon name={nodeConnected ? "shield" : "node"} size={16} /><span><small>Node path</small><strong>{sovereigntyLabel}</strong></span></button><div className="appearance-control"><button className="appearance-button" type="button" onClick={() => setShowAppearanceMenu((open) => !open)} aria-expanded={showAppearanceMenu} aria-controls="appearance-preferences"><AppIcon name="display" size={16} /><span>Display</span><AppIcon name="chevron-down" size={14} /></button>{showAppearanceMenu && <AppearanceMenu preferences={presentation} onChange={setPresentation} onClose={() => setShowAppearanceMenu(false)} />}</div></div></header>
         <div className="content-wrap">
           {state.screen === "home" && <HomeView outcomeInputRef={outcomeInputRef} currentTask={taskProjection} taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} intakeStatus={intakeStatus} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} planSynchronized={taskCommandReady} notice={notice} canStart={canStart} creatingTask={creatingTask} nodeConnected={nodeConnected} nodeLabel={nodeLabel} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onCancelTask={stopTask} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setIntakeStatus(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={openConnectionHelp} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} onDismissCurrent={dismissCurrentTask} onNewQuery={openNewTask} />}
-          {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesReloadToken((token) => token + 1); }} onHome={() => selectScreen("home")} operationalProjection={nodeOperationalProjection} onOperationalProjection={setNodeOperationalProjection} />}
+          {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesReloadToken((token) => token + 1); }} onHome={() => selectScreen("home")} operationalProjection={nodeOperationalProjection} />}
+          {state.screen === "knowledge" && <KnowledgeView profile={connectedProfile} nodeConnected={nodeConnected} />}
           {state.screen === "tasks" && (taskProjection ? <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} routeTrace={taskRouteTrace} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactReview={taskArtifactReview} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={openNewTask} onOpenNode={() => selectScreen("node")} onApproveArtifact={approveTaskArtifact} onReturnArtifact={returnTaskArtifact} isArtifactCommandPending={artifactCommandPending} profile={profiles.find((p) => p.profileId === connection.profileId) ?? null} operatorId={connection.authenticatedSubject} /> : <TaskEmptyView nodeConnected={nodeConnected} onNewTask={openNewTask} onOpenNode={() => selectScreen("node")} />)}
           {isRecordGatewayDestination(state.screen) && <RecordGatewayView destination={state.screen} nodeConnected={nodeConnected} currentTask={taskProjection} onHome={() => selectScreen("home")} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} taskHistory={taskHistory} onOpenTask={openHistoryTask} onRemoveTask={removeHistoryTask} onNewTask={openNewTask} />}
         </div>
@@ -963,7 +993,7 @@ function HomeView({ outcomeInputRef, currentTask, taskText, setTaskText, taskTit
     {taskResult && <PlanReviewCard plan={planReview} loading={planLoading} approval={planApprovalResult} approving={approvingPlan} synchronized={planSynchronized} currentTaskSequence={currentTask?.lastAppliedSequence ?? taskResult.snapshot.asOfSequence} taskStatus={currentTask?.status ?? "accepted"} onApprove={onApprovePlan} onCancel={onCancelTask} />}
     {notice && <div className="inline-notice" role="status">{notice}</div>}
     <div className="trust-line" role="status"><span className="trust-item"><span className={`status-dot ${nodeConnected ? "status-dot-connected" : ""}`} aria-hidden="true" />{nodeConnected ? `${nodeLabel} is verified for this session.` : "No Node path is verified. Nothing has been submitted."}</span><button type="button" className="text-button" onClick={onHelp}>How this works</button></div>
-    <section className="continue-section" aria-label="Continue work"><div className="section-heading"><div><h2>Continue work</h2><p>{currentWork ? "One task is available from the approved Node projection." : "The current Node has not supplied a task projection to this desktop."}</p></div>{currentWork && <span className={`home-work-health home-work-health-${currentWork.health}`}>{currentWork.healthLabel}</span>}<button type="button" className="text-button" onClick={onNewQuery}>New query</button></div>{currentWork ? <article className="current-work-card" data-testid="current-task-card"><div className="current-work-card-head"><div><p className="eyebrow">NODE TASK</p><h3>{currentWork.title}</h3><p>{currentWork.requestSummary}</p></div><span className={`home-work-status home-work-status-${currentWork.status}`}>{currentWork.statusLabel}</span></div><dl className="current-work-meta"><div><dt>Current phase</dt><dd>{currentWork.phase}</dd></div><div><dt>Node cursor</dt><dd>{currentWork.lastAppliedSequence}</dd></div><div><dt>Ledger head</dt><dd>{currentWork.ledgerHeadRef}</dd></div><div><dt>Latest record</dt><dd>{currentWork.latestActivity?.label ?? "No activity event in this cursor"}</dd></div></dl>{currentWork.latestActivity && <div className="current-work-latest"><span>Latest Node record</span><strong>{currentWork.latestActivity.summary}</strong><small>{formatTraceTime(currentWork.latestActivity.occurredAt)} / sequence {currentWork.latestActivity.sequence} / ledger {currentWork.latestActivity.ledgerEventRef}</small></div>}<div className="current-work-footer"><p>{currentWork.health === "current" ? "This card reflects the latest accepted Node snapshot." : "This snapshot remains readable, but consequential task actions stay gated until the event stream is current."}</p><div className="current-work-actions"><button type="button" className="text-button" onClick={onDismissCurrent}>Remove from view</button><button type="button" className="secondary-button bordered-button" onClick={onOpenCurrentTask}>Open task</button></div></div></article> : <div className="home-empty-state"><div className="empty-icon" aria-hidden="true"><AppIcon name="tasks" size={17} /></div><p>{nodeConnected ? "No current task in this desktop session" : "Connect an approved Node to view current work"}</p><small>{nodeConnected ? "When the Node returns a task snapshot, its recorded state will appear here." : "AirBench does not reconstruct task history locally."}</small></div>}</section>
+    <section className="continue-section" aria-label="Continue work"><div className="section-heading"><div><h2>Continue work</h2><p>{currentWork ? "One task is available from the approved Node projection." : "The current Node has not supplied a task projection to this desktop."}</p></div>{currentWork && <span className={`home-work-health home-work-health-${currentWork.health}`}>{currentWork.healthLabel}</span>}<button type="button" className="text-button" onClick={onNewQuery}>New query</button></div>{currentWork ? <article className="current-work-card" data-testid="current-task-card"><div className="current-work-card-head"><div><p className="eyebrow">NODE TASK</p><h3>{currentWork.title}</h3><p>{currentWork.requestSummary}</p></div><span className={`home-work-status home-work-status-${currentWork.status}`}>{currentWork.statusLabel}</span></div><dl className="current-work-meta"><div><dt>Current phase</dt><dd>{currentWork.phase}</dd></div><div><dt>Latest record</dt><dd>{currentWork.latestActivity?.label ?? "No activity event yet"}</dd></div></dl>{currentWork.latestActivity && <div className="current-work-latest"><span>Latest Node record</span><strong>{currentWork.latestActivity.summary}</strong><small>{formatTraceTime(currentWork.latestActivity.occurredAt)}</small></div>}<div className="current-work-footer"><p>{currentWork.health === "current" ? "This card reflects the latest accepted Node snapshot." : "This snapshot remains readable, but consequential task actions stay gated until the event stream is current."}</p><div className="current-work-actions"><button type="button" className="text-button" onClick={onDismissCurrent}>Remove from view</button><button type="button" className="secondary-button bordered-button" onClick={onOpenCurrentTask}>Open task</button></div></div></article> : <div className="home-empty-state"><div className="empty-icon" aria-hidden="true"><AppIcon name="tasks" size={17} /></div><p>{nodeConnected ? "No current task in this desktop session" : "Connect an approved Node to view current work"}</p><small>{nodeConnected ? "When the Node returns a task snapshot, its recorded state will appear here." : "AirBench does not reconstruct task history locally."}</small></div>}</section>
     <section className="readiness-card"><div><p className="eyebrow">{nodeConnected ? "NODE READY" : "READY WHEN YOU ARE"}</p><h2>{nodeConnected ? "Ready to receive a task" : "Connect a trusted Node to begin"}</h2><p>{nodeConnected ? `${nodeLabel} will validate task policy, sources, capacity, and qualified capabilities before any work starts.` : "Your organization controls the models, tools, files, and audit record on that Node."}</p></div><button type="button" className="secondary-button bordered-button" data-testid="open-node-settings" onClick={onOpenNode}>{nodeConnected ? "Node settings" : "Connect Node"}</button></section>
   </div>;
 }
@@ -1037,10 +1067,10 @@ function NodeIdentityCard({ connection }: { connection: NodeConnectionView }) {
   </section>;
 }
 
-function NodeSettingsView({ profiles, profilesState, profileError, connection, connectingProfileId, onConnect, onReconnect, onReload, onHome, operationalProjection, onOperationalProjection }: { profiles: ApprovedNodeProfileReference[]; profilesState: "idle" | "loading" | "ready" | "failed"; profileError: string | null; connection: NodeConnectionView; connectingProfileId: string | null; onConnect: (profile: ApprovedNodeProfileReference) => void; onReconnect: () => void; onReload: () => void; onHome: () => void; operationalProjection: NodeOperationalProjection; onOperationalProjection: (projection: NodeOperationalProjection) => void }) {
+function NodeSettingsView({ profiles, profilesState, profileError, connection, connectingProfileId, onConnect, onReconnect, onReload, onHome, operationalProjection }: { profiles: ApprovedNodeProfileReference[]; profilesState: "idle" | "loading" | "ready" | "failed"; profileError: string | null; connection: NodeConnectionView; connectingProfileId: string | null; onConnect: (profile: ApprovedNodeProfileReference) => void; onReconnect: () => void; onReload: () => void; onHome: () => void; operationalProjection: NodeOperationalProjection }) {
   const connectedProfile = profiles.find((profile) => profile.profileId === connection.profileId);
   return <section className="settings-view"><p className="eyebrow">TRUSTED EXECUTION</p><h1>Node and settings</h1><p className="lead">Choose an organization-approved Node. AirBench does not accept arbitrary model-server addresses or credentials in the desktop app.</p>
-    <NodeReadinessPanel connection={connection} profile={connectedProfile ?? null} onProjection={onOperationalProjection} />
+    <NodeReadinessPanel connection={connection} profile={connectedProfile ?? null} projection={operationalProjection} />
     <HardwareCard profile={connectedProfile ?? null} connected={connection.state === "connected"} hardware={operationalProjection.hardware} />
     <ModelRoster profile={connectedProfile ?? null} connected={connection.state === "connected"} qualification={operationalProjection.qualification} />
     {connection.state === "connected" && <NodeIdentityCard connection={connection} />}
@@ -1085,7 +1115,8 @@ function TaskWorkspaceView({ projection, syncState, plan, routeTrace, approval, 
     <section className={`workspace-sync-recovery workspace-sync-recovery-${syncRecovery.tone}`} aria-label="Task synchronization recovery guidance"><div><strong>{syncRecovery.label}</strong><span>{syncRecovery.detail}</span></div><dl><div><dt>Preserved</dt><dd>{syncRecovery.preserved}</dd></div><div><dt>Retry</dt><dd>{syncRecovery.retry}</dd></div><div><dt>Next</dt><dd>{syncRecovery.nextAction}</dd></div></dl></section>
     <div className="workspace-actions"><button type="button" className="secondary-button bordered-button" onClick={onHome}>Back to Home</button><button type="button" className="secondary-button" onClick={onStop} disabled={!canStop} title={canStop ? "Send a Node-authorized stop command" : "Stopping is disabled until the Node is current"}>{controlling ? "Stopping..." : "Stop task"}</button><span className="workspace-command-note">Pause, resume, and question responses appear only when the Node supplies their typed command contracts.</span></div>
     {trace.review.questions.length > 0 && <OperatorQuestionCard questions={trace.review.questions} taskStatus={projection.status} phase={projection.phase} synchronized={syncStatus === "connected" && projection.health === "current"} ledgerEventRef={projection.ledgerHeadRef} />}
-    <section className="workspace-now" aria-label="Current Node state"><div><p className="eyebrow">CURRENT NODE STATE</p><h2>{statusLabel[projection.status] ?? projection.status} in {projection.phase}</h2><p>The task state and phase come from the latest approved Node snapshot.</p></div><div className="workspace-now-record">{trace.latestActivity ? <><span>Latest recorded activity</span><strong>{trace.latestActivity.label}</strong><p>{trace.latestActivity.summary}</p><small>{formatTraceTime(trace.latestActivity.occurredAt)} / ledger {trace.latestActivity.ledgerEventRef}</small></> : <><span>Latest recorded activity</span><strong>No activity event yet</strong><p>The Node has supplied the task snapshot but no newer event in this cursor.</p></>}</div></section>
+    <section className="workspace-now" aria-label="Current Node state"><div><p className="eyebrow">CURRENT NODE STATE</p><h2>{statusLabel[projection.status] ?? projection.status} in {projection.phase}</h2><p>The task state and phase come from the latest approved Node snapshot.</p></div><div className="workspace-now-record">{trace.latestActivity ? <><span>Latest recorded activity</span><strong>{trace.latestActivity.label}</strong><p>{trace.latestActivity.summary}</p><small>{formatTraceTime(trace.latestActivity.occurredAt)}</small></> : <><span>Latest recorded activity</span><strong>No activity event yet</strong><p>The Node has supplied the task snapshot but no newer event in this cursor.</p></>}</div></section>
+    <ModelIndicatorCard routeTrace={routeTrace} />
     <section className="worktrace-board" aria-label="Node-backed work trace"><div className="worktrace-board-head"><div><p className="eyebrow">WORK TRACE</p><h2>What AirBench has recorded</h2><p>Each stage is derived from a Node snapshot, plan, or ordered event. Private model reasoning is not shown.</p></div><span className="workspace-count">{trace.activity.length} event{trace.activity.length === 1 ? "" : "s"}</span></div><ol className="worktrace-stage-list">{trace.stages.map((stage) => <TraceStageCard key={stage.id} stage={stage} />)}</ol></section>
     {profile && operatorId && <AutonomyPanel profile={profile} taskId={projection.taskId} operatorId={operatorId} taskStatus={projection.status} />}
     <div className="workspace-proof-layout">
@@ -1119,7 +1150,7 @@ function TraceActivityGroup({ label, items, empty }: { label: string; items: Wor
 function TeamPlanSummary({ plan }: { plan: WorkTrace["team"] }) {
   return <section className="worktrace-team-plan" aria-label="Node execution plan">
     <div className="worktrace-team-plan-head"><div><span className="worktrace-team-plan-label">NODE EXECUTION PLAN</span><strong>{plan.executionModeLabel}</strong><p>{plan.executionModeDetail}</p></div><span className="worktrace-team-plan-ceiling">{plan.concurrencyCeiling} lane{plan.concurrencyCeiling === 1 ? "" : "s"}</span></div>
-    {plan.teamId && <small className="worktrace-team-plan-meta">Team {plan.teamId}{plan.planLedgerEventRef ? ` / ledger ${plan.planLedgerEventRef}` : ""}</small>}
+    <small className="worktrace-team-plan-meta">Execution plan supplied by the approved Node</small>
     <div className="worktrace-team-plan-grid">
       <div><span>Planned assignments</span>{plan.assignments.length === 0 ? <p>No assignment list supplied.</p> : <ol>{plan.assignments.map((assignment) => <li key={assignment.assignmentId}><strong>{assignment.assignmentId}</strong><small>{assignment.dependencies.length > 0 ? `waits for ${assignment.dependencies.join(", ")}` : "no declared predecessor"}</small></li>)}</ol>}</div>
       <div><span>Capability lanes</span>{plan.capabilityLanes.length === 0 ? <p>No capability lanes supplied.</p> : <ul>{plan.capabilityLanes.map((lane) => <li key={`${lane.role}-${lane.capability}`}><strong>{lane.role}</strong><small>{lane.capability}</small></li>)}</ul>}</div>
@@ -1152,7 +1183,7 @@ function RecordGatewayView({ destination, nodeConnected, currentTask, onHome, on
   if (destination === "history") {
     return <TaskHistoryView tasks={taskHistory} onOpen={onOpenTask} onRemove={onRemoveTask} onNewTask={onNewTask} />;
   }
-  return <section className="record-gateway" data-testid={`record-gateway-${destination}`} aria-label={`${destinationLabel[destination]} record availability`}><header><p className="eyebrow">{gateway.eyebrow}</p><h1>{gateway.title}</h1><p className="lead">{gateway.description}</p></header><section className={`record-gateway-state record-gateway-state-${gateway.state}`} role="status"><span className="record-gateway-icon" aria-hidden="true"><AppIcon name={gateway.state === "node_unavailable" ? "node" : "archive"} size={19} /></span><div><strong>{gateway.stateLabel}</strong><p>{gateway.stateDescription}</p></div></section><section className="record-gateway-requirement"><p className="eyebrow">WHAT IS NEEDED</p><p>{gateway.requiredProjection}</p></section>{gateway.currentTask && <section className="record-gateway-context" aria-label="Current task context"><div><p className="eyebrow">CURRENT TASK CONTEXT</p><h2>{gateway.currentTask.title}</h2><p>This is an existing Node task projection, not a substitute for the requested record query.</p></div><dl><div><dt>Task ID</dt><dd>{gateway.currentTask.taskId}</dd></div><div><dt>State</dt><dd>{gateway.currentTask.status} / {gateway.currentTask.phase}</dd></div><div><dt>Ledger head</dt><dd>{gateway.currentTask.ledgerHeadRef}</dd></div></dl></section>}<footer className="record-gateway-actions">{gateway.state === "node_unavailable" && <button type="button" className="primary-button" onClick={onOpenNode}>Connect approved Node</button>}{gateway.currentTask && <button type="button" className="secondary-button bordered-button" onClick={onOpenCurrentTask}>Open current task</button>}<button type="button" className="text-button" onClick={onHome}>Return home</button></footer></section>;
+  return <section className="record-gateway" data-testid={`record-gateway-${destination}`} aria-label={`${destinationLabel[destination]} record availability`}><header><p className="eyebrow">{gateway.eyebrow}</p><h1>{gateway.title}</h1><p className="lead">{gateway.description}</p></header><section className={`record-gateway-state record-gateway-state-${gateway.state}`} role="status"><span className="record-gateway-icon" aria-hidden="true"><AppIcon name={gateway.state === "node_unavailable" ? "node" : "archive"} size={19} /></span><div><strong>{gateway.stateLabel}</strong><p>{gateway.stateDescription}</p></div></section><section className="record-gateway-requirement"><p className="eyebrow">WHAT IS NEEDED</p><p>{gateway.requiredProjection}</p></section>{gateway.currentTask && <section className="record-gateway-context" aria-label="Current task context"><div><p className="eyebrow">CURRENT TASK CONTEXT</p><h2>{gateway.currentTask.title}</h2><p>This is an existing Node task projection, not a substitute for the requested record query.</p></div><dl><div><dt>State</dt><dd>{gateway.currentTask.status} / {gateway.currentTask.phase}</dd></div><div><dt>Available action</dt><dd>Open the task for the latest governed evidence.</dd></div></dl></section>}<footer className="record-gateway-actions">{gateway.state === "node_unavailable" && <button type="button" className="primary-button" onClick={onOpenNode}>Connect approved Node</button>}{gateway.currentTask && <button type="button" className="secondary-button bordered-button" onClick={onOpenCurrentTask}>Open current task</button>}<button type="button" className="text-button" onClick={onHome}>Return home</button></footer></section>;
 }
 
 function ConnectionHelp({ onClose, onOpenNode }: { onClose: () => void; onOpenNode: () => void }) {

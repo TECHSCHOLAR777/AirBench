@@ -205,11 +205,12 @@ class ChromaVectorStore:
         incoming = tuple(chunks)
         if not incoming:
             return
-        first = incoming[0]
-        stale = self._collection.get(where={"source_ref": first.source_ref}, include=["metadatas"])
-        for metadata in stale.get("metadatas") or ():
-            if metadata and metadata.get("revision_state") == "current" and metadata.get("revision_id") != first.revision_id:
-                self._collection.update(ids=[metadata["chunk_id"]], metadatas=[{**metadata, "revision_state": "superseded"}])
+        revisions = {(chunk.source_ref, chunk.revision_id) for chunk in incoming}
+        for source_ref, revision_id in revisions:
+            stale = self._collection.get(where={"source_ref": source_ref}, include=["metadatas"])
+            for metadata in stale.get("metadatas") or ():
+                if metadata and metadata.get("revision_state") == "current" and metadata.get("revision_id") != revision_id:
+                    self._collection.update(ids=[metadata["chunk_id"]], metadatas=[{**metadata, "revision_state": "superseded"}])
         self._collection.upsert(
             ids=[chunk.chunk_id for chunk in incoming],
             embeddings=[list(chunk.embedding) for chunk in incoming],

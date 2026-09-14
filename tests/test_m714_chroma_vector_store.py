@@ -41,6 +41,20 @@ class TestChromaVectorStore:
         assert result[0].chunk_id == "chunk-1"
         assert result[0].embedding == (1.0, 0.0, 0.0)
 
+    def test_mixed_source_revision_batch_supersedes_each_source(self, tmp_path) -> None:
+        store = ChromaVectorStore(tmp_path / "chroma")
+        store.upsert((
+            _chunk("manual-v1", source_ref="local:manual.pdf", revision_id="revision-1"),
+            _chunk("sop-v1", source_ref="local:sop.pdf", revision_id="revision-1"),
+        ))
+        store.upsert((
+            _chunk("manual-v2", source_ref="local:manual.pdf", revision_id="revision-2"),
+            _chunk("sop-v2", source_ref="local:sop.pdf", revision_id="revision-2"),
+        ))
+
+        current = {chunk.chunk_id for chunk in store.search((1.0, 0.0, 0.0), Clearance.internal, 10)}
+        assert current == {"manual-v2", "sop-v2"}
+
     def test_local_vector_index_delegates_to_chroma(self, tmp_path) -> None:
         store = ChromaVectorStore(tmp_path / "chroma")
         index = LocalVectorIndex(store=store)

@@ -287,14 +287,39 @@ class NodeApiService:
             media_type = _image_media_type(content)
             if media_type is None:
                 raise NodeApiError(415, "pid_unsupported_media", "The P&ID route accepts PNG or JPEG page images.")
-            content_hash = sha256(content).hexdigest()
-            intake_id = stable_id("pid-intake", task_id, content_hash)
+
+            # Production composition must enter through the single File Intake
+            # Layer. The no-gateway branch remains only for isolated adapter
+            # tests that intentionally exercise the adapter seam.
+            intake_manifest = None
+            intake_page = None
+            if self.intake_gateway is not None:
+                try:
+                    uploaded = self.intake_gateway.query_upload(
+                        subject=subject, task_id=task_id, file_name=file_name, content=content,
+                    )
+                    intake_id = str(uploaded["intake_id"])
+                    intake_manifest, intake_page, page_bytes = self.intake_gateway.read_rendered_page_for_adapter(
+                        intake_id=intake_id,
+                    )
+                    content = page_bytes
+                    media_type = intake_page.media_type
+                    content_hash = intake_page.content_hash
+                    revision_id = intake_manifest.revision_id
+                    source_ref = intake_manifest.source_ref
+                except NodeIntakeError as exc:
+                    raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+            else:
+                content_hash = sha256(content).hexdigest()
+                intake_id = stable_id("pid-intake", task_id, content_hash)
+                revision_id = stable_id("pid-revision", task_id, content_hash)
+                source_ref = f"query-upload:{task_id}:{file_name}"
             workspace = Path(self.pid_workspace or ".").resolve() / task_id
             try:
                 record = adapter.process(
                     page_bytes=content, media_type=media_type, task_id=task_id, intake_id=intake_id,
-                    revision_id=stable_id("pid-revision", task_id, content_hash),
-                    source_ref=f"query-upload:{task_id}:{file_name}", content_hash=content_hash,
+                    revision_id=revision_id,
+                    source_ref=source_ref, content_hash=content_hash,
                     clearance=task.clearance, taint=Taint.untrusted, workspace=workspace,
                 )
             except PidAdapterError as exc:
@@ -319,7 +344,67 @@ class NodeApiService:
                 self._ledger.append(event)
             except Exception as exc:
                 raise NodeApiError(503, "pid_not_committed", "The P&ID extraction record could not be committed.") from exc
-            return {**payload, "ledger_event_ref": event.event_id}
+            graph_projection = self._commit_pid_candidates(record)
+            return {**payload, "ledger_event_ref": event.event_id, "graph": graph_projection}
+
+    def _commit_pid_candidates(self, record: Any) -> dict[str, Any]:
+        """Stage P&ID facts and commit only candidates passing local gates."""
+        if self.world_model is None:
+            return {"status": "unavailable", "committed": 0, "review_required": 0, "candidates": []}
+        from airbench.intake.pid.records import candidate_facts_from_pid
+        from airbench.knowledge.world_model import CandidateFactWriter, WorldModelError
+
+        candidates = candidate_facts_from_pid(record)
+        if not candidates:
+            return {"status": "empty", "committed": 0, "review_required": 0, "candidates": []}
+        candidate_ids = {candidate.fact.fact_id for candidate in candidates}
+        known_ids = {fact.fact_id for fact in self.world_model.facts}
+
+        def consistency_gate(candidate: Any) -> bool:
+            return all(
+                relation.source_fact_id in candidate_ids | known_ids
+                and relation.target_fact_id in candidate_ids | known_ids
+                for relation in candidate.relations
+            )
+
+        def verification_gate(candidate: Any) -> bool:
+            # The adapter may propose facts, but graph visibility requires a
+            # bounded confidence floor and explicit source provenance. Taint
+            # remains untrusted even after this gate.
+            return bool(
+                candidate.fact.source_ref
+                and candidate.fact.confidence >= 0.65
+                and candidate.fact.taint.value == "untrusted"
+            )
+
+        writer = CandidateFactWriter(
+            self.world_model,
+            consistency_gate=consistency_gate,
+            verification_gate=verification_gate,
+            ledger=self._ledger,
+        )
+        committed: list[str] = []
+        review_required: list[str] = []
+        failed: list[dict[str, str]] = []
+        for candidate in candidates:
+            writer.stage(candidate)
+        for candidate in candidates:
+            try:
+                writer.reconcile(candidate.candidate_id, review_floor=0.65)
+                committed.append(candidate.fact.fact_id)
+            except WorldModelError as exc:
+                if exc.code == "review_required":
+                    review_required.append(candidate.candidate_id)
+                else:
+                    failed.append({"candidate_id": candidate.candidate_id, "code": exc.code})
+        status = "committed" if committed and not review_required and not failed else "needs_review" if review_required else "failed" if failed else "empty"
+        return {
+            "status": status,
+            "committed": len(committed),
+            "review_required": len(review_required),
+            "failed": failed,
+            "candidates": [candidate.candidate_id for candidate in candidates],
+        }
 
     def _require_pid(self) -> Any:
         if self.pid_adapter is None:
@@ -328,8 +413,9 @@ class NodeApiService:
 
     def knowledge_status(self) -> dict[str, Any]:
         runtime = self.retrieval
+        graph = self.graph_status()
         if runtime is None:
-            return {"configured": False, "status": "disabled", "indexed_chunks": 0}
+            return {"configured": graph["configured"], "status": "ready" if graph["configured"] else "disabled", "indexed_chunks": 0, "graph": graph}
         store = getattr(runtime.index, "store", None)
         response = {
             "configured": True,
@@ -340,6 +426,7 @@ class NodeApiService:
             "reranker_qualification_reference": runtime.reranker_qualification_reference,
             "indexed_chunks": len(runtime.index.chunks),
             "vector_store": type(store).__name__ if store is not None else "json",
+            "graph": graph,
         }
         count = getattr(store, "chunk_count", None)
         if isinstance(count, int):
@@ -525,7 +612,12 @@ class NodeApiService:
             service = self._require_autonomy()
             self._require_task(task_id)
             try:
-                return service.authorize(task_id=task_id, operator_id=subject, action_id=str(payload.get("action_id", ""))[:128])
+                return service.authorize(
+                    task_id=task_id,
+                    operator_id=subject,
+                    action_id=str(payload.get("action_id", ""))[:128],
+                    operator_roles=self.config.authenticated_roles,
+                )
             except AutonomyServiceError as exc:
                 raise NodeApiError(409, exc.code, str(exc)) from exc
             except (StorageFailure, LedgerError) as exc:
@@ -564,17 +656,24 @@ class NodeApiService:
     def knowledge_search(self, payload: dict[str, Any]) -> dict[str, Any]:
         from airbench.knowledge.retrieval import RetrievalRequest
         from airbench.knowledge.retrieval_loop import RetrievalLoopRequest, run_iterative_retrieval
+        from airbench.knowledge.world_model import WorldModelQuery
 
+        mode = payload.get("mode", "text")
+        if mode not in {"text", "graph", "hybrid"}:
+            raise NodeApiError(422, "invalid_search_mode", "mode must be text, graph, or hybrid.")
         runtime = self.retrieval
-        if runtime is None:
+        if mode in {"text", "hybrid"} and runtime is None:
             raise NodeApiError(503, "retrieval_unavailable", "The local retrieval service is not configured.")
+        if mode in {"graph", "hybrid"} and self.world_model is None:
+            raise NodeApiError(503, "world_model_unavailable", "The world model graph is not configured.")
         query = _text(payload, "query", 4096)
         clearance = _clearance(payload.get("clearance")) if payload.get("clearance") is not None else self.config.clearance_context
         self._check_clearance(clearance)
         top_k = payload.get("top_k", 5)
         if not isinstance(top_k, int) or isinstance(top_k, bool) or not 1 <= top_k <= 20:
             raise NodeApiError(422, "invalid_limit", "top_k must be between 1 and 20.")
-        iterative = bool(payload.get("iterative", False))
+        citations: tuple[Any, ...] = ()
+        iterative = bool(payload.get("iterative", False)) and mode in {"text", "hybrid"}
         if iterative:
             max_rounds = payload.get("max_rounds", 2)
             if not isinstance(max_rounds, int) or isinstance(max_rounds, bool) or not 1 <= max_rounds <= 5:
@@ -593,8 +692,25 @@ class NodeApiService:
                 task_id="knowledge.search", query=query, clearance=clearance, top_k=top_k,
                 min_score=float(raw_min) if raw_min is not None else None,
             ))
+        graph_results: tuple[Any, ...] = ()
+        if mode in {"graph", "hybrid"}:
+            graph_limit = min(top_k, 20)
+            max_depth = payload.get("max_depth", 1)
+            if not isinstance(max_depth, int) or isinstance(max_depth, bool) or not 0 <= max_depth <= 5:
+                raise NodeApiError(422, "invalid_limit", "max_depth must be between 0 and 5.")
+            graph_results = self.world_model.query(WorldModelQuery(
+                task_id="knowledge.search",
+                key=str(payload.get("key", query))[:256],
+                clearance=clearance,
+                limit=graph_limit,
+                entity_id=str(payload.get("entity_id", ""))[:256],
+                relation=str(payload.get("relation", ""))[:128],
+                max_depth=max_depth,
+                as_of=str(payload["as_of"])[:64] if payload.get("as_of") else None,
+            ))
         return {
             "query": query,
+            "mode": mode,
             "clearance": clearance.value,
             "iterative": iterative,
             "found": len(citations) > 0,
@@ -618,6 +734,8 @@ class NodeApiService:
                 }
                 for citation in citations
             ],
+            "graph_result_count": len(graph_results),
+            "graph_results": [_fact_wire(fact) for fact in graph_results],
         }
 
     def knowledge_ingest(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1339,7 +1457,8 @@ class NodeApiService:
                         source = payload["decision"]
                     if key in source:
                         entry[key] = _safe_value(source[key])
-                selected_target = entry.get("selected_target") or _safe_value(payload.get("target_id"))
+                decision = payload.get("decision") if isinstance(payload.get("decision"), dict) else {}
+                selected_target = entry.get("selected_target") or _safe_value(payload.get("target_id")) or _safe_value(decision.get("target_id"))
                 if selected_target:
                     entry["selected_target"] = selected_target
                     model_name = self._model_display_name(selected_target)

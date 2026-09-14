@@ -114,11 +114,14 @@ class PidIntakeAdapter:
     def _run_pipeline(self, source: Path, output_dir: Path) -> Mapping[str, Any]:
         try:
             from .pipeline import PIDPipeline
+            from .symbol_detector import PidUnavailable
         except ImportError as exc:  # pragma: no cover - depends on local deps
             raise PidAdapterError("adapter_unavailable", "the local P&ID pipeline could not be imported") from exc
         pipeline = PIDPipeline(custom_legend=self._legend_path, weights_path=str(self._resolved_weights()))
         try:
             return pipeline.process_image(image_path=source, output_dir=output_dir)
+        except PidUnavailable as exc:
+            raise PidAdapterError("adapter_unavailable", str(exc)) from exc
         except PidAdapterError:
             raise
         except Exception as exc:  # noqa: BLE001 - internal failure must be typed, never leak content

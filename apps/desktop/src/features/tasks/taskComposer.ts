@@ -87,10 +87,13 @@ export function buildCreateTaskCommand(input: TaskComposerInput, commandId: stri
       output_contract: outputContract,
       priority,
       deadline,
-      risk_class: "operator_requested",
+      // These values describe the governed model workload, not the fact that
+      // an operator clicked Submit. They must match the signed model roster's
+      // qualification lanes so planning can reach execution.
+      risk_class: "inspection_review",
       autonomy_ceiling: "review_required",
       allowed_evidence_scope: ["task-input"],
-      permitted_worker_capabilities: ["general"],
+      permitted_worker_capabilities: ["reasoning"],
       permitted_tools: [],
       verification_criteria: [],
       resource_budget: { max_concurrency: 1, max_steps: 32 },

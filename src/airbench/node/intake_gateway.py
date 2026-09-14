@@ -45,6 +45,8 @@ class NodeArtifactDownload:
 class NodeIntakeGateway(Protocol):
     def query_upload(self, *, subject: str, task_id: str, file_name: str, content: bytes) -> dict[str, Any]: ...
 
+    def read_rendered_page_for_adapter(self, *, intake_id: str, page_id: str | None = None) -> tuple[IntakeManifest, PageRecord, bytes]: ...
+
     def preview(self, *, preview_ref: str) -> dict[str, Any]: ...
 
     def status(self, *, intake_id: str) -> dict[str, Any]: ...
@@ -102,6 +104,29 @@ class LocalNodeIntakeGateway:
         except IntakeError as exc:
             raise _map_intake_error(exc) from exc
         return self._manifest_wire(manifest)
+
+    def read_rendered_page_for_adapter(self, *, intake_id: str, page_id: str | None = None) -> tuple[IntakeManifest, PageRecord, bytes]:
+        """Return one committed intake page to a governed visual adapter.
+
+        This is intentionally an internal Node seam rather than a public file
+        read. The adapter receives only a page selected from a committed
+        manifest, never an arbitrary host path.
+        """
+        manifest = self._visible_manifest(intake_id)
+        page = next((item for item in manifest.pages if page_id is None or item.page_id == page_id), None)
+        if page is None:
+            raise NodeIntakeError(404, "intake_page_not_found", "The requested intake page does not exist.")
+        try:
+            # Image uploads are valid adapter inputs even when no renderer was
+            # configured. In that case the committed source artifact is the
+            # governed page payload; never fall back to the caller's bytes.
+            if page.rendered_page_ref is not None:
+                content = self._store.read_rendered_page(manifest.intake_id, page.page_id)
+            else:
+                content = self._store.read_source(manifest.intake_id)
+        except IntakeError as exc:
+            raise _map_intake_error(exc) from exc
+        return manifest, page, content
 
     def _task_for_upload(self, subject: str, task_id: str) -> TaskEnvelope:
         event = next(

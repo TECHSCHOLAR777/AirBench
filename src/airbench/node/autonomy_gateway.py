@@ -151,12 +151,14 @@ class LocalNodeAutonomyService:
         """Drop a resolved escalation hold without recording a new decision."""
         self._holds.pop(task_id, None)
 
-    def authorize(self, *, task_id: str, operator_id: str, action_id: str = "") -> dict[str, Any]:
+    def authorize(self, *, task_id: str, operator_id: str, action_id: str = "", operator_roles: tuple[str, ...] = ()) -> dict[str, Any]:
         hold = self._holds.get(task_id)
         if hold is None:
             raise AutonomyServiceError("no_escalation", "there is no autonomy escalation to authorize")
         if not operator_id.strip():
             raise AutonomyServiceError("invalid_operator", "an operator identity is required to authorize")
+        if hold.get("required_authority") and hold["required_authority"] not in operator_roles:
+            raise AutonomyServiceError("insufficient_authority", f"the operator lacks the required role {hold['required_authority']}")
         self._ledger.append(build_event(
             event_type="authority.authorized", task_id=task_id, actor_id=operator_id, actor_type="operator",
             payload_contract="AuthorityAuthorization", payload_version="1.0",
@@ -174,7 +176,6 @@ class LocalNodeAutonomyService:
             clearance=self._clearance,
             idempotency=idempotency_key("authority.authorized", task_id, operator_id, action_id or str(hold.get("action_id"))),
             sequence=len(self._ledger.events), previous_event_hash=self._ledger.head_hash,
-            occurred_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         ))
         self._holds.pop(task_id, None)
         return {"task_id": task_id, "authorized": True, "action_id": action_id or hold.get("action_id")}

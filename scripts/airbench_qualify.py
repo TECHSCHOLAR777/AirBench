@@ -174,9 +174,13 @@ def _write_matrix(args, evaluation: dict, fixture_hash: str, pass_rate: float,
         for name in ("cancellation_result", "timeout_result", "no_egress_startup_result"):
             if name in supplemental:
                 safety[name] = supplemental[name]
+            else:
+                safety[name] = "pending"
         for name in ("inspection_review_accuracy", "evidence_faithfulness", "hallucination_rate", "citation_provenance_retention", "cancellation_and_timeout", "no_egress_startup"):
             if name in supplemental:
                 scores[name] = supplemental[name]
+            else:
+                scores[name] = 0.0
         if sign:
             if not KEY_PATH.exists() or len(KEY_PATH.read_bytes()) != 32:
                 raise SystemExit(f"a 32-byte signing key is required at {KEY_PATH}")
