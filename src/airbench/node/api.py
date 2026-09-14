@@ -488,42 +488,48 @@ class NodeApiService:
 
         from .autonomy_gateway import AutonomyServiceError
 
-        service = self._require_autonomy()
-        self._require_task(task_id)
-        clearance = _clearance(payload.get("clearance")) if payload.get("clearance") is not None else self.config.clearance_context
-        self._check_clearance(clearance)
-        try:
-            taint = Taint(str(payload.get("taint", "untrusted")))
-        except ValueError as exc:
-            raise NodeApiError(422, "invalid_taint", "taint is invalid.") from exc
-        confidence = payload.get("confidence", 1.0)
-        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= float(confidence) <= 1:
-            raise NodeApiError(422, "invalid_confidence", "confidence must be between 0 and 1.")
-        try:
-            return service.score(
-                task_id=task_id,
-                action_id=_text(payload, "action_id", 128),
-                action_kind=_text(payload, "action_kind", 128),
-                source_ref=_text(payload, "source_ref", 512),
-                confidence=float(confidence),
-                clearance=clearance,
-                taint=taint,
-                worker_id=str(payload.get("worker_id", "node.execution"))[:128],
-                claimed_risk=str(payload["claimed_risk"])[:128] if payload.get("claimed_risk") else None,
-                target_object_id=str(payload.get("target_object_id", ""))[:256],
-            )
-        except AutonomyServiceError as exc:
-            raise NodeApiError(409, exc.code, str(exc)) from exc
+        with self._lock:
+            service = self._require_autonomy()
+            self._require_task(task_id)
+            clearance = _clearance(payload.get("clearance")) if payload.get("clearance") is not None else self.config.clearance_context
+            self._check_clearance(clearance)
+            try:
+                taint = Taint(str(payload.get("taint", "untrusted")))
+            except ValueError as exc:
+                raise NodeApiError(422, "invalid_taint", "taint is invalid.") from exc
+            confidence = payload.get("confidence", 1.0)
+            if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= float(confidence) <= 1:
+                raise NodeApiError(422, "invalid_confidence", "confidence must be between 0 and 1.")
+            try:
+                return service.score(
+                    task_id=task_id,
+                    action_id=_text(payload, "action_id", 128),
+                    action_kind=_text(payload, "action_kind", 128),
+                    source_ref=_text(payload, "source_ref", 512),
+                    confidence=float(confidence),
+                    clearance=clearance,
+                    taint=taint,
+                    worker_id=str(payload.get("worker_id", "node.execution"))[:128],
+                    claimed_risk=str(payload["claimed_risk"])[:128] if payload.get("claimed_risk") else None,
+                    target_object_id=str(payload.get("target_object_id", ""))[:256],
+                )
+            except AutonomyServiceError as exc:
+                raise NodeApiError(409, exc.code, str(exc)) from exc
+            except (StorageFailure, LedgerError) as exc:
+                raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the score decision.") from exc
 
     def autonomy_authorize(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         from .autonomy_gateway import AutonomyServiceError
 
-        service = self._require_autonomy()
-        self._require_task(task_id)
-        try:
-            return service.authorize(task_id=task_id, operator_id=subject, action_id=str(payload.get("action_id", ""))[:128])
-        except AutonomyServiceError as exc:
-            raise NodeApiError(409, exc.code, str(exc)) from exc
+        with self._lock:
+            service = self._require_autonomy()
+            self._require_task(task_id)
+            try:
+                return service.authorize(task_id=task_id, operator_id=subject, action_id=str(payload.get("action_id", ""))[:128])
+            except AutonomyServiceError as exc:
+                raise NodeApiError(409, exc.code, str(exc)) from exc
+            except (StorageFailure, LedgerError) as exc:
+                raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the task authorization.") from exc
 
     def _require_autonomy(self) -> Any:
         if self.autonomy is None:
