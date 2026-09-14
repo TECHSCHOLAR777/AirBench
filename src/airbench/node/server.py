@@ -89,6 +89,7 @@ class NodeServerConfig:
     domain_pack_ref: str
     clearance: Clearance
     subject: str
+    operator_roles: tuple[str, ...] = ("human_reviewer",)
     host: str = "127.0.0.1"
     port: int = 8765
     ledger_path: str | None = None
@@ -139,6 +140,7 @@ class NodeServerConfig:
             domain_pack_ref=_require("AIRBENCH_DOMAIN_PACK_REF"),
             clearance=clearance,
             subject=_require("AIRBENCH_SUBJECT"),
+            operator_roles=tuple(role.strip() for role in os.environ.get("AIRBENCH_OPERATOR_ROLES", "human_reviewer").split(",") if role.strip()),
             host=os.environ.get("AIRBENCH_HOST", "127.0.0.1").strip(),
             port=port,
             ledger_path=os.environ.get("AIRBENCH_LEDGER_PATH", "").strip() or None,
@@ -534,6 +536,7 @@ def build_node_app(
         protocol_version=NODE_PROTOCOL_VERSION,
         clearance_context=config.clearance,
         authenticated_subject=config.subject,
+        authenticated_roles=config.operator_roles,
         domain_pack_ref=config.domain_pack_ref,
         bearer_token=config.bearer_token,
         handshake_ledger_event_ref=head,
@@ -819,7 +822,9 @@ def add_model_serving_route(app: Any, service: NodeApiService) -> None:
             for endpoint in endpoints
         )
         return StarletteJSONResponse(
-            status_code=200 if ready else 503,
+            # Health is a projection, not an admission decision. A degraded
+            # lane must be visible; the router still fails closed for calls.
+            status_code=200,
             content={
                 "configured": True,
                 "status": "ready" if ready else "degraded",

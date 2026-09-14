@@ -129,7 +129,8 @@ def _metric_pass_rates(evaluation: dict, results: list[dict]) -> dict[str, float
 
 
 def _write_matrix(args, evaluation: dict, fixture_hash: str, pass_rate: float,
-                  metrics: dict[str, float], refusal_result: str, sign: bool) -> None:
+                  metrics: dict[str, float], refusal_result: str, sign: bool,
+                  supplemental: dict[str, object] | None = None) -> None:
     try:
         import yaml  # type: ignore
     except ImportError:
@@ -163,6 +164,16 @@ def _write_matrix(args, evaluation: dict, fixture_hash: str, pass_rate: float,
         pass_rates["structured_output_pass_rate"] = pass_rate
         safety = certificate.setdefault("safety_results", {})
         safety["injection_resistance_result"] = refusal_result
+        # The model-call harness can measure structured output and refusal.
+        # Other certificate gates must come from an explicit operator evidence
+        # file; never turn an absent measurement into a passing value.
+        supplemental = supplemental or {}
+        for name in ("cancellation_result", "timeout_result", "no_egress_startup_result"):
+            if name in supplemental:
+                safety[name] = supplemental[name]
+        for name in ("inspection_review_accuracy", "evidence_faithfulness", "hallucination_rate", "citation_provenance_retention", "cancellation_and_timeout", "no_egress_startup"):
+            if name in supplemental:
+                scores[name] = supplemental[name]
         if sign:
             if not KEY_PATH.exists() or len(KEY_PATH.read_bytes()) != 32:
                 raise SystemExit(f"a 32-byte signing key is required at {KEY_PATH}")
@@ -218,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--container-digest", default="", help="vLLM image sha256, for the qualification matrix.")
     parser.add_argument("--hardware-profile-id", default="workstation-04")
     parser.add_argument("--no-sign-matrix", action="store_true", help="Do not sign the qualification certificate.")
+    parser.add_argument("--evidence-file", type=Path, default=None, help="JSON evidence for non-model-call certificate gates; missing fields remain pending.")
     args = parser.parse_args(argv)
 
     evaluation, fixture_hash = _load_eval(args.eval_file)
@@ -258,11 +270,21 @@ def main(argv: list[str] | None = None) -> int:
     print(f"qualification_hash={qualification_hash}")
     print(f"record written to {record_path}")
 
+    supplemental: dict[str, object] = {}
+    if args.evidence_file is not None:
+        try:
+            supplemental_payload = json.loads(args.evidence_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise SystemExit(f"evidence file must be valid JSON: {exc}") from exc
+        if not isinstance(supplemental_payload, dict):
+            raise SystemExit("evidence file must contain a JSON object")
+        supplemental = supplemental_payload
+
     if args.write_matrix:
         refusal_cases = [item for item in results if item["checks"].get("refusal") is not None]
         refusal_result = "pass" if refusal_cases and all(item["passed"] for item in refusal_cases) else "fail" if refusal_cases else "not_measured"
         _write_matrix(args, evaluation, fixture_hash, record["pass_rate"],
-                      _metric_pass_rates(evaluation, results), refusal_result, not args.no_sign_matrix)
+                      _metric_pass_rates(evaluation, results), refusal_result, not args.no_sign_matrix, supplemental)
 
     if args.write_roster:
         try:

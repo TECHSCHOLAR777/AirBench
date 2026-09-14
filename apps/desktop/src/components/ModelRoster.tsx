@@ -11,10 +11,12 @@ function stateClass(status: ModelQualificationStatus["status"]): string {
 
 export function ModelRoster({
   profile,
-  connected
+  connected,
+  qualification,
 }: {
   profile: ApprovedNodeProfileReference | ApprovedNodeProfile | null;
   connected: boolean;
+  qualification?: import("../platform/node/qualificationBridge").QualificationRoster | null;
 }) {
   const [targets, setTargets] = useState<ModelQualificationStatus[]>([]);
   const [configured, setConfigured] = useState(false);
@@ -22,6 +24,7 @@ export function ModelRoster({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (qualification !== undefined) return;
     if (!connected || !profile) {
       setTargets([]);
       setConfigured(false);
@@ -51,7 +54,10 @@ export function ModelRoster({
     return () => {
       mounted = false;
     };
-  }, [profile, connected]);
+  }, [profile, connected, qualification]);
+
+  const resolvedTargets = qualification !== undefined ? (qualification?.targets ?? []) : targets;
+  const resolvedConfigured = qualification !== undefined ? Boolean(qualification?.configured) : configured;
 
   if (!connected) return null;
 
@@ -60,16 +66,16 @@ export function ModelRoster({
       <AppIcon name="shield" size={17} />
       <div>
         <strong>Model Roster &amp; Qualification</strong>
-        <span>{configured ? `${targets.length} targets declared by the Node` : "No qualification matrix configured on this Node"}</span>
+        <span>{resolvedConfigured ? `${resolvedTargets.length} targets declared by the Node` : "No qualification matrix configured on this Node"}</span>
       </div>
     </div>
     {loading && <div className="profile-empty">Checking qualifications...</div>}
     {error && <div className="profile-empty error-text">Failed to load roster: {error}</div>}
-    {!loading && !error && targets.length === 0 && (
-      <div className="profile-empty">{configured ? "No model targets are declared." : "Model qualification is not configured on this Node."}</div>
+    {!loading && !error && resolvedTargets.length === 0 && (
+      <div className="profile-empty">{resolvedConfigured ? "No model targets are declared." : "Model qualification is not configured on this Node."}</div>
     )}
     {!loading && !error && targets.length > 0 && <ul className="worktrace-artifact-list">
-      {targets.map((q) => (
+      {resolvedTargets.map((q) => (
         <li key={q.target_id}>
           <div className="proof-record-button" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", border: "none", background: "none" }}>
             <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>

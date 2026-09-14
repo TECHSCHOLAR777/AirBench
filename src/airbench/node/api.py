@@ -112,6 +112,7 @@ class NodeApiConfig:
     handshake_ledger_event_ref: str
     sovereignty_evidence_ref: str
     require_orchestrator_authorization: bool = True
+    authenticated_roles: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         try:
@@ -733,6 +734,16 @@ class NodeApiService:
             created = next((event for event in self._ledger.events if event.task_id == task.task_id and event.event_type == "task.created"), None)
             if created is None:
                 raise NodeApiError(503, "task_commit_unreadable", "The committed task could not be read back from the ledger.")
+            # Text-only requests use the same File Intake Layer as files. The
+            # request is untrusted evidence and is committed before planning.
+            if arguments.get("input_kind") == "text" and not input_manifest_refs and self.intake_gateway is not None:
+                try:
+                    self.intake_gateway.query_upload(
+                        subject=subject, task_id=task.task_id, file_name="task-input.txt", content=request.encode("utf-8")
+                    )
+                except NodeIntakeError as exc:
+                    raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+            snapshot = self.snapshot(task.task_id)
             return {
                 "task": task.to_dict(),
                 "snapshot": snapshot,
@@ -807,6 +818,8 @@ class NodeApiService:
                     # autonomy governor requires before running work inherited
                     # from untrusted input.
                     if self.autonomy is not None and hasattr(self.execution, "authorize"):
+                        if "human_reviewer" not in self.config.authenticated_roles:
+                            raise NodeApiError(403, "human_authority_role_required", "The authenticated operator is not assigned the pack-required human_reviewer role.")
                         self.execution.authorize(subject, task_id)
                     self.execution.execute(task_id)
                 except NodeTaskExecutionError as exc:

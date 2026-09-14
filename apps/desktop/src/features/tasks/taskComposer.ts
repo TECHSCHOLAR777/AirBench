@@ -12,6 +12,7 @@ export interface TaskComposerInput {
   priority: string;
   deadline: string | null;
   inputManifestRefs: string[];
+  inputKind?: "file" | "text";
 }
 
 const MAX_REQUEST_LENGTH = 65_536;
@@ -94,6 +95,7 @@ export function buildCreateTaskCommand(input: TaskComposerInput, commandId: stri
       verification_criteria: [],
       resource_budget: { max_concurrency: 1, max_steps: 32 },
       input_manifest_refs: [...input.inputManifestRefs],
+      input_kind: input.inputKind ?? (input.inputManifestRefs.length > 0 ? "file" : "text"),
     },
   };
 }

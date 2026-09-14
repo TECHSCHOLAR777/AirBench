@@ -52,6 +52,21 @@ def _certificate_status(certificate: Mapping[str, Any]) -> str:
     return "qualified"
 
 
+def _certificate_missing_evidence(certificate: Mapping[str, Any]) -> list[str]:
+    missing: list[str] = []
+    for section in ("benchmark_scores", "pass_rates", "safety_results"):
+        values = certificate.get(section)
+        if isinstance(values, Mapping):
+            for name, value in values.items():
+                if isinstance(value, str) and (value.startswith("PENDING:") or value.startswith("REPLACE_WITH_MEASURED:")):
+                    missing.append(str(name))
+    for name in ("runtime_container_digest", "input_fixture_set_hash", "qualified_at", "signature"):
+        value = certificate.get(name)
+        if not value or (isinstance(value, str) and (value.startswith("PENDING:") or value.startswith("REPLACE_WITH_MEASURED:"))):
+            missing.append(name)
+    return sorted(set(missing))
+
+
 def qualification_status(
     matrix: Mapping[str, Any], target_id: str, routing_tiers: Mapping[str, str] | None = None
 ) -> dict[str, Any]:
@@ -64,6 +79,7 @@ def qualification_status(
             "worker_role": certificate.get("worker_role"),
             "status": _certificate_status(certificate),
             "expires_at": certificate.get("expires_at"),
+            "missing_evidence": _certificate_missing_evidence(certificate),
         }
         for certificate in certificates
     ]
@@ -83,6 +99,7 @@ def qualification_status(
         # changes the qualification verdict above.
         "routing_tier": (routing_tiers or {}).get(target_id),
         "measurement_pending": overall == "pending",
+        "reason": "Required qualification evidence is still pending." if overall == "pending" else None,
     }
     return result
 
