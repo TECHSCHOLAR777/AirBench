@@ -37,6 +37,11 @@ $env:AIRBENCH_SUBJECT            = $Subject
 $env:AIRBENCH_HOST               = "127.0.0.1"
 $env:AIRBENCH_PORT               = $Port
 $env:AIRBENCH_POLICY_VERSION_HASH = "policy-v0.1"
+# Keep the command/evidence ledger durable across Node restarts.  The File
+# Intake store is persistent too, so an in-memory ledger would make a valid
+# prior intake look like orphaned evidence after every demo restart.
+$env:AIRBENCH_LEDGER_PATH        = "$repo\.airbench-node-ledger.sqlite"
+$env:AIRBENCH_SIGNING_KEY_PATH   = "$repo\.airbench_signing_key"
 
 $env:AIRBENCH_MODEL_SERVING_ENABLED  = "1"
 $env:AIRBENCH_MODEL_ROSTER_PATH      = "$repo\models\roster\demo\two_endpoint_roster.yaml"

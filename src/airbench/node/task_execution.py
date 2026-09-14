@@ -19,6 +19,7 @@ and a deliverable template path (see ``NodeExecutionConfig.from_env``).
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -50,11 +51,12 @@ from contracts import (
 
 from ..delivery import DeliverableEngine, DeliverableRequest, DeterministicValue, LocalArtifactStore
 from ..intake import IntakeManifest, LocalIntakeStore
-from ..orchestration.team_runtime import TeamRuntime
+from ..orchestration.team_runtime import TeamExecutionFailure, TeamRuntime
 from ..orchestration.worker_context import EvidenceProvider, ScopedEvidence
 from ..verification.runner import VerificationRequest, VerificationRule, VerificationRunner
 
 _ENABLED_VALUES = {"1", "true", "yes", "on"}
+logger = logging.getLogger(__name__)
 
 
 class NodeTaskExecutionError(RuntimeError):
@@ -182,7 +184,10 @@ class NodeTaskExecutionCoordinator:
             "stage": "source-review",
             "input_schema": "WorkerInput.v1",
             "output_schema": "WorkerOutput.v1",
-            "evidence_refs": ["task-input"],
+            # Keep the worker assignment within the task's declared evidence
+            # scope.  The demo task uses an inspection-report scope; the
+            # intake manifest remains the concrete provenance record.
+            "evidence_refs": list(task.allowed_evidence_scope) or ["task-input"],
             "allowed_tools": [],
             "clearance": task.clearance.value,
             "taint": manifest.taint.value,
@@ -332,10 +337,17 @@ class NodeTaskExecutionCoordinator:
             except Exception:  # noqa: BLE001 — autonomy gate failure is fatal for the step
                 raise NodeTaskExecutionError("autonomy scoring failed; execution halted for safety")
 
+        worker_summary: dict[str, str] = {}
+
         def worker_runner(invocation: Any, token: Any) -> WorkerResult:
             if token.cancelled:
                 raise NodeTaskExecutionError("worker cancelled before invocation")
-            summary = self._propose_prose(task, manifest, purpose="worker-result")
+            try:
+                summary = self._propose_prose(task, manifest, purpose="worker-result")
+                worker_summary["text"] = summary
+            except Exception:
+                logger.exception("Node worker runner failed", extra={"task_id": task_id})
+                raise
             return WorkerResult.from_dict({
                 "result_id": stable_id("node-result", task_id),
                 "assignment_id": assignment.assignment_id,
@@ -356,7 +368,10 @@ class NodeTaskExecutionCoordinator:
             signing_key=self._signing_key,
             worker_runners={assignment.assignment_id: worker_runner},
         )
-        report = runtime.execute()
+        try:
+            report = runtime.execute()
+        except TeamExecutionFailure as exc:
+            raise NodeTaskExecutionError("the bounded worker team failed closed") from exc
         if report.status != "completed":
             raise NodeTaskExecutionError("the bounded worker team did not complete")
 
@@ -422,6 +437,7 @@ class NodeTaskExecutionCoordinator:
             derivation={"operation": "count_pages", "input_refs": [fact_id]},
             verified=True,
         )
+        findings = worker_summary.get("text") or self._propose_prose(task, manifest, purpose="deliverable-findings")
         artifact = DeliverableEngine(
             template_path=self._template_path,
             artifact_store=LocalArtifactStore(self._artifact_root),
@@ -434,7 +450,7 @@ class NodeTaskExecutionCoordinator:
             title=task.title or "AirBench review note",
             prose_sections={
                 "subject": f"Task: {task.request[:400]}",
-                "findings": self._propose_prose(task, manifest, purpose="deliverable-findings"),
+                "findings": findings,
                 "source_register": f"Source reference: {manifest.source_ref}. Intake record: {manifest.intake_id}.",
                 "deterministic_calculations": "The page count below was computed from the committed intake manifest: {{page_count}} pages.",
                 "review_status": "Verified structural draft for operator review. Operator sign-off remains required.",
@@ -498,6 +514,7 @@ class NodeTaskExecutionCoordinator:
                 output=BackendOutputSpec(mode="text"),
             )
         except BackendCallError as exc:
+            logger.exception("Node execution model call failed", extra={"task_id": task.task_id, "purpose": purpose})
             raise NodeTaskExecutionError("the configured model backend failed during task execution") from exc
         if execution.response is None or isinstance(execution.response, tuple):
             raise NodeTaskExecutionError("the model router did not admit a target for the worker step")
