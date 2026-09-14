@@ -473,6 +473,27 @@ class TestNodeServerConfig(unittest.TestCase):
                 else:
                     os.environ[k] = v
 
+    def test_from_env_blank_operator_roles_use_demo_reviewer_role(self) -> None:
+        env = {
+            "AIRBENCH_NODE_IDENTITY": "node.env.roles",
+            "AIRBENCH_BEARER_TOKEN": "env-token",
+            "AIRBENCH_DOMAIN_PACK_REF": "pack.env.v0",
+            "AIRBENCH_CLEARANCE": "internal",
+            "AIRBENCH_SUBJECT": "principal.env",
+            "AIRBENCH_OPERATOR_ROLES": "   ",
+        }
+        original = {k: os.environ.get(k) for k in env}
+        try:
+            os.environ.update(env)
+            cfg = NodeServerConfig.from_env()
+            self.assertEqual(cfg.operator_roles, ("human_reviewer",))
+        finally:
+            for k, v in original.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
     def test_from_env_missing_required_raises(self) -> None:
         # Remove a required variable
         original = os.environ.pop("AIRBENCH_NODE_IDENTITY", None)

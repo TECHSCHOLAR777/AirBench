@@ -945,9 +945,10 @@ class NodeApiService:
                     # autonomy governor requires before running work inherited
                     # from untrusted input.
                     if self.autonomy is not None and hasattr(self.execution, "authorize"):
-                        if "human_reviewer" not in self.config.authenticated_roles:
-                            raise NodeApiError(403, "human_authority_role_required", "The authenticated operator is not assigned the pack-required human_reviewer role.")
-                        self.execution.authorize(subject, task_id)
+                        required_role = getattr(self.pack, "required_human_authority", "human_reviewer") if self.pack else "human_reviewer"
+                        if required_role not in self.config.authenticated_roles:
+                            raise NodeApiError(403, "human_authority_role_required", f"The authenticated operator is not assigned the pack-required {required_role} role.")
+                        self.execution.authorize(subject, task_id, operator_roles=self.config.authenticated_roles)
                     self.execution.execute(task_id)
                 except NodeTaskExecutionError as exc:
                     logger.exception("Node task execution failed", extra={"task_id": task_id})

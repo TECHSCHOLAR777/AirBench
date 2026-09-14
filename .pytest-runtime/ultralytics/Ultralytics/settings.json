@@ -1,0 +1,19 @@
+{
+  "settings_version": "0.0.8",
+  "datasets_dir": "C:\\Users\\ALG\\Downloads\\SIH2026\\datasets",
+  "weights_dir": "C:\\Users\\ALG\\Downloads\\SIH2026\\AirBench-Deep\\weights",
+  "runs_dir": "C:\\Users\\ALG\\Downloads\\SIH2026\\AirBench-Deep\\runs",
+  "uuid": "e93b525ac9630f4e092b5d8a2fe3c6ac9bf9422d79289f965fc9e705fc3bf116",
+  "sync": true,
+  "api_key": "",
+  "openai_api_key": "",
+  "clearml": true,
+  "comet": true,
+  "dvc": true,
+  "mlflow": true,
+  "raytune": true,
+  "tensorboard": false,
+  "wandb": false,
+  "vscode_msg": true,
+  "openvino_msg": true
+}

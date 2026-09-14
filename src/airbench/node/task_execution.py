@@ -249,7 +249,7 @@ class NodeTaskExecutionCoordinator:
             raise NodeTaskExecutionError(f"hardware admission was {schedule.plan.admission}")
         self._prepared[task_id] = (plan, assignment, scheduler, schedule, manifest)
 
-    def authorize(self, operator_id: str, task_id: str) -> dict[str, Any] | None:
+    def authorize(self, operator_id: str, task_id: str, operator_roles: tuple[str, ...] = ()) -> dict[str, Any] | None:
         """Record the operator's plan approval as named authority for execution.
 
         The autonomy governor escalates a consequential action proposed on
@@ -278,6 +278,7 @@ class NodeTaskExecutionCoordinator:
             task_id=task_id,
             operator_id=operator_id,
             action_id=str(decision.get("action_id") or ""),
+            operator_roles=operator_roles,
         )
 
     def execute(self, task_id: str) -> NodeTaskRun:

@@ -34,6 +34,10 @@ $env:AIRBENCH_BEARER_TOKEN       = $Token
 $env:AIRBENCH_DOMAIN_PACK_REF    = $DomainPackRef
 $env:AIRBENCH_CLEARANCE          = "internal"
 $env:AIRBENCH_SUBJECT            = $Subject
+# The demo operator is the human reviewer required by the signed pack's
+# inspection-review execution policy. Set this explicitly so an inherited
+# empty/stale shell variable cannot make approval fail after ledger recording.
+$env:AIRBENCH_OPERATOR_ROLES     = "human_reviewer"
 $env:AIRBENCH_HOST               = "127.0.0.1"
 $env:AIRBENCH_PORT               = $Port
 $env:AIRBENCH_POLICY_VERSION_HASH = "policy-v0.1"
