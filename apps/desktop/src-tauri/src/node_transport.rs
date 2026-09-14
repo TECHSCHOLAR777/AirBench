@@ -231,6 +231,8 @@ pub struct NodeRouteTraceEntry {
     #[serde(default)]
     pub selected_target: Option<String>,
     #[serde(default)]
+    pub selected_model_name: Option<String>,
+    #[serde(default)]
     pub decision_source: Option<String>,
     #[serde(default)]
     pub rule_or_threshold: Option<String>,

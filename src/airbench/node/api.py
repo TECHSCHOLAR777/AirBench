@@ -1328,8 +1328,17 @@ class NodeApiService:
                     "payloadHash": event.payload_hash,
                 }
                 for key in ("request_id", "worker_id", "role", "task_kind", "required_capability", "selected_target", "decision_source", "rule_or_threshold", "qualification_certificate", "fallback_target", "reason", "status"):
-                    if key in payload:
-                        entry[key] = _safe_value(payload[key])
+                    source = payload
+                    if key not in source and isinstance(payload.get("decision"), dict):
+                        source = payload["decision"]
+                    if key in source:
+                        entry[key] = _safe_value(source[key])
+                selected_target = entry.get("selected_target") or _safe_value(payload.get("target_id"))
+                if selected_target:
+                    entry["selected_target"] = selected_target
+                    model_name = self._model_display_name(selected_target)
+                    if model_name:
+                        entry["selected_model_name"] = model_name
                 if "eligible_targets" in payload:
                     entry["eligible_targets"] = _string_list(payload["eligible_targets"])[:100]
                 entries.append(entry)
@@ -1346,6 +1355,14 @@ class NodeApiService:
             except ContractValidationError as exc:
                 raise NodeApiError(503, "route_trace_contract_corrupt", "The routing trace could not be verified.") from exc
             return trace.to_wire_dict()
+
+    def _model_display_name(self, target_id: str) -> str | None:
+        router = self.model_router
+        registry = getattr(router, "registry", None)
+        targets = getattr(registry, "targets", ()) if registry is not None else ()
+        target = next((item for item in targets if getattr(item, "target_id", None) == target_id), None)
+        name = getattr(target, "display_name", "") if target is not None else ""
+        return name.strip() or None
 
     def review(self, task_id: str) -> dict[str, Any]:
         with self._lock:
