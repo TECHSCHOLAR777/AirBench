@@ -129,6 +129,28 @@ class LocalNodeAutonomyService:
     def is_blocked(self, task_id: str) -> bool:
         return task_id in self._holds
 
+    def is_authorized(self, task_id: str, action_id: str = "") -> bool:
+        """Whether an operator has authorized this task's escalated action.
+
+        The operator's plan approval records an ``authority.authorized`` event
+        for the gated execution action. Execution may proceed only when that
+        authorization exists; the governor still records the escalation.
+        """
+        target = action_id or (self._holds.get(task_id) or {}).get("action_id") or ""
+        if not target:
+            return False
+        return any(
+            event.task_id == task_id
+            and event.event_type == "authority.authorized"
+            and isinstance(event.payload, dict)
+            and event.payload.get("action_id") == target
+            for event in self._ledger.events
+        )
+
+    def clear(self, task_id: str) -> None:
+        """Drop a resolved escalation hold without recording a new decision."""
+        self._holds.pop(task_id, None)
+
     def authorize(self, *, task_id: str, operator_id: str, action_id: str = "") -> dict[str, Any]:
         hold = self._holds.get(task_id)
         if hold is None:

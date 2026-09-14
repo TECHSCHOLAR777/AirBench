@@ -244,6 +244,37 @@ class NodeTaskExecutionCoordinator:
             raise NodeTaskExecutionError(f"hardware admission was {schedule.plan.admission}")
         self._prepared[task_id] = (plan, assignment, scheduler, schedule, manifest)
 
+    def authorize(self, operator_id: str, task_id: str) -> dict[str, Any] | None:
+        """Record the operator's plan approval as named authority for execution.
+
+        The autonomy governor escalates a consequential action proposed on
+        untrusted inherited input.  The authenticated operator approving the
+        Node-validated plan is that named human authority, so the Node records
+        the authorization before running the approved work.  Returns the
+        authorization record, or ``None`` when no escalation applied.
+        """
+        if self._autonomy_service is None:
+            return None
+        manifest = self._manifest(task_id)
+        task = self._task(task_id)
+        decision = self._autonomy_service.score(
+            task_id=task_id,
+            action_id=stable_id("node-execution.action", task_id),
+            action_kind=self._execution_action_kind,
+            source_ref=manifest.source_ref,
+            confidence=manifest.confidence,
+            clearance=task.clearance,
+            taint=manifest.taint,
+            worker_id=self._actor_id,
+        )
+        if decision.get("outcome") == "allow":
+            return None
+        return self._autonomy_service.authorize(
+            task_id=task_id,
+            operator_id=operator_id,
+            action_id=str(decision.get("action_id") or ""),
+        )
+
     def execute(self, task_id: str) -> NodeTaskRun:
         prepared = self._prepared.get(task_id)
         if prepared is None:
@@ -288,11 +319,13 @@ class NodeTaskExecutionCoordinator:
                     taint=manifest.taint,
                     worker_id=self._actor_id,
                 )
-                if decision.get("outcome") == "escalate":
+                if decision.get("outcome") == "escalate" and not self._autonomy_service.is_authorized(
+                    task_id, str(decision.get("action_id") or "")
+                ):
                     reason = decision.get("reason", "autonomy escalation")
                     raise NodeTaskExecutionError(
                         f"autonomy governor escalated task execution — {reason}; "
-                        "use POST /api/v1/tasks/{task_id}/autonomy/authorize to unblock"
+                        "the operator must approve the plan or POST /api/v1/tasks/{task_id}/autonomy/authorize"
                     )
             except NodeTaskExecutionError:
                 raise
@@ -422,6 +455,8 @@ class NodeTaskExecutionCoordinator:
                 task_id,
                 reason="The generated deliverable is ready for operator review.",
             )
+        if self._autonomy_service is not None:
+            self._autonomy_service.clear(task_id)
         run = NodeTaskRun(task_id=task_id, intake_id=manifest.intake_id, team_id=plan.team_id, artifact_id=artifact.artifact_id)
         self._runs[task_id] = run
         return run
