@@ -1,4 +1,4 @@
-import type { IntakeManifest } from "./intakeBridge";
+import type { IntakeManifest, IntakeStatus } from "./intakeBridge";
 
 export type IntakeUiState =
   | "idle"
@@ -67,6 +67,12 @@ export function intakeStateFromManifest(manifest: Pick<IntakeManifest, "ocr_stat
   const statuses = [manifest.ocr_status, manifest.vision_status];
   if (statuses.some((status) => status === "pending" || status === "running")) return "processing";
   return statuses.every((status) => status === "completed" || status === "not_applicable") ? "ready" : "partial";
+}
+
+export function intakeStateFromStatus(status: Pick<IntakeStatus, "ocr_status" | "vision_status">): "processing" | "ready" | "partial" {
+  const statuses = [status.ocr_status, status.vision_status];
+  if (statuses.some((value) => value === "pending" || value === "running")) return "processing";
+  return statuses.every((value) => value === "completed" || value === "not_applicable") ? "ready" : "partial";
 }
 
 function errorMessage(error: unknown): string {
