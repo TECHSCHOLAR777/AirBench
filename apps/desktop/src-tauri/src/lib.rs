@@ -25,6 +25,7 @@ pub fn run() {
             node_transport::create_task,
             node_transport::send_task_command,
             node_transport::fetch_node_hardware,
+            node_transport::fetch_node_model_serving,
             node_transport::fetch_task_consistency,
             node_transport::post_consistency_evaluate,
             node_transport::post_consistency_justify,

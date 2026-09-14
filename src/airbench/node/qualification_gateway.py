@@ -52,7 +52,9 @@ def _certificate_status(certificate: Mapping[str, Any]) -> str:
     return "qualified"
 
 
-def qualification_status(matrix: Mapping[str, Any], target_id: str) -> dict[str, Any]:
+def qualification_status(
+    matrix: Mapping[str, Any], target_id: str, routing_tiers: Mapping[str, str] | None = None
+) -> dict[str, Any]:
     certificates = [item for item in matrix.get("certificates", []) if str(item.get("target_id", "")) == target_id]
     if not certificates:
         return {"target_id": target_id, "status": "not_listed", "certificates": []}
@@ -72,10 +74,22 @@ def qualification_status(matrix: Mapping[str, Any], target_id: str) -> dict[str,
         overall = "pending"
     else:
         overall = "unqualified"
-    return {"target_id": target_id, "status": overall, "certificates": entries}
+    result: dict[str, Any] = {
+        "target_id": target_id,
+        "status": overall,
+        "certificates": entries,
+        # The routing tier is declared by the signed model roster, not by the
+        # qualification certificate. It is projection metadata only and never
+        # changes the qualification verdict above.
+        "routing_tier": (routing_tiers or {}).get(target_id),
+        "measurement_pending": overall == "pending",
+    }
+    return result
 
 
-def qualification_roster(matrix: Mapping[str, Any]) -> dict[str, Any]:
+def qualification_roster(
+    matrix: Mapping[str, Any], routing_tiers: Mapping[str, str] | None = None
+) -> dict[str, Any]:
     """Return every declared target and its qualification status in one call.
 
     This is the Node-authoritative roster the desktop renders; the desktop must
@@ -86,7 +100,7 @@ def qualification_roster(matrix: Mapping[str, Any]) -> dict[str, Any]:
         target_id = str(certificate.get("target_id", ""))
         if target_id and target_id not in seen:
             seen.append(target_id)
-    targets = [qualification_status(matrix, target_id) for target_id in seen]
+    targets = [qualification_status(matrix, target_id, routing_tiers) for target_id in seen]
     return {"count": len(targets), "targets": targets}
 
 

@@ -72,6 +72,7 @@ function App() {
   });
   const [profiles, setProfiles] = useState<ApprovedNodeProfileReference[]>([]);
   const [profilesState, setProfilesState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [profilesReloadToken, setProfilesReloadToken] = useState(0);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [connectingProfileId, setConnectingProfileId] = useState<string | null>(null);
   const [showConnectionHelp, setShowConnectionHelp] = useState(false);
@@ -130,12 +131,70 @@ function App() {
 
   const focusOutcomeInput = useCallback(() => window.requestAnimationFrame(() => outcomeInputRef.current?.focus()), []);
 
+  const clearActiveTaskView = useCallback(() => {
+    taskEventLoopRef.current?.stop();
+    taskEventLoopRef.current = null;
+    synchronizationRef.current = null;
+    synchronizationTokenRef.current = null;
+    synchronizerRef.current = null;
+    setTaskResult(null);
+    setTaskRouteTrace(null);
+    setPlanReview(null);
+    setPlanLoading(false);
+    setPlanApprovalResult(null);
+    setApprovingPlan(false);
+    setTaskProjection(null);
+    setEventSyncState(null);
+    setTaskControlResult(null);
+    setControllingTask(false);
+    setTaskArtifactPreview(null);
+    setTaskArtifactReview(null);
+    setTaskArtifactPreviewState("idle");
+    setTaskArtifactPreviewError(null);
+    setTaskArtifactDownloadState("idle");
+    setTaskArtifactDownloadReceipt(null);
+  }, []);
+
+  const resetComposer = useCallback(() => {
+    setTaskText("");
+    setTaskTitle("");
+    setProjectRef("");
+    setSelectedFile(null);
+    setIntakeState("idle");
+    setIntakeManifest(null);
+    setIntakeStatus(null);
+    setSafePreview(null);
+    setArtifactPreview(null);
+    setDownloadState("idle");
+    setDownloadReceipt(null);
+    setNotice(null);
+  }, []);
+
+  const archiveActiveTask = useCallback(() => {
+    if (!taskProjection) return;
+    const summary = buildHomeWorkSummary(taskProjection);
+    setTaskHistory((current) => current.some((entry) => entry.taskId === summary.taskId) ? current : [...current, summary]);
+  }, [taskProjection]);
+
   const openNewTask = useCallback(() => {
     setShowCommandPalette(false);
     setShowAppearanceMenu(false);
+    archiveActiveTask();
+    clearActiveTaskView();
+    resetComposer();
     setState((current) => ({ ...current, screen: "home" }));
     focusOutcomeInput();
-  }, [focusOutcomeInput]);
+  }, [archiveActiveTask, clearActiveTaskView, resetComposer, focusOutcomeInput]);
+
+  const dismissCurrentTask = useCallback(() => {
+    archiveActiveTask();
+    clearActiveTaskView();
+    setNotice("Task removed from this desktop view. The Node record and its ledger entries are unchanged.");
+  }, [archiveActiveTask, clearActiveTaskView]);
+
+  const removeHistoryTask = useCallback((taskId: string) => {
+    setTaskHistory((current) => current.filter((entry) => entry.taskId !== taskId));
+  }, []);
 
   const openCommandPalette = useCallback((returnFocus: EventTarget | null) => {
     commandMenuReturnFocusRef.current = returnFocus instanceof HTMLElement ? returnFocus : commandMenuTriggerRef.current;
@@ -187,7 +246,7 @@ function App() {
   }, [closeCommandPalette, openCommandPalette, openNewTask, showAppearanceMenu, showCommandPalette]);
 
   useEffect(() => {
-    if (state.screen !== "node" || profilesState !== "idle") return;
+    if (state.screen !== "node") return;
     let active = true;
     setProfilesState("loading");
     setProfileError(null);
@@ -201,7 +260,7 @@ function App() {
       setProfileError("The approved Node catalog could not be read. No connection is permitted.");
     });
     return () => { active = false; };
-  }, [profilesState, state.screen]);
+  }, [state.screen, profilesReloadToken]);
 
   const applyConnection = (next: NodeConnectionView) => {
     setConnection(next);
@@ -702,8 +761,8 @@ function App() {
     }
   };
 
-  const canStart = nodeConnected && taskText.trim().length > 0
-    && (!selectedFile || intakeState === "ready" || (!taskResult && intakeState === "idle"))
+  const canStart = nodeConnected && taskText.trim().length > 0 && selectedFile !== null
+    && (intakeState === "ready" || (!taskResult && intakeState === "idle"))
     && !creatingTask;
   const nodeLabel = nodeConnected ? (profiles.find((profile) => profile.profileId === connection.profileId)?.displayName ?? "Node connected") : connection.state === "connecting" ? "Connecting to Node" : connection.state === "reconnecting" ? "Reconnecting to Node" : "Node not connected";
   const nodeDetail = nodeConnected ? "Verified and ready" : connection.state === "failed" || connection.state === "blocked" ? "Connection blocked" : connection.state === "reconnecting" ? "Reconnect to continue" : "Choose an approved Node";
@@ -742,10 +801,10 @@ function App() {
       <main className="main-area">
         <header className="topbar"><div className="breadcrumb"><span>AirBench</span><span className="breadcrumb-slash">/</span><strong>{screenTitle}</strong></div><div className="topbar-actions"><button ref={commandMenuTriggerRef} className="command-menu-button" type="button" onClick={(event) => openCommandPalette(event.currentTarget)} aria-haspopup="dialog" aria-expanded={showCommandPalette} aria-controls="workspace-command-palette"><AppIcon name="search" size={16} /><span>Command</span><kbd>Ctrl K</kbd></button><button type="button" className={`sovereignty-status ${nodeConnected ? "is-verified" : ""}`} onClick={() => selectScreen("node")} aria-label="Open Node and settings"><AppIcon name={nodeConnected ? "shield" : "node"} size={16} /><span><small>Node path</small><strong>{sovereigntyLabel}</strong></span></button><div className="appearance-control"><button className="appearance-button" type="button" onClick={() => setShowAppearanceMenu((open) => !open)} aria-expanded={showAppearanceMenu} aria-controls="appearance-preferences"><AppIcon name="display" size={16} /><span>Display</span><AppIcon name="chevron-down" size={14} /></button>{showAppearanceMenu && <AppearanceMenu preferences={presentation} onChange={setPresentation} onClose={() => setShowAppearanceMenu(false)} />}</div></div></header>
         <div className="content-wrap">
-          {state.screen === "home" && <HomeView outcomeInputRef={outcomeInputRef} currentTask={taskProjection} taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} intakeStatus={intakeStatus} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} planSynchronized={taskCommandReady} notice={notice} canStart={canStart} creatingTask={creatingTask} nodeConnected={nodeConnected} nodeLabel={nodeLabel} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onCancelTask={stopTask} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setIntakeStatus(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={openConnectionHelp} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} />}
-          {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesState("idle"); }} onHome={() => selectScreen("home")} />}
+          {state.screen === "home" && <HomeView outcomeInputRef={outcomeInputRef} currentTask={taskProjection} taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} intakeStatus={intakeStatus} safePreview={safePreview} artifactPreview={artifactPreview} downloadState={downloadState} downloadReceipt={downloadReceipt} taskResult={taskResult} planReview={planReview} planLoading={planLoading} planApprovalResult={planApprovalResult} approvingPlan={approvingPlan} planSynchronized={taskCommandReady} notice={notice} canStart={canStart} creatingTask={creatingTask} nodeConnected={nodeConnected} nodeLabel={nodeLabel} onAttach={attachFile} onUpload={uploadSelectedFile} onDownload={downloadApprovedArtifact} onStart={startTask} onApprovePlan={approvePlan} onCancelTask={stopTask} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setIntakeStatus(null); setSafePreview(null); setArtifactPreview(null); setDownloadState("idle"); setDownloadReceipt(null); }} onHelp={openConnectionHelp} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} onDismissCurrent={dismissCurrentTask} onNewQuery={openNewTask} />}
+          {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesReloadToken((token) => token + 1); }} onHome={() => selectScreen("home")} />}
           {state.screen === "tasks" && (taskProjection ? <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} routeTrace={taskRouteTrace} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactReview={taskArtifactReview} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={openNewTask} onOpenNode={() => selectScreen("node")} onApproveArtifact={approveTaskArtifact} onReturnArtifact={returnTaskArtifact} isArtifactCommandPending={artifactCommandPending} profile={profiles.find((p) => p.profileId === connection.profileId) ?? null} operatorId={connection.authenticatedSubject} /> : <TaskEmptyView nodeConnected={nodeConnected} onNewTask={openNewTask} onOpenNode={() => selectScreen("node")} />)}
-          {isRecordGatewayDestination(state.screen) && <RecordGatewayView destination={state.screen} nodeConnected={nodeConnected} currentTask={taskProjection} onHome={() => selectScreen("home")} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} taskHistory={taskHistory} />}
+          {isRecordGatewayDestination(state.screen) && <RecordGatewayView destination={state.screen} nodeConnected={nodeConnected} currentTask={taskProjection} onHome={() => selectScreen("home")} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} taskHistory={taskHistory} onRemoveTask={removeHistoryTask} onNewTask={openNewTask} />}
         </div>
       </main>
       {showConnectionHelp && <ConnectionHelp onClose={closeConnectionHelp} onOpenNode={() => { closeConnectionHelp(); selectScreen("node"); }} />}
@@ -807,7 +866,7 @@ const outputContractOptions = [
   { value: "code", label: "Code", detail: "A working, verifiable code artifact" },
 ] as const;
 
-function HomeView({ outcomeInputRef, currentTask, taskText, setTaskText, taskTitle, setTaskTitle, projectRef, setProjectRef, outputContract, setOutputContract, priority, setPriority, deadline, setDeadline, selectedFile, intakeState, intakeManifest, intakeStatus, safePreview, artifactPreview, downloadState, downloadReceipt, taskResult, planReview, planLoading, planApprovalResult, approvingPlan, planSynchronized, notice, canStart, creatingTask, nodeConnected, nodeLabel, onAttach, onUpload, onDownload, onStart, onApprovePlan, onCancelTask, onRemoveFile, onHelp, onOpenNode, onOpenCurrentTask }: { outcomeInputRef: RefObject<HTMLTextAreaElement | null>; currentTask: TaskProjection | null; taskText: string; setTaskText: (value: string) => void; taskTitle: string; setTaskTitle: (value: string) => void; projectRef: string; setProjectRef: (value: string) => void; outputContract: string; setOutputContract: (value: string) => void; priority: string; setPriority: (value: string) => void; deadline: string; setDeadline: (value: string) => void; selectedFile: SelectedFile | null; intakeState: IntakeUiState; intakeManifest: IntakeManifest | null; intakeStatus: IntakeStatus | null; safePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; downloadState: "idle" | "downloading" | "downloaded" | "failed"; downloadReceipt: DownloadReceipt | null; taskResult: CreateTaskResponse | null; planReview: TaskPlanReview | null; planLoading: boolean; planApprovalResult: NodeCommandResult | null; approvingPlan: boolean; planSynchronized: boolean; notice: string | null; canStart: boolean; creatingTask: boolean; nodeConnected: boolean; nodeLabel: string; onAttach: () => void; onUpload: () => void; onDownload: () => void; onStart: () => void; onApprovePlan: () => void; onCancelTask: () => Promise<void>; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void; onOpenCurrentTask: () => void }) {
+function HomeView({ outcomeInputRef, currentTask, taskText, setTaskText, taskTitle, setTaskTitle, projectRef, setProjectRef, outputContract, setOutputContract, priority, setPriority, deadline, setDeadline, selectedFile, intakeState, intakeManifest, intakeStatus, safePreview, artifactPreview, downloadState, downloadReceipt, taskResult, planReview, planLoading, planApprovalResult, approvingPlan, planSynchronized, notice, canStart, creatingTask, nodeConnected, nodeLabel, onAttach, onUpload, onDownload, onStart, onApprovePlan, onCancelTask, onRemoveFile, onHelp, onOpenNode, onOpenCurrentTask, onDismissCurrent, onNewQuery }: { outcomeInputRef: RefObject<HTMLTextAreaElement | null>; currentTask: TaskProjection | null; taskText: string; setTaskText: (value: string) => void; taskTitle: string; setTaskTitle: (value: string) => void; projectRef: string; setProjectRef: (value: string) => void; outputContract: string; setOutputContract: (value: string) => void; priority: string; setPriority: (value: string) => void; deadline: string; setDeadline: (value: string) => void; selectedFile: SelectedFile | null; intakeState: IntakeUiState; intakeManifest: IntakeManifest | null; intakeStatus: IntakeStatus | null; safePreview: SafePreview | null; artifactPreview: ArtifactPreview | null; downloadState: "idle" | "downloading" | "downloaded" | "failed"; downloadReceipt: DownloadReceipt | null; taskResult: CreateTaskResponse | null; planReview: TaskPlanReview | null; planLoading: boolean; planApprovalResult: NodeCommandResult | null; approvingPlan: boolean; planSynchronized: boolean; notice: string | null; canStart: boolean; creatingTask: boolean; nodeConnected: boolean; nodeLabel: string; onAttach: () => void; onUpload: () => void; onDownload: () => void; onStart: () => void; onApprovePlan: () => void; onCancelTask: () => Promise<void>; onRemoveFile: () => void; onHelp: () => void; onOpenNode: () => void; onOpenCurrentTask: () => void; onDismissCurrent: () => void; onNewQuery: () => void }) {
   const [openPanel, setOpenPanel] = useState<LaunchpadPanel | null>(null);
   const outputLabel = outputContractOptions.find((option) => option.value === outputContract)?.label ?? "Deliverable";
   const selectedSourceStatus = sourceStatus(Boolean(selectedFile), intakeState);
@@ -815,7 +874,7 @@ function HomeView({ outcomeInputRef, currentTask, taskText, setTaskText, taskTit
   const intakeBand = intakeStatus && isIntakeConfidenceBand(intakeStatus.confidence_band) ? intakeStatus.confidence_band : null;
   const routingPreference = unavailableRoutingPreference(nodeConnected);
   const currentWork = currentTask ? buildHomeWorkSummary(currentTask) : null;
-  const launchTitle = canStart ? "Launch task" : "Connect an approved Node, describe the outcome, and finish file intake before launching";
+  const launchTitle = canStart ? "Launch task" : !nodeConnected ? "Connect an approved Node first" : !taskText.trim() ? "Describe the outcome first" : selectedFile === null ? "Attach the source file the Node should review" : "Finish File Intake before launching";
   const togglePanel = (panel: LaunchpadPanel) => setOpenPanel((current) => current === panel ? null : panel);
   const openSourcePicker = () => { setOpenPanel("sources"); onAttach(); };
 
@@ -867,13 +926,12 @@ function HomeView({ outcomeInputRef, currentTask, taskText, setTaskText, taskTit
       </section>}
       <div className="composer-footer launchpad-footer"><div className="composer-tools"><button type="button" className="secondary-button launchpad-attach-button" data-testid="attach-files" onClick={openSourcePicker}><AppIcon name="attachment" size={15} /> Attach files</button><span className="launchpad-footer-status"><AppIcon name="route" size={15} /><span><strong>Auto route</strong> Node validates the task before choosing qualified workers.</span></span></div><button type="button" className="primary-button" data-testid="start-task" onClick={onStart} disabled={!canStart} title={launchTitle}>{creatingTask ? "Launching..." : "Launch"} <kbd>Ctrl Enter</kbd></button></div>
     </section>
-    {intakeManifest && <section className="intake-result" data-testid="intake-result" aria-label="File Intake result"><div className="intake-result-head"><div><p className="eyebrow">FILE INTAKE</p><h2>{intakeManifest.file_name}</h2></div><span className="intake-badge">{intakeCopy.label}</span>{intakeBand && <span className={`intake-badge intake-confidence-${intakeBand}`} data-testid="intake-confidence-badge">{intakeConfidenceCopy(intakeBand).label}</span>}{intakeBand && intakeStatus?.review_recommended && <span className="intake-review-hint" data-testid="intake-review-hint">{intakeConfidenceCopy(intakeBand).detail}</span>}</div><div className="intake-meta-grid"><div><span>Source hash</span><strong>{intakeManifest.source_hash}</strong></div><div><span>Pages</span><strong>{intakeManifest.page_count}</strong></div><div><span>Clearance</span><strong>{intakeManifest.clearance}</strong></div><div><span>Taint</span><strong>{intakeManifest.taint}</strong></div></div>{safePreview ? <div className="safe-preview"><div className="safe-preview-label">Node-generated safe preview <span>Page region: {safePreview.source_region}</span></div><p>{safePreview.text}</p><small>Confidence {Math.round(safePreview.confidence * 100)}% / ledger {safePreview.ledger_event_ref}</small></div> : <div className={`intake-status intake-status-${intakeState}`} role={intakeState === "uploading" || intakeState === "processing" ? "status" : "alert"}><strong>{intakeCopy.title}</strong><span>{intakeCopy.detail}</span><IntakeRecoveryGuidance recovery={intakeCopy.recovery} /></div>}</section>}
-    {artifactPreview && <section className="artifact-preview" data-testid="artifact-preview" aria-label="Artifact preview"><div className="intake-result-head"><div><p className="eyebrow">NODE ARTIFACT PREVIEW</p><h2>{artifactPreview.title}</h2></div><span className="intake-badge">{artifactPreview.preview_kind}</span></div><div className="artifact-preview-meta"><span>{artifactPreview.clearance} clearance</span><span>{artifactPreview.taint} data</span><span>Ledger {artifactPreview.ledger_event_ref}</span></div><div className="artifact-blocks">{artifactPreview.blocks.map((block, index) => <div className="artifact-block" key={`${block.kind}-${index}`}><span className="artifact-block-kind">{block.kind}</span><p>{block.text}</p></div>)}</div><div className="artifact-actions"><button type="button" className="primary-button" data-testid="download-artifact" onClick={onDownload} disabled={downloadState === "downloading"}>{downloadState === "downloading" ? "Verifying..." : downloadState === "downloaded" ? "Download again" : "Download artifact"}</button>{downloadReceipt && <small data-testid="download-receipt">Saved {downloadReceipt.byte_size} bytes / {downloadReceipt.content_hash} / ledger {downloadReceipt.ledger_event_ref}</small>}</div></section>}
+    {intakeManifest && <section className="source-summary" data-testid="intake-result" aria-label="Source accepted by File Intake"><AppIcon name="archive" size={15} /><strong>{intakeManifest.file_name}</strong><span>{intakeManifest.page_count} page{intakeManifest.page_count === 1 ? "" : "s"}</span><span>{intakeManifest.clearance} clearance</span><span>{intakeManifest.taint} data</span><span className={`source-summary-state source-summary-state-${intakeState}`}>{intakeCopy.label}</span>{intakeBand && <span className={`intake-badge intake-confidence-${intakeBand}`} data-testid="intake-confidence-badge">{intakeConfidenceCopy(intakeBand).label}</span>}</section>}
     {taskResult && <section className="task-confirmation" data-testid="task-confirmation" aria-label="Task submission result"><p className="eyebrow">TASK ACCEPTED BY NODE</p><strong>{taskResult.task.task_id}</strong><span>State: {taskResult.command.state ?? taskResult.task.state ?? "created"}</span><small>Ledger {taskResult.command.ledger_event_ref ?? taskResult.ledger_event_ref} / sequence {taskResult.command.sequence ?? taskResult.snapshot.asOfSequence}</small></section>}
     {taskResult && <PlanReviewCard plan={planReview} loading={planLoading} approval={planApprovalResult} approving={approvingPlan} synchronized={planSynchronized} currentTaskSequence={currentTask?.lastAppliedSequence ?? taskResult.snapshot.asOfSequence} taskStatus={currentTask?.status ?? "accepted"} onApprove={onApprovePlan} onCancel={onCancelTask} />}
     {notice && <div className="inline-notice" role="status">{notice}</div>}
     <div className="trust-line" role="status"><span className="trust-item"><span className={`status-dot ${nodeConnected ? "status-dot-connected" : ""}`} aria-hidden="true" />{nodeConnected ? `${nodeLabel} is verified for this session.` : "No Node path is verified. Nothing has been submitted."}</span><button type="button" className="text-button" onClick={onHelp}>How this works</button></div>
-    <section className="continue-section" aria-label="Continue work"><div className="section-heading"><div><h2>Continue work</h2><p>{currentWork ? "One task is available from the approved Node projection." : "The current Node has not supplied a task projection to this desktop."}</p></div>{currentWork && <span className={`home-work-health home-work-health-${currentWork.health}`}>{currentWork.healthLabel}</span>}</div>{currentWork ? <article className="current-work-card" data-testid="current-task-card"><div className="current-work-card-head"><div><p className="eyebrow">NODE TASK</p><h3>{currentWork.title}</h3><p>{currentWork.requestSummary}</p></div><span className={`home-work-status home-work-status-${currentWork.status}`}>{currentWork.statusLabel}</span></div><dl className="current-work-meta"><div><dt>Current phase</dt><dd>{currentWork.phase}</dd></div><div><dt>Node cursor</dt><dd>{currentWork.lastAppliedSequence}</dd></div><div><dt>Ledger head</dt><dd>{currentWork.ledgerHeadRef}</dd></div><div><dt>Latest record</dt><dd>{currentWork.latestActivity?.label ?? "No activity event in this cursor"}</dd></div></dl>{currentWork.latestActivity && <div className="current-work-latest"><span>Latest Node record</span><strong>{currentWork.latestActivity.summary}</strong><small>{formatTraceTime(currentWork.latestActivity.occurredAt)} / sequence {currentWork.latestActivity.sequence} / ledger {currentWork.latestActivity.ledgerEventRef}</small></div>}<div className="current-work-footer"><p>{currentWork.health === "current" ? "This card reflects the latest accepted Node snapshot." : "This snapshot remains readable, but consequential task actions stay gated until the event stream is current."}</p><button type="button" className="secondary-button bordered-button" onClick={onOpenCurrentTask}>Open task</button></div></article> : <div className="home-empty-state"><div className="empty-icon" aria-hidden="true"><AppIcon name="tasks" size={17} /></div><p>{nodeConnected ? "No current task in this desktop session" : "Connect an approved Node to view current work"}</p><small>{nodeConnected ? "When the Node returns a task snapshot, its recorded state will appear here." : "AirBench does not reconstruct task history locally."}</small></div>}</section>
+    <section className="continue-section" aria-label="Continue work"><div className="section-heading"><div><h2>Continue work</h2><p>{currentWork ? "One task is available from the approved Node projection." : "The current Node has not supplied a task projection to this desktop."}</p></div>{currentWork && <span className={`home-work-health home-work-health-${currentWork.health}`}>{currentWork.healthLabel}</span>}<button type="button" className="text-button" onClick={onNewQuery}>New query</button></div>{currentWork ? <article className="current-work-card" data-testid="current-task-card"><div className="current-work-card-head"><div><p className="eyebrow">NODE TASK</p><h3>{currentWork.title}</h3><p>{currentWork.requestSummary}</p></div><span className={`home-work-status home-work-status-${currentWork.status}`}>{currentWork.statusLabel}</span></div><dl className="current-work-meta"><div><dt>Current phase</dt><dd>{currentWork.phase}</dd></div><div><dt>Node cursor</dt><dd>{currentWork.lastAppliedSequence}</dd></div><div><dt>Ledger head</dt><dd>{currentWork.ledgerHeadRef}</dd></div><div><dt>Latest record</dt><dd>{currentWork.latestActivity?.label ?? "No activity event in this cursor"}</dd></div></dl>{currentWork.latestActivity && <div className="current-work-latest"><span>Latest Node record</span><strong>{currentWork.latestActivity.summary}</strong><small>{formatTraceTime(currentWork.latestActivity.occurredAt)} / sequence {currentWork.latestActivity.sequence} / ledger {currentWork.latestActivity.ledgerEventRef}</small></div>}<div className="current-work-footer"><p>{currentWork.health === "current" ? "This card reflects the latest accepted Node snapshot." : "This snapshot remains readable, but consequential task actions stay gated until the event stream is current."}</p><div className="current-work-actions"><button type="button" className="text-button" onClick={onDismissCurrent}>Remove from view</button><button type="button" className="secondary-button bordered-button" onClick={onOpenCurrentTask}>Open task</button></div></div></article> : <div className="home-empty-state"><div className="empty-icon" aria-hidden="true"><AppIcon name="tasks" size={17} /></div><p>{nodeConnected ? "No current task in this desktop session" : "Connect an approved Node to view current work"}</p><small>{nodeConnected ? "When the Node returns a task snapshot, its recorded state will appear here." : "AirBench does not reconstruct task history locally."}</small></div>}</section>
     <section className="readiness-card"><div><p className="eyebrow">{nodeConnected ? "NODE READY" : "READY WHEN YOU ARE"}</p><h2>{nodeConnected ? "Ready to receive a task" : "Connect a trusted Node to begin"}</h2><p>{nodeConnected ? `${nodeLabel} will validate task policy, sources, capacity, and qualified capabilities before any work starts.` : "Your organization controls the models, tools, files, and audit record on that Node."}</p></div><button type="button" className="secondary-button bordered-button" data-testid="open-node-settings" onClick={onOpenNode}>{nodeConnected ? "Node settings" : "Connect Node"}</button></section>
   </div>;
 }
@@ -1056,11 +1114,11 @@ function isRecordGatewayDestination(screen: Screen): screen is RecordGatewayDest
   return screen === "review" || screen === "artifacts" || screen === "history" || screen === "audit";
 }
 
-function RecordGatewayView({ destination, nodeConnected, currentTask, onHome, onOpenNode, onOpenCurrentTask, taskHistory }: { destination: RecordGatewayDestination; nodeConnected: boolean; currentTask: TaskProjection | null; onHome: () => void; onOpenNode: () => void; onOpenCurrentTask: () => void; taskHistory: HomeWorkSummary[] }) {
+function RecordGatewayView({ destination, nodeConnected, currentTask, onHome, onOpenNode, onOpenCurrentTask, taskHistory, onRemoveTask, onNewTask }: { destination: RecordGatewayDestination; nodeConnected: boolean; currentTask: TaskProjection | null; onHome: () => void; onOpenNode: () => void; onOpenCurrentTask: () => void; taskHistory: HomeWorkSummary[]; onRemoveTask: (taskId: string) => void; onNewTask: () => void }) {
   const gateway = buildRecordGateway(destination, nodeConnected, currentTask);
   const destinationLabel: Record<RecordGatewayDestination, string> = { review: "Review", artifacts: "Artifacts", history: "History", audit: "Audit ledger" };
   if (destination === "history") {
-    return <TaskHistoryView tasks={taskHistory} />;
+    return <TaskHistoryView tasks={taskHistory} onRemove={onRemoveTask} onNewTask={onNewTask} />;
   }
   return <section className="record-gateway" data-testid={`record-gateway-${destination}`} aria-label={`${destinationLabel[destination]} record availability`}><header><p className="eyebrow">{gateway.eyebrow}</p><h1>{gateway.title}</h1><p className="lead">{gateway.description}</p></header><section className={`record-gateway-state record-gateway-state-${gateway.state}`} role="status"><span className="record-gateway-icon" aria-hidden="true"><AppIcon name={gateway.state === "node_unavailable" ? "node" : "archive"} size={19} /></span><div><strong>{gateway.stateLabel}</strong><p>{gateway.stateDescription}</p></div></section><section className="record-gateway-requirement"><p className="eyebrow">WHAT IS NEEDED</p><p>{gateway.requiredProjection}</p></section>{gateway.currentTask && <section className="record-gateway-context" aria-label="Current task context"><div><p className="eyebrow">CURRENT TASK CONTEXT</p><h2>{gateway.currentTask.title}</h2><p>This is an existing Node task projection, not a substitute for the requested record query.</p></div><dl><div><dt>Task ID</dt><dd>{gateway.currentTask.taskId}</dd></div><div><dt>State</dt><dd>{gateway.currentTask.status} / {gateway.currentTask.phase}</dd></div><div><dt>Ledger head</dt><dd>{gateway.currentTask.ledgerHeadRef}</dd></div></dl></section>}<footer className="record-gateway-actions">{gateway.state === "node_unavailable" && <button type="button" className="primary-button" onClick={onOpenNode}>Connect approved Node</button>}{gateway.currentTask && <button type="button" className="secondary-button bordered-button" onClick={onOpenCurrentTask}>Open current task</button>}<button type="button" className="text-button" onClick={onHome}>Return home</button></footer></section>;
 }

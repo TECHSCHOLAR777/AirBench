@@ -1647,6 +1647,26 @@ pub async fn fetch_node_hardware(
     }
 }
 
+/// Fetch the model-serving endpoint health declared by this Node
+/// (GET /api/v1/node/model-serving).
+#[tauri::command]
+pub async fn fetch_node_model_serving(
+    app: tauri::AppHandle,
+    profile_id: String,
+) -> Result<Value, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::GET, "/api/v1/node/model-serving", None)
+        .await
+        .map_err(|e| NodeTransportError::RequestFailed(e.to_string()).to_string())?;
+    match result.get("configured") {
+        Some(Value::Bool(_)) => Ok(result),
+        _ => Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid model-serving status.".to_string(),
+        )
+        .to_string()),
+    }
+}
+
 /// Fetch the latest consistency report for a task (GET /api/v1/tasks/{id}/consistency).
 #[tauri::command]
 pub async fn fetch_task_consistency(
