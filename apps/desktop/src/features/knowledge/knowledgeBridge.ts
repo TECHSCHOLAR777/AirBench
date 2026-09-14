@@ -16,7 +16,7 @@ export interface KnowledgeStatus {
 export interface KnowledgeSearchResponse {
   query: string;
   mode: KnowledgeMode;
-  clearance: string;
+  clearance: KnowledgeClearance;
   result_count: number;
   graph_result_count: number;
   results: Array<Record<string, unknown>>;
@@ -32,42 +32,147 @@ export interface KnowledgeIngestResponse {
   failures?: Array<Record<string, unknown>>;
 }
 
+type KnowledgeClearance = "public" | "internal" | "restricted" | "secret";
+type KnowledgeTaint = "clean" | "untrusted" | "contaminated";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function requireReference(value: unknown, label: string): string {
+  if (typeof value !== "string" || !value.trim() || value.length > 512 || value.includes("\0")) {
+    throw new Error(`The Node returned an invalid ${label} reference.`);
+  }
+  return value;
+}
+
+function requireKnowledgeClearance(value: unknown, approvedContext: string, label: string): KnowledgeClearance {
+  const levels: KnowledgeClearance[] = ["public", "internal", "restricted", "secret"];
+  if (!levels.includes(value as KnowledgeClearance) || !levels.includes(approvedContext as KnowledgeClearance)) {
+    throw new Error(`The Node returned an invalid ${label} clearance.`);
+  }
+  if (levels.indexOf(value as KnowledgeClearance) > levels.indexOf(approvedContext as KnowledgeClearance)) {
+    throw new Error(`The Node returned ${label} above the approved clearance.`);
+  }
+  return value as KnowledgeClearance;
+}
+
+function requireConfidence(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(`The Node returned an invalid ${label} confidence.`);
+  }
+  return value;
+}
+
+function requireKnowledgeTaint(value: unknown, label: string): KnowledgeTaint {
+  if (value !== "clean" && value !== "untrusted" && value !== "contaminated") {
+    throw new Error(`The Node returned an invalid ${label} taint.`);
+  }
+  return value;
+}
+
+function requireOptionalText(value: unknown, label: string, maximum: number): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || value.length > maximum || value.includes("\0")) {
+    throw new Error(`The Node returned an invalid ${label}.`);
+  }
+  return value;
+}
+
+function requireOptionalBoundedInteger(value: unknown, label: string, minimum: number, maximum: number): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`The knowledge ${label} is invalid.`);
+  }
+  return value;
+}
+
+function validateSearchRequest(request: { query: string; mode?: KnowledgeMode; top_k?: number; entity_id?: string; relation?: string; key?: string; max_depth?: number }): void {
+  if (typeof request.query !== "string" || !request.query.trim() || request.query.length > 4096 || request.query.includes("\0")) {
+    throw new Error("Knowledge search text is invalid.");
+  }
+  if (request.mode !== undefined && !["text", "graph", "hybrid"].includes(request.mode)) {
+    throw new Error("Knowledge search mode is invalid.");
+  }
+  requireOptionalBoundedInteger(request.top_k, "result limit", 1, 20);
+  requireOptionalBoundedInteger(request.max_depth, "graph depth", 0, 5);
+  requireOptionalText(request.entity_id, "entity filter", 256);
+  requireOptionalText(request.relation, "relation filter", 128);
+  requireOptionalText(request.key, "graph key", 256);
+}
+
+export function validateKnowledgeEvidence(value: unknown, approvedContext: string, label: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(`The Node returned an invalid ${label} record.`);
+  requireReference(value.source_ref, `${label} source`);
+  requireConfidence(value.confidence, label);
+  requireKnowledgeClearance(value.clearance, approvedContext, label);
+  requireKnowledgeTaint(value.taint, label);
+  return value;
+}
+
 function approved(profile: ApprovedNodeProfileReference) {
   if (!profile.approvedByPolicy) throw new Error("The Node profile is not approved by policy.");
   return toNativeNodeProfileReference(profile);
 }
 
 export async function fetchKnowledgeStatus(profile: ApprovedNodeProfileReference): Promise<KnowledgeStatus> {
-  const value = await invoke<KnowledgeStatus>("fetch_knowledge_status", { ...approved(profile) });
-  if (typeof value?.configured !== "boolean" || typeof value.status !== "string") throw new Error("The Node returned an invalid knowledge status.");
-  return value;
+  const value = await invoke<unknown>("fetch_knowledge_status", { ...approved(profile) });
+  if (!isRecord(value) || typeof value.configured !== "boolean" || typeof value.status !== "string" || !value.status.trim()) {
+    throw new Error("The Node returned an invalid knowledge status.");
+  }
+  if (value.indexed_chunks !== undefined) requireOptionalBoundedInteger(value.indexed_chunks, "indexed chunk count", 0, Number.MAX_SAFE_INTEGER);
+  if (value.store_chunk_count !== undefined) requireOptionalBoundedInteger(value.store_chunk_count, "stored chunk count", 0, Number.MAX_SAFE_INTEGER);
+  return value as KnowledgeStatus;
 }
 
 export async function searchKnowledge(
   profile: ApprovedNodeProfileReference,
   request: { query: string; mode?: KnowledgeMode; top_k?: number; entity_id?: string; relation?: string; key?: string; max_depth?: number },
 ): Promise<KnowledgeSearchResponse> {
-  if (!request.query.trim() || request.query.length > 4096) throw new Error("Knowledge search text is invalid.");
-  const value = await invoke<KnowledgeSearchResponse>("search_knowledge", { profileId: profile.profileId, body: request });
-  if (typeof value?.query !== "string" || !["text", "graph", "hybrid"].includes(value.mode)) throw new Error("The Node returned an invalid knowledge search.");
-  if (!Array.isArray(value.results) || !Array.isArray(value.graph_results)) throw new Error("The Node returned invalid knowledge result lists.");
-  return value;
+  validateSearchRequest(request);
+  const approvedProfile = approved(profile);
+  const value = await invoke<unknown>("search_knowledge", { profileId: approvedProfile.profile_id, body: request });
+  const requestedMode = request.mode ?? "text";
+  if (!isRecord(value) || value.query !== request.query || value.mode !== requestedMode) throw new Error("The Node returned an invalid knowledge search.");
+  const responseClearance = requireKnowledgeClearance(value.clearance, profile.clearanceContext, "search");
+  if (!Array.isArray(value.results) || !Array.isArray(value.graph_results) || value.results.length > 100 || value.graph_results.length > 100) {
+    throw new Error("The Node returned invalid knowledge result lists.");
+  }
+  if (!Number.isSafeInteger(value.result_count) || value.result_count !== value.results.length || !Number.isSafeInteger(value.graph_result_count) || value.graph_result_count !== value.graph_results.length) {
+    throw new Error("The Node returned inconsistent knowledge result counts.");
+  }
+  const clearance = profile.clearanceContext;
+  value.results.forEach((item, index) => validateKnowledgeEvidence(item, clearance, `knowledge result ${index + 1}`));
+  value.graph_results.forEach((item, index) => validateKnowledgeEvidence(item, clearance, `knowledge graph result ${index + 1}`));
+  return { ...value, clearance: responseClearance, mode: requestedMode } as unknown as KnowledgeSearchResponse;
 }
 
 export async function queryKnowledgeGraph(
   profile: ApprovedNodeProfileReference,
   request: { entity_id?: string; relation?: string; key?: string; max_depth?: number; limit?: number },
 ): Promise<{ result_count: number; facts: Array<Record<string, unknown>> }> {
-  const value = await invoke<{ result_count: number; facts: Array<Record<string, unknown>> }>("query_knowledge_graph", { profileId: profile.profileId, body: request });
-  if (!Number.isInteger(value?.result_count) || !Array.isArray(value.facts)) throw new Error("The Node returned an invalid knowledge graph response.");
-  return value;
+  requireOptionalBoundedInteger(request.max_depth, "graph depth", 0, 5);
+  requireOptionalBoundedInteger(request.limit, "result limit", 1, 200);
+  requireOptionalText(request.entity_id, "entity filter", 256);
+  requireOptionalText(request.relation, "relation filter", 128);
+  requireOptionalText(request.key, "graph key", 256);
+  const approvedProfile = approved(profile);
+  const value = await invoke<unknown>("query_knowledge_graph", { profileId: approvedProfile.profile_id, body: request });
+  if (!isRecord(value) || !Number.isSafeInteger(value.result_count) || !Array.isArray(value.facts) || value.result_count !== value.facts.length || value.facts.length > 200) {
+    throw new Error("The Node returned an invalid knowledge graph response.");
+  }
+  value.facts.forEach((item, index) => validateKnowledgeEvidence(item, profile.clearanceContext, `knowledge graph fact ${index + 1}`));
+  return value as unknown as { result_count: number; facts: Array<Record<string, unknown>> };
 }
 
 export async function ingestKnowledgeFolder(profile: ApprovedNodeProfileReference): Promise<KnowledgeIngestResponse> {
-  const value = await invoke<KnowledgeIngestResponse>("ingest_knowledge_folder", { profileId: profile.profileId });
-  if (!value || !["completed", "partial", "failed"].includes(value.status)) throw new Error("The Node returned an invalid knowledge ingestion status.");
-  if (!Number.isInteger(value.file_count) || !Number.isInteger(value.chunk_count) || !Number.isInteger(value.failure_count)) {
+  const approvedProfile = approved(profile);
+  const value = await invoke<unknown>("ingest_knowledge_folder", { profileId: approvedProfile.profile_id });
+  if (!isRecord(value) || !["completed", "partial", "failed"].includes(String(value.status))) throw new Error("The Node returned an invalid knowledge ingestion status.");
+  if (![value.file_count, value.chunk_count, value.failure_count].every((count) => Number.isSafeInteger(count) && (count as number) >= 0)) {
     throw new Error("The Node returned an invalid knowledge ingestion summary.");
   }
-  return value;
+  if (value.files !== undefined && !Array.isArray(value.files)) throw new Error("The Node returned invalid ingested file records.");
+  if (value.failures !== undefined && !Array.isArray(value.failures)) throw new Error("The Node returned invalid knowledge failure records.");
+  return value as unknown as KnowledgeIngestResponse;
 }

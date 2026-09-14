@@ -61,16 +61,16 @@ export function ConsistencyPanel({
     return null;
   }
 
-  return <section className="consistency-panel" aria-label="Task Consistency Report" style={{ marginTop: '1rem', padding: '1rem', borderTop: '1px solid var(--border-muted)' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+  return <section className="consistency-panel" aria-label="Task Consistency Report">
+    <div className="consistency-panel-head">
       <AppIcon name="shield" size={17} />
-      <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600 }}>Consistency Report</h3>
+      <h3>Consistency Report</h3>
       {report.deviation && !report.justified && <span className="intake-badge plan-state-needs_review">Deviation Detected</span>}
       {!report.deviation && <span className="intake-badge plan-state-ready">Consistent</span>}
       {report.justified && <span className="intake-badge plan-state-ready">Justified</span>}
     </div>
     
-    {report.material_differences.length > 0 && <div className="plan-stages" style={{ marginTop: '0.5rem' }}>
+    {report.material_differences.length > 0 && <div className="plan-stages consistency-differences">
       <span>Material Differences</span>
       {report.material_differences.map((diff, idx) => (
         <div className="plan-stage" key={idx}>
@@ -83,14 +83,14 @@ export function ConsistencyPanel({
     {report.reason && <p className="plan-muted">{report.reason}</p>}
     
     {report.deviation && !report.justified && (
-      <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+      <div className="consistency-justification">
         <input 
           type="text" 
           aria-label="Operator justification"
           value={justification} 
           onChange={e => setJustification(e.target.value)}
           placeholder="Provide operator justification..." 
-          style={{ flex: 1, padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border-muted)' }}
+          className="consistency-justification-input"
           disabled={justifying}
         />
         <button 

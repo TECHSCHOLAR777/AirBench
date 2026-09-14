@@ -194,6 +194,7 @@ function ArtifactPreviewPanel({ preview, state, error, downloadState, downloadRe
       </div>
       <button className="secondary-button compact-button" type="button" onClick={onDownload} disabled={downloadState === "downloading"}>{downloadState === "downloading" ? "Checking permission..." : downloadState === "downloaded" ? "Request again" : "Request permitted download"}</button>
       {downloadReceipt && <small>Local save: {downloadReceipt.byte_size} bytes. Ledger {downloadReceipt.ledger_event_ref}.</small>}
+      {downloadState === "failed" && <small>No unverified file was saved.</small>}
     </div>
   </section>;
 }

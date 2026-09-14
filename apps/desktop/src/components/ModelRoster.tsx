@@ -74,15 +74,15 @@ export function ModelRoster({
     {!loading && !error && resolvedTargets.length === 0 && (
       <div className="profile-empty">{resolvedConfigured ? "No model targets are declared." : "Model qualification is not configured on this Node."}</div>
     )}
-    {!loading && !error && targets.length > 0 && <ul className="worktrace-artifact-list">
+    {!loading && !error && resolvedTargets.length > 0 && <ul className="model-roster-list">
       {resolvedTargets.map((q) => (
-        <li key={q.target_id}>
-          <div className="proof-record-button" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", border: "none", background: "none" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+        <li key={q.target_id} className="model-roster-entry">
+          <div className="model-roster-entry-card">
+            <div className="model-roster-entry-head">
               <strong>{q.target_id}</strong>
               <span className={`artifact-record-state artifact-record-state-${stateClass(q.status)}`}>{q.status}</span>
             </div>
-            <span>Tier: {q.routing_tier ?? "Unknown"}</span>
+            <span className="model-roster-tier">Tier: {q.routing_tier ?? "Unknown"}</span>
             <small>{q.reason ?? (q.measurement_pending ? "Measurement pending" : "Evaluated")}</small>
           </div>
         </li>
