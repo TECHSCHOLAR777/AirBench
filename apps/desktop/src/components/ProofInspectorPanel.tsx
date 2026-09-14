@@ -1,4 +1,5 @@
 import { AppIcon } from "./AppIcon";
+import { AdvancedDetails } from "./AdvancedDetails";
 import type { ArtifactPreview, DownloadReceipt } from "../features/intake/intakeBridge";
 import type { NodeArtifactReview } from "../generated/core_contracts";
 import {

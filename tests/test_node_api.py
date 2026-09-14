@@ -446,6 +446,20 @@ class NodeApiTests(unittest.TestCase):
         self.assertEqual(conflict.json()["code"], "idempotency_conflict")
         self.assertEqual(len(self.ledger.events), 1)
 
+    def test_distinct_create_commands_with_same_request_get_distinct_tasks(self):
+        first_body = self.task_body()
+        second_body = self.task_body()
+        second_body["command_id"] = "command.create.2"
+        second_body["idempotency_key"] = "idempotency.create.2"
+
+        first = self.request("POST", "/api/v1/tasks", headers=self.headers(), json=first_body)
+        second = self.request("POST", "/api/v1/tasks", headers=self.headers(), json=second_body)
+
+        self.assertEqual(first.status_code, 201, first.text)
+        self.assertEqual(second.status_code, 201, second.text)
+        self.assertNotEqual(first.json()["task"]["task_id"], second.json()["task"]["task_id"])
+        self.assertEqual(len(self.ledger.events), 2)
+
     def test_transition_retry_replays_but_stale_new_command_is_rejected(self):
         task, _ = self.create_task()
         task_id = task["task_id"]
