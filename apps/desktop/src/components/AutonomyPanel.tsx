@@ -66,22 +66,21 @@ export function AutonomyPanel({
     
     <ul className="worktrace-question-list">
       {status.decisions.map((dec) => (
-        <li key={dec.action_id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <li key={dec.action_id} className="autonomy-decision">
+          <div className="autonomy-decision-head">
             <AppIcon name={dec.outcome === "escalate" ? "shield" : "review"} size={16} />
             <strong>{dec.action_kind}</strong>
             <span className={`artifact-record-state artifact-record-state-${dec.outcome === "allow" ? "ready" : "superseded"}`}>
               {dec.outcome.toUpperCase()}
             </span>
           </div>
-          <p style={{ margin: '0.5rem 0 0 0', fontSize: '13px' }}>{dec.reason}</p>
-          <small style={{ color: 'var(--text-muted)' }}>Authority required: {dec.required_authority}</small>
+          <p className="autonomy-decision-reason">{dec.reason}</p>
+          <small className="autonomy-decision-authority">Authority required: {dec.required_authority}</small>
           
           {dec.outcome === "escalate" && status.is_blocked && (
             <button 
               type="button" 
-              className="primary-button" 
-              style={{ marginTop: '0.5rem', padding: '0.25rem 0.5rem', fontSize: '12px' }}
+              className="primary-button compact-button autonomy-authorize-button"
               onClick={() => { void onAuthorize(dec.action_id); }}
               disabled={authorizing === dec.action_id}
             >
