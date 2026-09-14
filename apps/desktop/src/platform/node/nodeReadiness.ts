@@ -1,5 +1,6 @@
 import type { ApprovedNodeProfileReference } from "./nodeConnection";
 import type { NodeConnectionView } from "./nodeConnectionController";
+import { buildOperationalProjection, type OperationalProjection } from "./operationalReadiness";
 
 export type NodeReadinessTone = "trusted" | "attention" | "blocked";
 
@@ -27,7 +28,17 @@ export interface NodeRoutingReadiness {
 
 export interface NodeReadiness {
   connection: NodeConnectionReadiness;
+  operational: OperationalProjection;
   routing: NodeRoutingReadiness;
+}
+
+function operationalReadiness(verified: boolean): OperationalProjection {
+  return buildOperationalProjection({
+    verified,
+    hardware: null,
+    modelServing: null,
+    qualification: null,
+  });
 }
 
 function displayValue(value: string | null): string {

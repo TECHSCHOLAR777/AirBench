@@ -841,14 +841,20 @@ class NodeApiService:
                     permitted_tools=permitted_tools,
                     output_contract=output_contract,
                     verification_criteria=verification_criteria,
-                    resource_budget=resource_budget,
-                    title=title,
-                    project_ref=project_ref,
-                    priority=priority,
-                    deadline=deadline,
-                    input_manifest_refs=input_manifest_refs,
-                    command_metadata=_command_metadata(command),
-                )
+                resource_budget=resource_budget,
+                title=title,
+                project_ref=project_ref,
+                priority=priority,
+                deadline=deadline,
+                input_manifest_refs=input_manifest_refs,
+                # A new command must create a new task even when its natural
+                # language request is identical to an earlier one. Retries
+                # still replay above by idempotency key, so this remains
+                # deterministic for one command without colliding across
+                # distinct user submissions.
+                task_id=stable_id("task.command", command.idempotency_key),
+                command_metadata=_command_metadata(command),
+            )
             except AuthorizationError as exc:
                 raise NodeApiError(403, "orchestrator_authorization_rejected", "The local authorization policy rejected the task.") from exc
             except (ContractValidationError, ValueError) as exc:
