@@ -13,7 +13,7 @@ param(
     [string]$Subject = "demo.operator",
     [string]$DomainPackRef = "refinery-psu-v0",
     [switch]$Retrieval,   # off by default: loading BGE adds ~1 min and several GB RAM
-    [switch]$Execution    # Node-owned task execution + deliverables (docx/xlsx/pptx)
+    [switch]$NoExecution  # debugging only: disable Node-owned execution + deliverables
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,14 +87,19 @@ if ($Retrieval) {
     $env:AIRBENCH_RETRIEVAL_ENABLED = "0"
 }
 
-if ($Execution) {
+# Node-owned execution is ON by default so that approving an admissible plan
+# actually runs the Node-approved work (model routing, verification, and a
+# rendered DOCX/XLSX/PPTX deliverable). Use -NoExecution only to debug transport
+# without executing tasks.
+if ($NoExecution) {
+    $env:AIRBENCH_TASK_EXECUTION_ENABLED = "0"
+    Write-Host "Task execution disabled (-NoExecution): approved plans will not run." -ForegroundColor Yellow
+} else {
     $env:AIRBENCH_TASK_EXECUTION_ENABLED    = "1"
     $env:AIRBENCH_DELIVERABLE_TEMPLATE_PATH = "$repo\packs\refinery_psu_v0\deliverable_templates.yaml"
     # The draft/render step is the reversible prepare action; release stays human-gated.
     $env:AIRBENCH_EXECUTION_ACTION_KIND     = "prepare_approval_note"
-    Write-Host "Task execution enabled: approved tasks render DOCX/XLSX/PPTX deliverables from their output contract." -ForegroundColor Cyan
-} else {
-    $env:AIRBENCH_TASK_EXECUTION_ENABLED = "0"
+    Write-Host "Task execution enabled: approving a plan runs the Node work and renders the deliverable." -ForegroundColor Cyan
 }
 
 Write-Host ""

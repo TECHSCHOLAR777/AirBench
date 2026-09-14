@@ -157,7 +157,7 @@ def _image_media_type(content: bytes) -> str | None:
 class NodeApiService:
     """Owns API authentication and projections, not task authority."""
 
-    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None, model_router: Any = None, task_planner: Any = None, retrieval: Any = None, execution: Any = None, knowledge: Any = None, pack: Any = None, world_model: Any = None, consistency: Any = None, autonomy: Any = None, hardware_profile: Any = None, qualification_matrix: Any = None, pid_adapter: Any = None, pid_workspace: Any = None):
+    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None, model_router: Any = None, task_planner: Any = None, retrieval: Any = None, execution: Any = None, knowledge: Any = None, pack: Any = None, world_model: Any = None, consistency: Any = None, autonomy: Any = None, hardware_profile: Any = None, qualification_matrix: Any = None, routing_tiers: Any = None, pid_adapter: Any = None, pid_workspace: Any = None):
         self.orchestrator = orchestrator
         self.config = config
         self.intake_gateway = intake_gateway
@@ -188,6 +188,9 @@ class NodeApiService:
         # Hardware and qualification projections for the Node settings surface.
         self.hardware_profile = hardware_profile
         self.qualification_matrix = qualification_matrix
+        # Declared routing tiers (target_id -> "capable"|"efficient") projected
+        # from the signed model roster for display only.
+        self.routing_tiers = routing_tiers or {}
         # The P&ID extraction adapter (offline) and its scoped workspace root.
         self.pid_adapter = pid_adapter
         self.pid_workspace = pid_workspace
@@ -536,14 +539,14 @@ class NodeApiService:
             return {"target_id": target_id, "status": "unavailable", "certificates": []}
         from .qualification_gateway import qualification_status
 
-        return qualification_status(self.qualification_matrix, target_id)
+        return qualification_status(self.qualification_matrix, target_id, self.routing_tiers)
 
     def qualification_roster(self) -> dict[str, Any]:
         if self.qualification_matrix is None:
             return {"configured": False, "count": 0, "targets": []}
         from .qualification_gateway import qualification_roster
 
-        return {"configured": True, **qualification_roster(self.qualification_matrix)}
+        return {"configured": True, **qualification_roster(self.qualification_matrix, self.routing_tiers)}
 
     def _require_task(self, task_id: str) -> str:
         self._visible_task(task_id)
@@ -800,6 +803,11 @@ class NodeApiService:
             if self.execution is not None:
                 from .task_execution import NodeTaskExecutionError
                 try:
+                    # The operator's approval is the named human authority the
+                    # autonomy governor requires before running work inherited
+                    # from untrusted input.
+                    if self.autonomy is not None and hasattr(self.execution, "authorize"):
+                        self.execution.authorize(subject, task_id)
                     self.execution.execute(task_id)
                 except NodeTaskExecutionError as exc:
                     if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
