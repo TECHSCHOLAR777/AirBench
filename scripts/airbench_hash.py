@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,7 +30,12 @@ from pathlib import Path
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuration — which files to hash for each model
 # ──────────────────────────────────────────────────────────────────────────────
-BUNDLE_ROOT = Path(__file__).parent / "airbench-models"
+# Point at the canonical model store with AIRBENCH_MODEL_STORE (one-copy
+# storage). Falls back to the repository-root bundle used by the reference
+# targets.
+BUNDLE_ROOT = Path(
+    os.environ.get("AIRBENCH_MODEL_STORE", str(Path(__file__).resolve().parents[1] / "airbench-models"))
+)
 
 # Each entry: (model_dir, artifact_files_to_hash, tokenizer_file, chat_template_file)
 MODEL_TARGETS = [
@@ -91,6 +97,24 @@ MODEL_TARGETS = [
         "artifact_files": ["model.safetensors"],
         "tokenizer_file": "tokenizer.json",
         "chat_template_file": "tokenizer_config.json",
+        "mmproj_file": None,
+    },
+    # ── Two-endpoint Gemma demo (QAT W4A16 compressed-tensors) ────────────────
+    {
+        "target_id": "airbench-gemma-4-e2b",
+        "dir": "gemma-4-e2b-it-w4a16-ct",
+        "artifact_files": ["model.safetensors"],
+        "tokenizer_file": "tokenizer.json",
+        # Must match model_roster.yaml chat_template.path for this target.
+        "chat_template_file": "chat_template.jinja",
+        "mmproj_file": None,
+    },
+    {
+        "target_id": "airbench-gemma-4-12b",
+        "dir": "gemma-4-12b-it-w4a16-ct",
+        "artifact_files": ["model.safetensors"],
+        "tokenizer_file": "tokenizer.json",
+        "chat_template_file": "chat_template.jinja",
         "mmproj_file": None,
     },
 ]
@@ -204,7 +228,23 @@ def hash_target(spec: dict) -> dict:
     return result
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Hash AirBench model artifacts in the model store.")
+    parser.add_argument(
+        "--target", action="append", dest="targets", default=None,
+        help="Only hash this target id (repeatable). Default: all known targets.",
+    )
+    args = parser.parse_args(argv)
+    known = {spec["target_id"] for spec in MODEL_TARGETS}
+    if args.targets:
+        unknown = sorted(set(args.targets) - known)
+        if unknown:
+            print(f"ERROR: unknown target id(s): {unknown}. Known: {sorted(known)}", file=sys.stderr)
+            sys.exit(2)
+    selected = [spec for spec in MODEL_TARGETS if not args.targets or spec["target_id"] in args.targets]
+
     now = datetime.now(timezone.utc).isoformat()
     print(f"\n{'='*70}")
     print(f"AirBench M5.1/M5.2 Artifact Hashing Tool")
@@ -214,10 +254,11 @@ def main() -> None:
 
     if not BUNDLE_ROOT.exists():
         print(f"ERROR: Bundle root does not exist: {BUNDLE_ROOT}", file=sys.stderr)
+        print("Set AIRBENCH_MODEL_STORE to the directory that contains the model folders.", file=sys.stderr)
         sys.exit(1)
 
     all_results = []
-    for spec in MODEL_TARGETS:
+    for spec in selected:
         print(f"Hashing: {spec['target_id']} ({spec['dir']}) ...")
         sys.stdout.flush()
         result = hash_target(spec)

@@ -41,11 +41,15 @@ class ModelRouter:
     """
 
     def __init__(self, registry: ModelRegistry, adapters: Mapping[str, BackendAdapter], *,
-                 policy_version_hash: str, resource_admission: ResourceAdmission | None = None) -> None:
+                 policy_version_hash: str, resource_admission: ResourceAdmission | None = None,
+                 endpoint_bindings: Mapping[str, BackendAdapter] | None = None) -> None:
         if not policy_version_hash.strip():
             raise ValueError("policy_version_hash is required")
         self.registry = registry
         self.adapters = dict(adapters)
+        # A target may have a distinct deployment instance even when several
+        # deployments share the same provider implementation adapter_id.
+        self.endpoint_bindings = dict(endpoint_bindings or {})
         self.policy_version_hash = policy_version_hash
         self.resource_admission = resource_admission
         # Sticky escalation is scoped to a task stage.  A new explicit stage
@@ -92,12 +96,12 @@ class ModelRouter:
             candidates = tuple(sorted(candidates, key=lambda target: target.routing_tier != "capable"))
             routing_mode = "capable"
 
-        fallback = next((target.target_id for target in candidates[1:] if target.adapter_id in self.adapters), None)
+        fallback = next((target.target_id for target in candidates[1:] if self._resolve_adapter(target) is not None), None)
         queued = False
         needs_review = False
         reasons: list[str] = []
         for target in candidates:
-            adapter = self.adapters.get(target.adapter_id)
+            adapter = self._resolve_adapter(target)
             if adapter is None:
                 reasons.append(f"{target.target_id}: adapter {target.adapter_id} is not registered")
                 continue
@@ -144,6 +148,10 @@ class ModelRouter:
             "; ".join(reasons) or "no eligible backend adapter is available",
             routing_mode=routing_mode, hardware_profile_ref=hardware_profile_ref,
         )
+
+    def _resolve_adapter(self, target: ModelTarget) -> BackendAdapter | None:
+        """Resolve a deployment-specific adapter before legacy shared wiring."""
+        return self.endpoint_bindings.get(target.target_id) or self.adapters.get(target.adapter_id)
 
     def _result(self, request: ModelCallRequest, eligible_ids: tuple[str, ...], target: ModelTarget | None,
                 adapter: BackendAdapter | None, fallback: str | None, admission: str,

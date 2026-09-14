@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, Protocol, Sequence
 
 from contracts import Clearance, EventLedger, FactEnvelope, Taint, build_event, stable_id
 
@@ -19,6 +19,16 @@ def _rank(clearance: Clearance) -> int:
         Clearance.restricted: 2,
         Clearance.secret: 3,
     }[clearance]
+
+
+def _parse_time(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise WorldModelError("invalid_time", "as_of must be an RFC3339 timestamp") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 class WorldModelError(RuntimeError):
@@ -62,12 +72,15 @@ class WorldModelQuery:
     entity_id: str = ""
     relation: str = ""
     max_depth: int = 1
+    as_of: str | None = None
 
     def __post_init__(self) -> None:
         if not self.task_id or self.limit < 1 or self.limit > 1_000 or len(self.key) > 256:
             raise WorldModelError("invalid_query", "world model query identity or limit is invalid")
         if len(self.relation) > 128 or self.max_depth < 0 or self.max_depth > 5:
             raise WorldModelError("invalid_query", "world model relation query is outside the allowed bounds")
+        if self.as_of is not None:
+            _parse_time(self.as_of)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,18 +105,46 @@ class CandidateFact:
 Gate = Callable[[CandidateFact], bool]
 
 
+@dataclass(frozen=True, slots=True)
+class ReviewItem:
+    """A low-confidence or ambiguous candidate awaiting a human decision."""
+
+    candidate: CandidateFact
+    reason: str
+    enqueued_at: str
+
+    def __post_init__(self) -> None:
+        if not self.reason.strip():
+            raise WorldModelError("invalid_review", "a review item requires a reason")
+
+
+class GraphStore(Protocol):
+    """Pluggable durable persistence behind :class:`WorldModelStore`.
+
+    A backend only stores and returns serialised committed facts and relations;
+    reconciliation, visibility, clearance filtering, and traversal stay in the
+    core.  ``SqliteGraphStore`` provides an append-only local implementation.
+    """
+
+    def load(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]: ...
+
+    def save(self, facts: Sequence[FactEnvelope], relations: Sequence["WorldModelRelation"]) -> None: ...
+
+
 class WorldModelStore:
     """Committed-fact store with optional bounded JSON persistence."""
 
     def __init__(self, *, ledger: EventLedger | None = None, path: str | Path | None = None,
-                 max_file_bytes: int = 50_000_000) -> None:
+                 max_file_bytes: int = 50_000_000, backend: GraphStore | None = None) -> None:
         if max_file_bytes < 1:
             raise WorldModelError("invalid_storage_limit", "world model storage limit must be positive")
         self._facts: dict[str, FactEnvelope] = {}
         self._relations: dict[str, WorldModelRelation] = {}
         self._ledger = ledger
-        self._path = Path(path) if path is not None else None
+        self._backend = backend
+        self._path = Path(path) if (path is not None and backend is None) else None
         self._max_file_bytes = max_file_bytes
+        self._review: dict[str, ReviewItem] = {}
         self._load()
 
     @property
@@ -114,12 +155,57 @@ class WorldModelStore:
     def relations(self) -> tuple[WorldModelRelation, ...]:
         return tuple(self._relations.values())
 
+    @property
+    def review_queue(self) -> tuple[ReviewItem, ...]:
+        return tuple(self._review.values())
+
+    def enqueue_review(self, candidate: CandidateFact, reason: str) -> ReviewItem:
+        """Stage a candidate for human review instead of committing it."""
+        item = ReviewItem(candidate, reason, datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+        self._review[candidate.candidate_id] = item
+        self._emit("world_model.review_required", candidate.task_id, candidate.fact.clearance, {
+            "candidate_id": candidate.candidate_id, "fact_id": candidate.fact.fact_id, "reason": reason,
+        })
+        return item
+
+    def resolve_review(self, candidate_id: str, *, accept: bool) -> FactEnvelope | None:
+        """Accept a queued candidate into the graph, or tombstone it by rejection."""
+        item = self._review.pop(candidate_id, None)
+        if item is None:
+            raise WorldModelError("review_missing", "review item is not queued")
+        self._emit("world_model.review_resolved", item.candidate.task_id, item.candidate.fact.clearance, {
+            "candidate_id": candidate_id, "decision": "accept" if accept else "reject",
+        })
+        if not accept:
+            return None
+        self._commit(item.candidate.fact, item.candidate.relations)
+        return item.candidate.fact
+
+    def _emit(self, event_type: str, task_id: str, clearance: Clearance, payload: dict[str, str]) -> None:
+        if self._ledger is None:
+            return
+        sequence = len(self._ledger.events)
+        self._ledger.append(build_event(
+            event_type=event_type,
+            task_id=task_id,
+            actor_id="world-model",
+            actor_type="world_model",
+            payload_contract="WorldModelOperation",
+            payload_version="1.0",
+            payload={"task_id": task_id, "clearance": clearance.value, **payload},
+            clearance=clearance,
+            idempotency=stable_id("world-model", event_type, task_id, sequence),
+            sequence=sequence,
+            previous_event_hash=self._ledger.head_hash,
+            occurred_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        ))
+
     def query(self, request: WorldModelQuery) -> tuple[FactEnvelope, ...]:
         self._event("world_model.requested", request, {
             "key_hash": hashlib.sha256(request.key.encode("utf-8")).hexdigest(),
             "limit": str(request.limit),
         })
-        visible = self._visible_facts()
+        visible = self._visible_as_of(request.as_of) if request.as_of is not None else self._visible_facts()
         matches = [
             fact for fact in visible.values()
             if _rank(fact.clearance) <= _rank(request.clearance) and self._matches_key(fact, request.key)
@@ -184,6 +270,33 @@ class WorldModelStore:
             if fact_id not in superseded
         }
 
+    def _visible_as_of(self, as_of: str) -> dict[str, FactEnvelope]:
+        """Reconstruct the graph as it was known at ``as_of``.
+
+        Uses the learned time (``ingested_at``), the valid window
+        (``valid_from``/``valid_to``) and the supersession chain, so a fact that
+        was still current then is returned even if a later revision has since
+        superseded it.
+        """
+        cutoff = _parse_time(as_of)
+        known = {
+            fact_id: fact for fact_id, fact in self._facts.items()
+            if _parse_time(fact.ingested_at) <= cutoff
+        }
+        superseded = {
+            fact.supersedes_fact_id for fact in known.values() if fact.supersedes_fact_id in known
+        }
+        visible: dict[str, FactEnvelope] = {}
+        for fact_id, fact in known.items():
+            if fact_id in superseded:
+                continue
+            if fact.valid_from is not None and _parse_time(fact.valid_from) > cutoff:
+                continue
+            if fact.valid_to is not None and _parse_time(fact.valid_to) <= cutoff:
+                continue
+            visible[fact_id] = fact
+        return visible
+
     def _traverse(self, request: WorldModelQuery, visible: dict[str, FactEnvelope]) -> list[FactEnvelope]:
         frontier = {request.entity_id}
         visited = set(frontier)
@@ -210,6 +323,22 @@ class WorldModelStore:
         return matches
 
     def _load(self) -> None:
+        if self._backend is not None:
+            try:
+                fact_payload, relation_payload = self._backend.load()
+                self._facts = {item["fact_id"]: FactEnvelope.from_dict(item) for item in fact_payload}
+                self._relations = {
+                    item["relation_id"]: WorldModelRelation(
+                        relation_id=item["relation_id"], source_fact_id=item["source_fact_id"],
+                        relation=item["relation"], target_fact_id=item["target_fact_id"],
+                        source_ref=item["source_ref"], confidence=item["confidence"],
+                        clearance=Clearance(item["clearance"]), taint=Taint(item["taint"]),
+                        valid_from=item.get("valid_from"), valid_to=item.get("valid_to"),
+                    ) for item in relation_payload
+                }
+            except (ValueError, KeyError, TypeError, WorldModelError) as exc:
+                raise WorldModelError("invalid_storage", "world model backend returned invalid data") from exc
+            return
         if self._path is None or not self._path.exists():
             return
         if self._path.stat().st_size > self._max_file_bytes:
@@ -241,6 +370,9 @@ class WorldModelStore:
             raise WorldModelError("invalid_storage", "world model file is invalid") from exc
 
     def _persist(self) -> None:
+        if self._backend is not None:
+            self._backend.save(tuple(self._facts.values()), tuple(self._relations.values()))
+            return
         if self._path is None:
             return
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -335,6 +467,33 @@ class CandidateFactWriter:
         del self._candidates[candidate.candidate_id]
         return candidate.fact
 
+    def reconcile(self, candidate_id: str, *, review_floor: float = 0.0, emit_conflict: bool = True) -> FactEnvelope:
+        """Gate, reconcile, and commit a staged candidate.
+
+        A candidate below ``review_floor`` is queued for human review instead
+        of being committed.  A candidate that supersedes an existing fact emits
+        a ``world_model.conflict`` event and commits both facts, keeping the
+        older one auditable but no longer query-visible.
+        """
+        candidate = self._candidates.get(candidate_id)
+        if candidate is None:
+            raise WorldModelError("candidate_missing", "candidate fact is not staged")
+        if not self._consistency_gate(candidate):
+            raise WorldModelError("consistency_failed", "candidate failed the consistency gate")
+        if not self._verification_gate(candidate):
+            raise WorldModelError("verification_failed", "candidate failed the verification gate")
+        if candidate.fact.confidence < review_floor:
+            self._store.enqueue_review(candidate, "fact confidence is below the reconciliation floor")
+            raise WorldModelError("review_required", "candidate was queued for human review")
+        if emit_conflict and candidate.fact.supersedes_fact_id:
+            self._event("world_model.conflict", candidate, {
+                "candidate_id": candidate.candidate_id,
+                "fact_id": candidate.fact.fact_id,
+                "supersedes_fact_id": candidate.fact.supersedes_fact_id,
+                "resolution": "supersession",
+            })
+        return self.commit(candidate_id)
+
     def _event(self, event_type: str, candidate: CandidateFact, payload: dict[str, str]) -> None:
         if self._ledger is None:
             return
@@ -381,4 +540,4 @@ def candidate_id(task_id: str, fact: FactEnvelope) -> str:
     return stable_id("candidate", task_id, fact.fact_id, fact.source_ref, fact.ingested_at)
 
 
-__all__ = ["CandidateFact", "CandidateFactWriter", "WorldModelError", "WorldModelQuery", "WorldModelRelation", "WorldModelStore", "candidate_id"]
+__all__ = ["CandidateFact", "CandidateFactWriter", "GraphStore", "ReviewItem", "WorldModelError", "WorldModelQuery", "WorldModelRelation", "WorldModelStore", "candidate_id"]

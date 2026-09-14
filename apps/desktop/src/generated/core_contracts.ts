@@ -19,6 +19,7 @@ export const LEDGER_EVENT_TYPES = [
   "artifact.integrity.verified",
   "artifact.previewed",
   "artifact.staged",
+  "authority.authorized",
   "authority.decided",
   "backend.airgap_startup.checked",
   "backend.compatibility.completed",
@@ -32,6 +33,7 @@ export const LEDGER_EVENT_TYPES = [
   "completion.ready",
   "completion.recorded",
   "consistency.checked",
+  "consistency.justified",
   "crash.recovered",
   "endpoint.egress.denied",
   "endpoint.rejected",
@@ -83,6 +85,9 @@ export const LEDGER_EVENT_TYPES = [
   "model.tool_call.tested",
   "model.unloaded",
   "model.variant.qualified",
+  "pack.load_rejected",
+  "pack.loaded",
+  "pid.extracted",
   "projection.exported",
   "projection.rebuilt",
   "recovery.resumed",
@@ -153,7 +158,10 @@ export const LEDGER_EVENT_TYPES = [
   "worker.preempted",
   "worker.resource_reserved",
   "worker.started",
+  "world_model.conflict",
   "world_model.requested",
+  "world_model.review_required",
+  "world_model.review_resolved",
 ] as const;
 export type LedgerEventType = typeof LEDGER_EVENT_TYPES[number];
 
@@ -705,6 +713,7 @@ export interface NodeRouteTraceEntry extends NodeWireContractEnvelope {
   taskKind?: string | null;
   requiredCapability?: string | null;
   selectedTarget?: string | null;
+  selectedModelName?: string | null;
   decisionSource?: string | null;
   ruleOrThreshold?: string | null;
   qualificationCertificate?: string | null;

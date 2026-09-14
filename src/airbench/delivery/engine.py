@@ -28,6 +28,13 @@ MAX_TITLE_LENGTH = 255
 MAX_SECTION_LENGTH = 200_000
 MAX_VALUE_LENGTH = 4_096
 MAX_ARTIFACT_BYTES = 100_000_000
+_FORMAT_EXTENSION = {"docx": "docx", "xlsx": "xlsx", "pptx": "pptx"}
+_MEDIA_TYPE = {
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
+_SUPPORTED_FORMATS = frozenset(_MEDIA_TYPE)
 _NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
 _IDENTITY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _PLACEHOLDER_RE = re.compile(r"\{\{([A-Za-z][A-Za-z0-9_.-]{0,127})\}\}")
@@ -188,11 +195,11 @@ class LocalArtifactStore:
     def write(self, artifact_id: str, file_format: str, content: bytes) -> Path:
         if not _IDENTITY_RE.fullmatch(artifact_id):
             raise DeliverableError("artifact identity is invalid")
-        if file_format != "docx":
-            raise DeliverableError("the local artifact store supports only DOCX in this slice")
+        if file_format not in _SUPPORTED_FORMATS:
+            raise DeliverableError("the local artifact store does not support this format")
         if len(content) > MAX_ARTIFACT_BYTES:
             raise DeliverableError("artifact exceeds the local size limit")
-        target = self.root / f"{artifact_id}.docx"
+        target = self.root / f"{artifact_id}.{_FORMAT_EXTENSION[file_format]}"
         temporary = self.root / f".{artifact_id}.tmp"
         try:
             temporary.write_bytes(content)
@@ -201,17 +208,24 @@ class LocalArtifactStore:
             raise DeliverableError("artifact could not be committed to local storage") from exc
         return target
 
-    def read(self, artifact_id: str) -> bytes:
+    def read(self, artifact_id: str, file_format: str | None = None) -> bytes:
         if not _IDENTITY_RE.fullmatch(artifact_id):
             raise DeliverableError("artifact identity is invalid")
-        target = self.root / f"{artifact_id}.docx"
-        try:
-            content = target.read_bytes()
-        except OSError as exc:
-            raise DeliverableError("artifact is not available in local storage") from exc
-        if len(content) > MAX_ARTIFACT_BYTES:
-            raise DeliverableError("stored artifact exceeds the local size limit")
-        return content
+        formats = [file_format] if file_format else list(_FORMAT_EXTENSION)
+        if any(fmt not in _SUPPORTED_FORMATS for fmt in formats):
+            raise DeliverableError("artifact format is invalid")
+        for fmt in formats:
+            target = self.root / f"{artifact_id}.{_FORMAT_EXTENSION[fmt]}"
+            if not target.exists():
+                continue
+            try:
+                content = target.read_bytes()
+            except OSError as exc:
+                raise DeliverableError("artifact is not available in local storage") from exc
+            if len(content) > MAX_ARTIFACT_BYTES:
+                raise DeliverableError("stored artifact exceeds the local size limit")
+            return content
+        raise DeliverableError("artifact is not available in local storage")
 
 
 class DeliverableEngine:
@@ -259,7 +273,7 @@ class DeliverableEngine:
             section: _replace_named_values(request.prose_sections[section], {value.name: value.value_text for value in request.values})
             for section in template.required_sections
         }
-        content = self._render_docx(request.title, rendered_sections, request.values, template)
+        content = self._render(template.file_format, request.title, rendered_sections, request.values, template)
         structural_status, structural_reason = _structural_check(content, template, rendered_sections, request.values)
         if structural_status != "passed":
             raise DeliverableError(structural_reason)
@@ -306,7 +320,7 @@ class DeliverableEngine:
             "template_id": template.template_id,
             "template_version": template.version,
             "title": request.title,
-            "media_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "media_type": _MEDIA_TYPE[template.file_format],
             "format": template.file_format,
             "content_hash": content_hash,
             "byte_size": len(content),
@@ -409,8 +423,8 @@ class DeliverableEngine:
                 raise DeliverableError("domain-pack deliverable template ID is invalid")
             if not isinstance(version, str) or not version.strip():
                 raise DeliverableError("domain-pack deliverable template version is invalid")
-            if file_format != "docx" or not isinstance(sections, list) or not sections:
-                raise DeliverableError("the local deliverable slice requires a DOCX template with sections")
+            if file_format not in _SUPPORTED_FORMATS or not isinstance(sections, list) or not sections:
+                raise DeliverableError("the deliverable template must declare a supported format (docx, xlsx, pptx) with sections")
             names = tuple(section for section in sections if isinstance(section, str) and _NAME_RE.fullmatch(section))
             if len(names) != len(sections) or len(set(names)) != len(names):
                 raise DeliverableError("domain-pack deliverable sections are invalid")
@@ -489,6 +503,22 @@ class DeliverableEngine:
             raise DeliverableError(f"unbound named value: {sorted(placeholders - set(names))[0]}")
 
     @staticmethod
+    def _render(
+        file_format: str,
+        title: str,
+        sections: Mapping[str, str],
+        values: tuple[DeterministicValue, ...],
+        template: TemplateDefinition,
+    ) -> bytes:
+        if file_format == "docx":
+            return DeliverableEngine._render_docx(title, sections, values, template)
+        if file_format == "xlsx":
+            return DeliverableEngine._render_xlsx(title, sections, values, template)
+        if file_format == "pptx":
+            return DeliverableEngine._render_pptx(title, sections, values, template)
+        raise DeliverableError("unsupported deliverable format")
+
+    @staticmethod
     def _render_docx(
         title: str,
         sections: Mapping[str, str],
@@ -515,6 +545,80 @@ class DeliverableEngine:
                     cells[2].text = value.unit or ""
         output = io.BytesIO()
         document.save(output)
+        return output.getvalue()
+
+    @staticmethod
+    def _render_xlsx(
+        title: str,
+        sections: Mapping[str, str],
+        values: tuple[DeterministicValue, ...],
+        template: TemplateDefinition,
+    ) -> bytes:
+        try:
+            from openpyxl import Workbook
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise DeliverableError("the XLSX renderer requires openpyxl") from exc
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Deliverable"
+        row = 1
+        sheet.cell(row=row, column=1, value=title)
+        row += 1
+        for section in template.required_sections:
+            sheet.cell(row=row, column=1, value=_section_label(section))
+            row += 1
+            sheet.cell(row=row, column=1, value=sections[section])
+            row += 1
+            if template.values_section == section and values:
+                sheet.cell(row=row, column=1, value="Name")
+                sheet.cell(row=row, column=2, value="Value")
+                sheet.cell(row=row, column=3, value="Unit")
+                row += 1
+                for value in values:
+                    sheet.cell(row=row, column=1, value=value.name)
+                    sheet.cell(row=row, column=2, value=value.value_text)
+                    sheet.cell(row=row, column=3, value=value.unit or "")
+                    row += 1
+        output = io.BytesIO()
+        workbook.save(output)
+        return output.getvalue()
+
+    @staticmethod
+    def _render_pptx(
+        title: str,
+        sections: Mapping[str, str],
+        values: tuple[DeterministicValue, ...],
+        template: TemplateDefinition,
+    ) -> bytes:
+        try:
+            from pptx import Presentation
+            from pptx.util import Inches
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise DeliverableError("the PPTX renderer requires python-pptx") from exc
+        presentation = Presentation()
+        title_slide = presentation.slides.add_slide(presentation.slide_layouts[0])
+        title_slide.shapes.title.text = title
+        if len(title_slide.placeholders) > 1:
+            title_slide.placeholders[1].text = template.template_id
+        body_layout = presentation.slide_layouts[1]
+        for section in template.required_sections:
+            slide = presentation.slides.add_slide(body_layout)
+            slide.shapes.title.text = _section_label(section)
+            slide.placeholders[1].text_frame.text = sections[section]
+            if template.values_section == section and values:
+                rows = len(values) + 1
+                table = slide.shapes.add_table(
+                    rows, 3, Inches(0.6), Inches(2.4), Inches(9.0), Inches(0.4 * rows)
+                ).table
+                table.cell(0, 0).text = "Name"
+                table.cell(0, 1).text = "Value"
+                table.cell(0, 2).text = "Unit"
+                for index, value in enumerate(values, start=1):
+                    table.cell(index, 0).text = value.name
+                    table.cell(index, 1).text = value.value_text
+                    table.cell(index, 2).text = value.unit or ""
+        output = io.BytesIO()
+        presentation.save(output)
         return output.getvalue()
 
     def _append(
@@ -594,12 +698,37 @@ def _structural_check(
 ) -> tuple[str, str]:
     if not template.structural_check_required:
         return "not_required", ""
+    if template.file_format == "docx":
+        return _ooxml_structural_check(
+            content, required_parts={"word/document.xml", "word/styles.xml"},
+            text_prefixes=("word/",), sections=sections, values=values,
+        )
+    if template.file_format == "xlsx":
+        return _ooxml_structural_check(
+            content, required_parts={"xl/workbook.xml", "xl/worksheets/sheet1.xml"},
+            text_prefixes=("xl/",), sections=sections, values=values,
+        )
+    if template.file_format == "pptx":
+        return _ooxml_structural_check(
+            content, required_parts={"ppt/presentation.xml", "ppt/slides/slide1.xml"},
+            text_prefixes=("ppt/",), sections=sections, values=values,
+        )
+    return "failed", "the deliverable format cannot be structurally checked"
+
+
+def _ooxml_structural_check(
+    content: bytes,
+    *,
+    required_parts: set[str],
+    text_prefixes: tuple[str, ...],
+    sections: Mapping[str, str],
+    values: tuple[DeterministicValue, ...],
+) -> tuple[str, str]:
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as package:
             names = set(package.namelist())
-            required = {"[Content_Types].xml", "word/document.xml", "word/styles.xml"}
-            if not required.issubset(names):
-                return "failed", "DOCX package is missing required OOXML parts"
+            if "[Content_Types].xml" not in names or not required_parts.issubset(names):
+                return "failed", "the OOXML package is missing required parts"
             if any(name.endswith(("vbaProject.bin", ".exe", ".dll")) for name in names):
                 return "failed", "executable or macro content is not permitted in the first-scope artifact"
             for name in names:
@@ -609,18 +738,20 @@ def _structural_check(
                 for relationship in root:
                     if relationship.attrib.get("TargetMode") == "External" or relationship.attrib.get("Target", "").lower().startswith(("http:", "https:")):
                         return "failed", "external document relationships are not permitted"
-            document_root = ElementTree.fromstring(package.read("word/document.xml"))
-            text = "".join(document_root.itertext())
+            text = ""
+            for name in sorted(names):
+                if name.endswith(".xml") and any(name.startswith(prefix) for prefix in text_prefixes):
+                    text += "".join(ElementTree.fromstring(package.read(name)).itertext())
             if "{{" in text or "}}" in text:
-                return "failed", "unresolved named value placeholder remains in the DOCX"
+                return "failed", "an unresolved named value placeholder remains in the artifact"
             for section, rendered in sections.items():
                 if _section_label(section) not in text and rendered not in text:
-                    return "failed", f"required section {section!r} was not found in the DOCX"
+                    return "failed", f"required section {section!r} was not found in the artifact"
             for value in values:
                 if value.value_text not in text:
-                    return "failed", f"deterministic value {value.name!r} was not found in the DOCX"
+                    return "failed", f"deterministic value {value.name!r} was not found in the artifact"
     except (zipfile.BadZipFile, KeyError, UnicodeError, ElementTree.ParseError) as exc:
-        return "failed", "DOCX structural check could not safely read the package"
+        return "failed", "the OOXML structural check could not safely read the package"
     return "passed", ""
 
 

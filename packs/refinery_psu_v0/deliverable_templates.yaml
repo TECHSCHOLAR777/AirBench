@@ -12,7 +12,36 @@ templates:
       deterministic_calculations: Deterministic Calculations
       review_status: Review Status
     required_sections: [subject, findings, source_register, deterministic_calculations, review_status]
+    value_bindings:
+      - name: page_count
+        required: true
     values_section: deterministic_calculations
     numeric_values: verified_fact_or_deterministic_calculation_only
     structural_check: required
     visual_check: required
+  - id: refinery_psu_inspection_workbook_v0
+    version: "1.0"
+    format: xlsx
+    status: verified_draft_for_human_review
+    title: Refinery PSU Inspection Workbook
+    required_sections: [subject, findings, source_register, deterministic_calculations, review_status]
+    value_bindings:
+      - name: page_count
+        required: true
+    values_section: deterministic_calculations
+    numeric_values: verified_fact_or_deterministic_calculation_only
+    structural_check: required
+    visual_check: not_required
+  - id: refinery_psu_review_slides_v0
+    version: "1.0"
+    format: pptx
+    status: verified_draft_for_human_review
+    title: Refinery PSU Inspection Review
+    required_sections: [subject, findings, source_register, deterministic_calculations, review_status]
+    value_bindings:
+      - name: page_count
+        required: true
+    values_section: deterministic_calculations
+    numeric_values: verified_fact_or_deterministic_calculation_only
+    structural_check: required
+    visual_check: not_required

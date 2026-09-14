@@ -16,7 +16,6 @@ from .tool_parsers import (
 from .vllm_adapter import VllmAdapter
 from .nim_adapter import NimAdapter
 from .remote_adapter import FakeRemoteEndpoint, RemoteEndpointAdapter
-from .gemini_adapter import GeminiApiAdapter
 
 __all__ = [
     "BaseToolParser",
@@ -28,5 +27,4 @@ __all__ = [
     "NimAdapter",
     "FakeRemoteEndpoint",
     "RemoteEndpointAdapter",
-    "GeminiApiAdapter",
 ]

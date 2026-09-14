@@ -5,7 +5,8 @@ import os
 import unittest
 from unittest.mock import patch
 
-from contracts import BackendContent, BackendMessage, BackendRequest, GeminiApiAdapter, ModelCallRequest
+from contracts import BackendContent, BackendMessage, BackendRequest, ModelCallRequest
+from devtools.gemini_adapter import GeminiApiAdapter
 
 
 class _Response:
@@ -38,7 +39,7 @@ class GeminiAdapterTests(unittest.TestCase):
     def test_normalizes_text_response_and_uses_model_in_endpoint(self):
         adapter = GeminiApiAdapter("gemini-2.5-flash")
         response = _Response({"candidates": [{"content": {"parts": [{"text": "hello back"}]}, "finishReason": "STOP"}], "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 2}})
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}), patch("contracts.adapters.gemini_adapter.urlopen", return_value=response) as opened:
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}), patch("devtools.gemini_adapter.urlopen", return_value=response) as opened:
             result = adapter.complete(_request())
         self.assertEqual(result.output, "hello back")
         self.assertEqual(result.usage.total_tokens, 5)
@@ -48,7 +49,7 @@ class GeminiAdapterTests(unittest.TestCase):
     def test_normalizes_structured_output(self):
         adapter = GeminiApiAdapter("gemini-2.5-pro")
         response = _Response({"candidates": [{"content": {"parts": [{"text": '{"ok": true}'}]}}]})
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}), patch("contracts.adapters.gemini_adapter.urlopen", return_value=response):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}), patch("devtools.gemini_adapter.urlopen", return_value=response):
             result = adapter.complete(_request("json_object"))
         self.assertEqual(result.output, {"ok": True})
 

@@ -56,18 +56,26 @@ def build_target_qualification_payload(target: dict) -> tuple[ModelTarget, dict]
     return normalized, normalized.qualification_payload()
 
 
-def main() -> None:
-    if not KEY_PATH.exists():
-        print(f"ERROR: Signing key not found at {KEY_PATH}", file=sys.stderr)
+def main(argv: list[str] | None = None) -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Sign an AirBench model roster with the local key.")
+    parser.add_argument("--roster", type=Path, default=ROSTER_PATH, help="Roster YAML to sign.")
+    parser.add_argument("--key", type=Path, default=KEY_PATH, help="32-byte HMAC signing key file.")
+    parser.add_argument("--out", type=Path, default=OUTPUT_PATH, help="Where to write the signed patches.")
+    args = parser.parse_args(argv)
+
+    if not args.key.exists():
+        print(f"ERROR: Signing key not found at {args.key}", file=sys.stderr)
         print("Generate one with: python -c \"import secrets; open('.airbench_signing_key','wb').write(secrets.token_bytes(32))\"")
         sys.exit(1)
 
-    key = KEY_PATH.read_bytes()
+    key = args.key.read_bytes()
     if len(key) != 32:
         print(f"ERROR: Signing key must be exactly 32 bytes, got {len(key)}", file=sys.stderr)
         sys.exit(1)
 
-    roster_text = ROSTER_PATH.read_text(encoding="utf-8")
+    roster_text = args.roster.read_text(encoding="utf-8")
     data = yaml.safe_load(roster_text)
 
     patches: list[dict] = []
@@ -118,8 +126,8 @@ def main() -> None:
         out_lines.append(f"    value: \"{p['value']}\"")
         out_lines.append("")
 
-    OUTPUT_PATH.write_text("\n".join(out_lines), encoding="utf-8")
-    print(f"\nPatches written to {OUTPUT_PATH}")
+    args.out.write_text("\n".join(out_lines), encoding="utf-8")
+    print(f"\nPatches written to {args.out}")
 
 
 if __name__ == "__main__":

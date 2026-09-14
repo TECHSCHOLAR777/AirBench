@@ -470,6 +470,7 @@ export function validateTaskRouteTrace(value: unknown, profile: ApprovedNodeProf
       taskKind: optionalString(entry.taskKind, "routing task kind"),
       requiredCapability: optionalString(entry.requiredCapability, "routing capability"),
       selectedTarget: optionalString(entry.selectedTarget, "selected routing target"),
+      selectedModelName: optionalString(entry.selectedModelName, "selected model name"),
       decisionSource: optionalString(entry.decisionSource, "routing decision source"),
       ruleOrThreshold: optionalString(entry.ruleOrThreshold, "routing rule or threshold"),
       qualificationCertificate: optionalString(entry.qualificationCertificate, "routing qualification certificate"),

@@ -41,6 +41,28 @@ export function intakeStatusCopy(state: IntakeUiState): IntakeStatusCopy {
   return STATUS_COPY[state];
 }
 
+export type IntakeConfidenceBand = "green" | "amber" | "red";
+
+export interface IntakeConfidenceCopy {
+  label: string;
+  detail: string;
+  reviewRecommended: boolean;
+}
+
+const CONFIDENCE_COPY: Record<IntakeConfidenceBand, IntakeConfidenceCopy> = {
+  green: { label: "Extraction confidence: high", detail: "Average extraction confidence is at least 85%.", reviewRecommended: false },
+  amber: { label: "Extraction confidence: review recommended", detail: "Average extraction confidence is between 65% and 85%.", reviewRecommended: true },
+  red: { label: "Extraction confidence: low", detail: "Average extraction confidence is below 65%. Review the source before relying on it.", reviewRecommended: true },
+};
+
+export function intakeConfidenceCopy(band: IntakeConfidenceBand): IntakeConfidenceCopy {
+  return CONFIDENCE_COPY[band];
+}
+
+export function isIntakeConfidenceBand(value: unknown): value is IntakeConfidenceBand {
+  return value === "green" || value === "amber" || value === "red";
+}
+
 export function intakeStateFromManifest(manifest: Pick<IntakeManifest, "ocr_status" | "vision_status">): "processing" | "ready" | "partial" {
   const statuses = [manifest.ocr_status, manifest.vision_status];
   if (statuses.some((status) => status === "pending" || status === "running")) return "processing";
