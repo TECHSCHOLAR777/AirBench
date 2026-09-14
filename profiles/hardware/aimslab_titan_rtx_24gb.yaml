@@ -1,0 +1,20 @@
+profile_id: aimslab-titan-rtx-24gb
+profile_version: '1.0'
+deployment_host: aimslab
+gpu:
+  model: NVIDIA TITAN RTX
+  vram_mib: 24576
+  compute_capability: '7.5'
+  precision: fp16
+  max_concurrent_sequences_per_target: 2
+  kv_cache_mib_per_target: 1024
+serving:
+  runtime: vllm-0.28.0
+  container_digest: sha256:f8fe15a8039343336945db10494eaad80ef941fe2b2a5fa6649fa38636051a65
+  context_limit: 4096
+  attention_backend: triton
+transport:
+  policy: ssh_loopback_tunnel
+  developer_endpoints: [127.0.0.1:18001, 127.0.0.1:18002]
+  remote_endpoints: [127.0.0.1:8001, 127.0.0.1:8002]
+qualification_status: candidate

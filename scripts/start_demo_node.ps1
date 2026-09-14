@@ -2,20 +2,13 @@
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\start_demo_node.ps1
-#   powershell -ExecutionPolicy Bypass -File scripts\start_demo_node.ps1 -ModelStore "C:\airbench-models"
 #
 # Assumes the SSH tunnel is already open:
-#   ssh -N -L 127.0.0.1:18001:127.0.0.1:8001 -L 127.0.0.1:18002:127.0.0.1:8002 mmmut-server
+#   ssh -NT -o ExitOnForwardFailure=yes -L 127.0.0.1:18001:127.0.0.1:8001 -L 127.0.0.1:18002:127.0.0.1:8002 aimslab
 param(
-    [string]$ModelStore = "C:\airbench-models",
     [string]$Token = $env:AIRBENCH_BEARER_TOKEN,
     [string]$Port = "8765",
-    [string]$E2BUrl = $env:AIRBENCH_MODEL_E2B_URL,
-    [string]$TwelveBUrl = $env:AIRBENCH_MODEL_12B_URL,
-    [string]$E2BTargetId = $env:AIRBENCH_MODEL_E2B_TARGET_ID,
-    [string]$TwelveBTargetId = $env:AIRBENCH_MODEL_12B_TARGET_ID,
-    [string]$E2BServedName = $env:AIRBENCH_MODEL_E2B_SERVED_NAME,
-    [string]$TwelveBServedName = $env:AIRBENCH_MODEL_12B_SERVED_NAME,
+    [string]$ModelEndpointsJson = $env:AIRBENCH_MODEL_ENDPOINTS_JSON,
     [string]$Subject = "demo.operator",
     [string]$DomainPackRef = "refinery-psu-v0",
     [string]$CorpusZip = "",
@@ -24,7 +17,8 @@ param(
     [switch]$PrepareCorpus,
     [switch]$Retrieval,   # off by default: loading BGE adds ~1 min and several GB RAM
     [switch]$NoExecution, # debugging only: disable Node-owned execution + deliverables
-    [switch]$AllowDegradedLane  # debugging only: start the Node even when a model lane is down
+    [switch]$AllowDegradedLane,  # debugging only: start the Node even when a model lane is down
+    [switch]$AllowCandidateQualification  # explicit controlled-demo opt-in; never production default
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,14 +29,8 @@ $py = if (Test-Path "$repo\.venv-deep\Scripts\python.exe") { "$repo\.venv-deep\S
 if ([string]::IsNullOrWhiteSpace($Token)) {
     Write-Error "A bearer token is required. Set AIRBENCH_BEARER_TOKEN or pass -Token explicitly."
 }
-foreach ($modelSetting in @{
-    E2BUrl = $E2BUrl; TwelveBUrl = $TwelveBUrl; E2BTargetId = $E2BTargetId;
-    TwelveBTargetId = $TwelveBTargetId; E2BServedName = $E2BServedName;
-    TwelveBServedName = $TwelveBServedName
-}.GetEnumerator()) {
-    if ([string]::IsNullOrWhiteSpace($modelSetting.Value)) {
-        Write-Error "Model setting '$($modelSetting.Key)' is required. Pass the corresponding parameter or set its AIRBENCH_MODEL_* environment variable."
-    }
+if ([string]::IsNullOrWhiteSpace($ModelEndpointsJson)) {
+    $ModelEndpointsJson = '[{"endpoint_id":"endpoint-vision","target_id":"airbench-qwen25-vl-7b","base_url":"http://127.0.0.1:18001","served_model_name":"airbench-qwen25-vl-7b"},{"endpoint_id":"endpoint-reasoning","target_id":"airbench-qwen3-8b","base_url":"http://127.0.0.1:18002","served_model_name":"airbench-qwen3-8b"}]'
 }
 
 # Phase 0: one Node per port. Refuse to compete with a live listener and print
@@ -75,13 +63,15 @@ if ($Mode -eq "Fresh") {
     Write-Host "ResumeDemo: existing ledger and stores are kept." -ForegroundColor Cyan
 }
 
-if (-not (Test-Path "$repo\models\roster\demo\two_endpoint_roster.yaml")) {
-    Write-Error "Signed demo roster missing. Run: python scripts\airbench_demo_roster.py"
+if (-not (Test-Path "$repo\models\roster\aimslab\qwen_vllm_roster.yaml")) {
+    Write-Error "Signed Qwen roster missing. Run: python scripts\airbench_qwen_aimslab_records.py"
 }
 if (-not (Test-Path "$repo\.airbench_signing_key")) {
     Write-Host "Signing key missing. Auto-generating..." -ForegroundColor Yellow
     powershell -ExecutionPolicy Bypass -File "$repo\scripts\setup_demo_signing_key.ps1"
 }
+& $py "$repo\scripts\airbench_qwen_aimslab_records.py" --key "$repo\.airbench_signing_key"
+if ($LASTEXITCODE -ne 0) { Write-Error "Qwen roster/attestation generation failed." }
 
 # Phase 1 model endpoint preflight: prove both tunnelled lanes are healthy and
 # serve the exact roster model names before the Node starts. A degraded lane
@@ -89,7 +79,7 @@ if (-not (Test-Path "$repo\.airbench_signing_key")) {
 # discovered deep inside task execution.
 if (-not $AllowDegradedLane) {
     Write-Host "Running model endpoint preflight (tunnel + served model IDs)..." -ForegroundColor Cyan
-    & $py "$repo\scripts\model_endpoint_preflight.py" --roster "$repo\models\roster\demo\two_endpoint_roster.yaml" --signing-key "$repo\.airbench_signing_key"
+    & $py "$repo\scripts\model_endpoint_preflight.py" --roster "$repo\models\roster\aimslab\qwen_vllm_roster.yaml" --attestation "$repo\models\attestations\aimslab_qwen_vllm.yaml" --signing-key "$repo\.airbench_signing_key" --attestation-signing-key "$repo\.airbench_signing_key"
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Model endpoint preflight failed. Start the remote vLLM containers and the SSH tunnel (see docs/operations/STARTUP_GUIDE.md), or pass -AllowDegradedLane to start degraded."
     }
@@ -117,22 +107,20 @@ $env:AIRBENCH_LEDGER_PATH        = "$repo\.airbench-node-ledger.sqlite"
 $env:AIRBENCH_SIGNING_KEY_PATH   = "$repo\.airbench_signing_key"
 
 $env:AIRBENCH_MODEL_SERVING_ENABLED  = "1"
-$env:AIRBENCH_MODEL_ROSTER_PATH      = "$repo\models\roster\demo\two_endpoint_roster.yaml"
+$env:AIRBENCH_MODEL_ROSTER_PATH      = "$repo\models\roster\aimslab\qwen_vllm_roster.yaml"
+$env:AIRBENCH_MODEL_DEPLOYMENT_ATTESTATION_PATH = "$repo\models\attestations\aimslab_qwen_vllm.yaml"
+$env:AIRBENCH_MODEL_ATTESTATION_SIGNING_KEY_PATH = "$repo\.airbench_signing_key"
 $env:AIRBENCH_MODEL_SIGNING_KEY      = ""
 $env:AIRBENCH_MODEL_SIGNING_KEY_PATH = "$repo\.airbench_signing_key"
-$env:AIRBENCH_MODEL_STORE            = $ModelStore
-$env:AIRBENCH_MODEL_E2B_URL          = $E2BUrl
-$env:AIRBENCH_MODEL_12B_URL          = $TwelveBUrl
-$env:AIRBENCH_MODEL_E2B_TARGET_ID    = $E2BTargetId
-$env:AIRBENCH_MODEL_12B_TARGET_ID    = $TwelveBTargetId
-$env:AIRBENCH_MODEL_E2B_SERVED_NAME  = $E2BServedName
-$env:AIRBENCH_MODEL_12B_SERVED_NAME  = $TwelveBServedName
+$env:AIRBENCH_MODEL_ENDPOINTS_JSON   = $ModelEndpointsJson
+if ($AllowCandidateQualification) { $env:AIRBENCH_MODEL_ALLOW_CANDIDATE_QUALIFICATION = "1" }
+else { Remove-Item Env:AIRBENCH_MODEL_ALLOW_CANDIDATE_QUALIFICATION -ErrorAction SilentlyContinue }
 $env:HF_HUB_OFFLINE                  = "1"
 $env:TRANSFORMERS_OFFLINE            = "1"
 
 $env:AIRBENCH_TASK_PLANNER_ENABLED   = "1"
-$env:AIRBENCH_HARDWARE_PROFILE_PATH  = "$repo\profiles\hardware\workstation_04.json"
-$env:AIRBENCH_HARDWARE_PROFILE       = "$repo\profiles\hardware\workstation_04.json"
+$env:AIRBENCH_HARDWARE_PROFILE_PATH  = "$repo\profiles\hardware\aimslab_titan_rtx_24gb.yaml"
+$env:AIRBENCH_HARDWARE_PROFILE       = "$repo\profiles\hardware\aimslab_titan_rtx_24gb.yaml"
 
 # Domain pack (signed), world model, decision history, intake, and qualification.
 $env:AIRBENCH_INTAKE_ROOT            = "$repo\.airbench-intake"
@@ -174,7 +162,7 @@ if ($Retrieval) {
     $env:AIRBENCH_RETRIEVAL_INDEX_PATH  = "$repo\retrieval-index.json"
     $env:AIRBENCH_EMBEDDING_DIR         = "bge-m3"
     $env:AIRBENCH_RERANKER_DIR          = "bge-reranker-v2-m3"
-    # BGE lives in the repo model store; the Gemmas may live elsewhere.
+    # BGE lives in the repo model store; the remote vLLM models are not local artifacts.
     $env:AIRBENCH_RETRIEVAL_MODEL_STORE = "$repo\airbench-models"
 } else {
     $env:AIRBENCH_RETRIEVAL_ENABLED = "0"
@@ -197,7 +185,7 @@ if ($NoExecution) {
 
 Write-Host ""
 Write-Host "Starting AirBench Node on http://127.0.0.1:$Port" -ForegroundColor Cyan
-Write-Host "The Node re-hashes the signed model files at startup: wait ~35s until you see" -ForegroundColor Yellow
+Write-Host "The Node verifies the signed remote deployment records at startup: wait until you see" -ForegroundColor Yellow
 Write-Host "'Starting AirBench Node ...' before running the curl checks. Ctrl+C to stop." -ForegroundColor Yellow
 Write-Host ""
 & $py -m airbench.node.server

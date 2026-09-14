@@ -1,0 +1,65 @@
+attestation_id: attestation.aimslab.qwen-vllm.2026-09-15
+schema_version: '1.0'
+host_id: aimslab
+execution_location: remote
+transport_policy: ssh_loopback_tunnel
+endpoint_policy: developer_loopback_only
+runtime_image: vllm/vllm-openai:v0.28.0-ubuntu2404
+runtime_version: vllm-0.28.0
+container_digest: sha256:f8fe15a8039343336945db10494eaad80ef941fe2b2a5fa6649fa38636051a65
+gpu_profile: NVIDIA TITAN RTX; 24 GiB; compute capability 7.5
+precision: fp16; AWQ
+issued_at: '2026-09-15T00:00:00Z'
+valid_until: '2026-10-15T00:00:00Z'
+targets:
+- target_id: airbench-qwen25-vl-7b
+  repository: Qwen/Qwen2.5-VL-7B-Instruct-AWQ
+  revision: 536a35794df8831aa814970ee8f89eff577e771f8
+  artifact_digest: 5ee172d2613397b0b82e99ac4b28dd890e29a7b8c53d830d7a4db45e19425123
+  artifact_digest_scheme: sha256:file-manifest-v1
+  artifact_hashes:
+  - path: model-00001-of-00002.safetensors
+    sha256: 4f75e3de726546ee43620d1227d3596cd3ba0fdd19f11faeea71de578d2d1052
+  - path: model-00002-of-00002.safetensors
+    sha256: dae4128bbfd2b8d489e838048edc0bbe6e31f269d9b96fa3effe11cc534b8f0c
+  tokenizer_digest: 5eee858c5123a4279c3e1f7b81247343f356ac767940b2692a928ad929543214
+  chat_template_digest: 24c665989cd654fa5743dda860e1236ac82fd35fd4c0695cbd8370f401bf0302
+  processor_digest: 2efcaa0cf5f89e7e1a0ef64539747c7e2d4826134ef14ad752de09a54f5ef6ec
+  runtime_version: vllm-0.28.0
+  container_digest: sha256:f8fe15a8039343336945db10494eaad80ef941fe2b2a5fa6649fa38636051a65
+  adapter_id: airbench.vllm
+  adapter_version: '0.5'
+  endpoint_id: endpoint-vision
+  developer_endpoint_url: http://127.0.0.1:18001
+  served_model_name: airbench-qwen25-vl-7b
+  remote_loopback_port: 8001
+  max_images: 1
+  max_videos: 0
+  processor_min_pixels: 200704
+  processor_max_pixels: 1003520
+- target_id: airbench-qwen3-8b
+  repository: Qwen/Qwen3-8B-AWQ
+  revision: 4da05a8edb55c6046cce958586c33b61da07bb79
+  artifact_digest: a0b767a6446551c4f8060920a2c12ebf406112f8aa91d56bb9ff5ea7861d7b8b
+  artifact_digest_scheme: sha256:file-manifest-v1
+  artifact_hashes:
+  - path: model-00001-of-00002.safetensors
+    sha256: 6e112429856bc65e3837a9f38d6f6b71ffdda832cb46299a12f4fa8f6352516e
+  - path: model-00002-of-00002.safetensors
+    sha256: 20c2d6366ab85c90786ccdd829cd2b9e7d30ef3b2ebbb998280e7e4014b542ff
+  tokenizer_digest: aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4
+  chat_template_digest: c9c6203879f2833af3e11d55b1dc92b087160f8d76b297e8dcd1fe88433da78b
+  processor_digest: 6d48c00240e3f391e7cbc6f068590339619a000b90771116182e7d895d7348a4
+  runtime_version: vllm-0.28.0
+  container_digest: sha256:f8fe15a8039343336945db10494eaad80ef941fe2b2a5fa6649fa38636051a65
+  adapter_id: airbench.vllm
+  adapter_version: '0.5'
+  endpoint_id: endpoint-reasoning
+  developer_endpoint_url: http://127.0.0.1:18002
+  served_model_name: airbench-qwen3-8b
+  remote_loopback_port: 8002
+  max_images: 0
+  max_videos: 0
+  processor_min_pixels: 0
+  processor_max_pixels: 0
+signature: d1ff9dec9bd255465419a74141fe44fdd9143b039c3b3f722f3f4ce541d55680

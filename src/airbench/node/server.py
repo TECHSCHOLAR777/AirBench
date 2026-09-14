@@ -25,9 +25,15 @@ Model serving is opt-in and fails closed:
   AIRBENCH_MODEL_SERVING_ENABLED    Set to ``1`` to compose the model router.
   AIRBENCH_POLICY_VERSION_HASH      Routing policy hash (required when enabled).
   AIRBENCH_MODEL_SIGNING_KEY_PATH   Path to the 32-byte roster signing key.
-  AIRBENCH_MODEL_STORE              Canonical model store (artifact root).
-  AIRBENCH_MODEL_ROSTER_PATH        Signed roster YAML (default under models/roster/v0).
-  AIRBENCH_MODEL_E2B_URL / _12B_URL Loopback endpoint base URLs.
+  AIRBENCH_MODEL_STORE              Canonical local model store (local serving only).
+  AIRBENCH_MODEL_ROSTER_PATH        Signed roster YAML (for example models/roster/aimslab/qwen_vllm_roster.yaml).
+  AIRBENCH_MODEL_ENDPOINTS_JSON     Typed JSON list of loopback endpoint bindings.
+  AIRBENCH_MODEL_DEPLOYMENT_ATTESTATION_PATH
+                                    Signed remote-host attestation when weights are remote.
+  AIRBENCH_MODEL_ATTESTATION_SIGNING_KEY_PATH
+                                    Key for the remote deployment attestation.
+  AIRBENCH_MODEL_ALLOW_CANDIDATE_QUALIFICATION
+                                    Explicit controlled-demo opt-in; unset means fail closed.
   HF_HUB_OFFLINE=1, TRANSFORMERS_OFFLINE=1  Required for vLLM adapter no-egress checks.
 """
 

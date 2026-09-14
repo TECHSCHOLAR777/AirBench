@@ -111,6 +111,10 @@ class VllmAdapter:
         endpoint_id: str | None = None,
         require_no_egress_env: bool = True,
         timeout_s: float = 120.0,
+        enable_thinking: bool | None = None,
+        max_images: int | None = None,
+        max_videos: int | None = None,
+        max_output_tokens: int = 0,
     ) -> None:
         if not base_url.strip():
             raise ValueError("base_url is required")
@@ -131,6 +135,10 @@ class VllmAdapter:
         )
         self._require_no_egress_env = require_no_egress_env
         self._timeout_s = timeout_s
+        self._enable_thinking = enable_thinking
+        self._max_images = max_images
+        self._max_videos = max_videos
+        self._max_output_tokens = max_output_tokens
 
     @property
     def endpoint_id(self) -> str | None:
@@ -319,6 +327,18 @@ class VllmAdapter:
         if request.tools and not self._capabilities.tool_calling:
             raise self._failure(request, BackendErrorCode.unsupported_capability,
                                 "tool calling is not supported", retryable=False)
+        image_count = sum(
+            1 for message in request.messages for part in message.content if part.kind == "image"
+        )
+        video_count = sum(
+            1 for message in request.messages for part in message.content if part.kind == "video"
+        )
+        if self._max_images is not None and image_count > self._max_images:
+            raise self._failure(request, BackendErrorCode.unsupported_capability,
+                                "image count exceeds the target deployment limit", retryable=False)
+        if self._max_videos is not None and video_count > self._max_videos:
+            raise self._failure(request, BackendErrorCode.unsupported_capability,
+                                "video content is not supported by the target deployment", retryable=False)
 
     def _check_resource_budget(self, request: BackendRequest) -> None:
         requested = request.model_call.resource_budget.get("context_tokens", 0)
@@ -355,10 +375,19 @@ class VllmAdapter:
             payload["tools"] = [self._encode_tool(t) for t in request.tools]
             payload["tool_choice"] = "auto"
 
+        # Qwen3's vLLM chat template accepts this provider-specific option.
+        # It is bound to the signed target, never chosen by model output or by
+        # an endpoint label.  Reasoning content is intentionally not returned
+        # across the provider-neutral response boundary.
+        if self._enable_thinking is not None:
+            payload["chat_template_kwargs"] = {"enable_thinking": self._enable_thinking}
+            if self._enable_thinking is False:
+                payload["temperature"] = 0
+
         # Token budget
         ctx = request.model_call.resource_budget.get("context_tokens")
         if ctx:
-            payload["max_tokens"] = ctx
+            payload["max_tokens"] = min(ctx, self._max_output_tokens) if self._max_output_tokens else ctx
 
         return payload
 
@@ -555,6 +584,12 @@ class VllmAdapter:
             finish_reason = choice.get("finish_reason") or "stop"
 
             content_text: str | None = message.get("content")
+            reasoning_content = message.get("reasoning_content")
+            if reasoning_content is not None and not isinstance(reasoning_content, str):
+                raise self._failure(
+                    request, BackendErrorCode.malformed_response,
+                    "vllm reasoning field was malformed", retryable=False,
+                )
             raw_tool_calls = message.get("tool_calls")
 
             # Tool calls: prefer native tool_calls structure; fall back to
@@ -567,6 +602,12 @@ class VllmAdapter:
                 )
             elif content_text and request.tools:
                 tool_calls = self._tool_parser.parse(content_text, request.tools)
+
+            if content_text is None and not tool_calls and reasoning_content:
+                raise self._failure(
+                    request, BackendErrorCode.malformed_response,
+                    "vllm returned reasoning without an answer", retryable=False,
+                )
 
             # Validate: if tool_calls were produced, confirm they are declared.
             declared_names = {t.name for t in request.tools}

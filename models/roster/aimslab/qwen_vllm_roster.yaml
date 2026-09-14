@@ -1,0 +1,176 @@
+roster:
+  roster_id: airbench-aimslab-qwen-vllm
+  schema_version: '1.0'
+  network_policy: remote_approved_ssh_loopback
+  targets:
+  - artifact_digest_scheme: sha256:file-manifest-v1
+    quantization:
+      format: int4_awq
+      method: AWQ
+    serving:
+      runtime: vllm
+      runtime_version: 0.28.0
+      adapter_id: airbench.vllm
+      adapter_version: '0.5'
+      container_digest: sha256:f8fe15a8039343336945db10494eaad80ef941fe2b2a5fa6649fa38636051a65
+      endpoint_id: endpoint-vision
+      developer_endpoint_url: http://127.0.0.1:18001
+      remote_loopback_port: 8001
+      served_model_name: airbench-qwen25-vl-7b
+    limits:
+      context_tokens: 4096
+      max_output_tokens: 4096
+      max_concurrency: 2
+      max_batch_size: 2
+      image_tokens: 1280
+      max_images: 1
+      max_videos: 0
+    allowed_clearances:
+    - internal
+    - restricted
+    pack_refs:
+    - refinery-psu-v0
+    hardware_profile_refs:
+    - aimslab-titan-rtx-24gb
+    risk_classes:
+    - inspection_review
+    - low_risk
+    license: apache-2.0-or-upstream-model-license
+    streaming: true
+    cancellation: true
+    qualification_status: candidate
+    source_evidence: AIMSLAB_VLLM_ENDPOINT_HANDOFF.md
+    qualification_expires_at: '2026-10-15T00:00:00Z'
+    repository_host: aims-dtu-lab
+    target_id: airbench-qwen25-vl-7b
+    model_family: qwen2.5-vl
+    display_name: Qwen2.5-VL 7B Instruct AWQ
+    repository: Qwen/Qwen2.5-VL-7B-Instruct-AWQ
+    revision: 536a35794df8831aa814970ee8f89eff577e771f8
+    artifact_hash: 5ee172d2613397b0b82e99ac4b28dd890e29a7b8c53d830d7a4db45e19425123
+    artifact_path: qwen2.5-vl-7b-instruct-awq
+    artifact_files:
+    - model-00001-of-00002.safetensors
+    - model-00002-of-00002.safetensors
+    artifact_hashes:
+    - path: model-00001-of-00002.safetensors
+      sha256: 4f75e3de726546ee43620d1227d3596cd3ba0fdd19f11faeea71de578d2d1052
+    - path: model-00002-of-00002.safetensors
+      sha256: dae4128bbfd2b8d489e838048edc0bbe6e31f269d9b96fa3effe11cc534b8f0c
+    local_storage_hash: 5ee172d2613397b0b82e99ac4b28dd890e29a7b8c53d830d7a4db45e19425123
+    tokenizer:
+      hash: 5eee858c5123a4279c3e1f7b81247343f356ac767940b2692a928ad929543214
+      path: tokenizer.json
+    chat_template:
+      template_id: qwen2.5-vl-chat-template@536a3579
+      hash: bundled
+    image_processor:
+      id: qwen2.5-vl-image-processor@536a3579
+      hash: bundled
+      min_pixels: 200704
+      max_pixels: 1003520
+    qualified_roles:
+    - role: vision_worker
+      certificate_id: candidate.airbench-qwen25-vl-7b.vision_worker
+      qualification_hash: ec8491a5c781ec53243b9edb961180f55642a14ec2b54b1557a662c867ba0be6
+    capabilities:
+    - vision
+    - scanned_page_extraction
+    modalities:
+    - text
+    - image
+    tool_call_parser: none
+    structured_output_modes:
+    - json_object
+    - json_schema
+    role_qualification_hashes: []
+    qualification_signature: 9d809baa00f972e3e0d2487861935fb6ec6ea5b34c40e189c1ddd4b46c269955
+  - artifact_digest_scheme: sha256:file-manifest-v1
+    quantization:
+      format: int4_awq
+      method: AWQ
+    serving:
+      runtime: vllm
+      runtime_version: 0.28.0
+      adapter_id: airbench.vllm
+      adapter_version: '0.5'
+      container_digest: sha256:f8fe15a8039343336945db10494eaad80ef941fe2b2a5fa6649fa38636051a65
+      endpoint_id: endpoint-reasoning
+      developer_endpoint_url: http://127.0.0.1:18002
+      remote_loopback_port: 8002
+      served_model_name: airbench-qwen3-8b
+    limits:
+      context_tokens: 4096
+      max_output_tokens: 4096
+      max_concurrency: 2
+      max_batch_size: 2
+      image_tokens: 0
+      max_images: 0
+      max_videos: 0
+    allowed_clearances:
+    - internal
+    - restricted
+    pack_refs:
+    - refinery-psu-v0
+    hardware_profile_refs:
+    - aimslab-titan-rtx-24gb
+    risk_classes:
+    - inspection_review
+    - low_risk
+    license: apache-2.0-or-upstream-model-license
+    streaming: true
+    cancellation: true
+    qualification_status: candidate
+    source_evidence: AIMSLAB_VLLM_ENDPOINT_HANDOFF.md
+    qualification_expires_at: '2026-10-15T00:00:00Z'
+    repository_host: aims-dtu-lab
+    target_id: airbench-qwen3-8b
+    model_family: qwen3
+    display_name: Qwen3 8B AWQ
+    repository: Qwen/Qwen3-8B-AWQ
+    revision: 4da05a8edb55c6046cce958586c33b61da07bb79
+    artifact_hash: a0b767a6446551c4f8060920a2c12ebf406112f8aa91d56bb9ff5ea7861d7b8b
+    artifact_path: qwen3-8b-awq
+    artifact_files:
+    - model-00001-of-00002.safetensors
+    - model-00002-of-00002.safetensors
+    artifact_hashes:
+    - path: model-00001-of-00002.safetensors
+      sha256: 6e112429856bc65e3837a9f38d6f6b71ffdda832cb46299a12f4fa8f6352516e
+    - path: model-00002-of-00002.safetensors
+      sha256: 20c2d6366ab85c90786ccdd829cd2b9e7d30ef3b2ebbb998280e7e4014b542ff
+    local_storage_hash: a0b767a6446551c4f8060920a2c12ebf406112f8aa91d56bb9ff5ea7861d7b8b
+    tokenizer:
+      hash: aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4
+      path: tokenizer.json
+    chat_template:
+      template_id: qwen3-chat-template@4da05a8e
+      hash: bundled
+    image_processor:
+      id: none
+      hash: none
+    qualified_roles:
+    - role: reasoning
+      certificate_id: candidate.airbench-qwen3-8b.reasoning
+      qualification_hash: 81d61aaed3fb1a515bb8cb9a7d1439725cc6be1b63f527839afe268a360da86f
+    - role: lead_worker
+      certificate_id: candidate.airbench-qwen3-8b.lead_worker
+      qualification_hash: e20f3bc6c6aa17add85e0ce8f9f6985358d9be2b3d3b0bd6fd95dc41995b86b7
+    capabilities:
+    - reasoning
+    - lead_planning
+    modalities:
+    - text
+    tool_call_parser: hermes
+    structured_output_modes:
+    - json_object
+    - json_schema
+    request_options:
+      chat_template_kwargs:
+        enable_thinking: false
+    role_qualification_hashes: []
+    qualification_signature: 6ca40e06315657e5c136931ec2b785ee36e6dd4e320f570e8b48fb5754fced2e
+registry_id: airbench-aimslab-qwen-vllm
+manifest_version: '1.0'
+valid_until: '2026-10-15T00:00:00Z'
+signature: 4ea286d9541da7445097b34bfb6d5506461876b4a0d1252604e253dd542e1f57
