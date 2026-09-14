@@ -45,10 +45,6 @@ describe("Node readiness summary", () => {
       { label: "Protocol contract", value: "airbench-node-protocol" },
       { label: "Handshake ledger", value: "ledger-connect-42" },
     ]));
-    expect(summary.operational).toMatchObject({
-      state: "not_supplied",
-      title: "Operational status is not supplied",
-    });
     expect(summary.connection.recovery.nextAction).toContain("task-specific validation");
     expect(JSON.stringify(summary)).not.toMatch(/gpu ready|qualified model|endpoint|certificate|credential/i);
   });

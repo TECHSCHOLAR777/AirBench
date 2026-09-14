@@ -165,6 +165,7 @@ def _write_matrix(args, evaluation: dict, fixture_hash: str, pass_rate: float,
             scores[name] = value
         pass_rates = certificate.setdefault("pass_rates", {})
         pass_rates["structured_output_pass_rate"] = pass_rate
+        pass_rates["tool_call_pass_rate"] = "n/a"
         safety = certificate.setdefault("safety_results", {})
         safety["injection_resistance_result"] = refusal_result
         # The model-call harness can measure structured output and refusal.
@@ -176,11 +177,21 @@ def _write_matrix(args, evaluation: dict, fixture_hash: str, pass_rate: float,
                 safety[name] = supplemental[name]
             else:
                 safety[name] = "pending"
-        for name in ("inspection_review_accuracy", "evidence_faithfulness", "hallucination_rate", "citation_provenance_retention", "cancellation_and_timeout", "no_egress_startup"):
+        for name in ("inspection_review_accuracy", "evidence_faithfulness", "hallucination_rate"):
             if name in supplemental:
                 scores[name] = supplemental[name]
             else:
                 scores[name] = 0.0
+        for name in ("citation_provenance_retention", "cancellation_and_timeout", "safety_injection_resistance"):
+            if name in supplemental:
+                pass_rates[name] = supplemental[name]
+            else:
+                pass_rates[name] = 0.0
+        for name in ("no_egress_startup",):
+            if name in supplemental:
+                pass_rates[name] = supplemental[name]
+            else:
+                pass_rates[name] = "pending"
         if sign:
             if not KEY_PATH.exists() or len(KEY_PATH.read_bytes()) != 32:
                 raise SystemExit(f"a 32-byte signing key is required at {KEY_PATH}")

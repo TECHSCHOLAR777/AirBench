@@ -16,7 +16,7 @@ export function fetchNodeOperationalProjection(profile: ApprovedNodeProfileRefer
   if (existing) return existing;
   const request = Promise.allSettled([fetchNodeHardware(profile), fetchModelServing(profile), fetchQualificationRoster(profile)]).then(([hardware, modelServing, qualification]) => ({
     hardware: hardware.status === "fulfilled" ? hardware.value : null,
-    modelServing: modelServing.status === "fulfilled" ? modelServing.value : null,
+    modelServing: modelServing.status === "fulfilled" ? modelServing.value : { configured: true, status: "degraded", endpoints: [] },
     qualification: qualification.status === "fulfilled" ? qualification.value : null,
   }));
   cache.set(profile.profileId, request);

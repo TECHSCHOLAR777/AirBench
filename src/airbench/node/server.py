@@ -134,13 +134,20 @@ class NodeServerConfig:
         except ValueError as exc:
             raise EnvironmentError("AIRBENCH_PORT must be an integer") from exc
 
+        # An explicitly empty inherited variable must not erase the demo
+        # operator's pack-required review authority.  This commonly happens
+        # when the Node is restarted from a shell that previously disabled
+        # roles.  Treat blank as unset; an explicit non-empty value remains
+        # authoritative for least-privilege deployments.
+        operator_roles_raw = os.environ.get("AIRBENCH_OPERATOR_ROLES", "").strip() or "human_reviewer"
+
         return cls(
             node_identity=_require("AIRBENCH_NODE_IDENTITY"),
             bearer_token=_require("AIRBENCH_BEARER_TOKEN"),
             domain_pack_ref=_require("AIRBENCH_DOMAIN_PACK_REF"),
             clearance=clearance,
             subject=_require("AIRBENCH_SUBJECT"),
-            operator_roles=tuple(role.strip() for role in os.environ.get("AIRBENCH_OPERATOR_ROLES", "human_reviewer").split(",") if role.strip()),
+            operator_roles=tuple(role.strip() for role in operator_roles_raw.split(",") if role.strip()),
             host=os.environ.get("AIRBENCH_HOST", "127.0.0.1").strip(),
             port=port,
             ledger_path=os.environ.get("AIRBENCH_LEDGER_PATH", "").strip() or None,

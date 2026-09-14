@@ -20,13 +20,6 @@ export interface NodeConnectionReadiness {
   };
 }
 
-export interface NodeOperationalReadiness {
-  state: "not_supplied" | "connection_required";
-  title: string;
-  detail: string;
-  missing: string[];
-}
-
 export interface NodeRoutingReadiness {
   title: string;
   detail: string;
@@ -34,7 +27,6 @@ export interface NodeRoutingReadiness {
 
 export interface NodeReadiness {
   connection: NodeConnectionReadiness;
-  operational: NodeOperationalReadiness;
   routing: NodeRoutingReadiness;
 }
 
@@ -61,24 +53,6 @@ function matchesApprovedProfile(
       && profile.profileId === connection.profileId
       && profile.nodeIdentity === connection.nodeIdentity,
   );
-}
-
-function operationalReadiness(verified: boolean): NodeOperationalReadiness {
-  if (!verified) {
-    return {
-      state: "connection_required",
-      title: "Operational status requires a verified Node",
-      detail: "Hardware, sandbox, qualification, workload, and router detail remain unknown until an approved Node connection is verified.",
-      missing: ["Hardware and capacity", "Sandbox health", "Qualified capability catalog", "Router decision history"],
-    };
-  }
-
-  return {
-    state: "not_supplied",
-    title: "Operational status is not supplied",
-    detail: "This verified handshake does not include hardware, sandbox, workload, model qualification, or router-history projections. AirBench does not infer them from a connection.",
-    missing: ["Hardware and capacity", "Sandbox health", "Qualified capability catalog", "Router decision history"],
-  };
 }
 
 /**
