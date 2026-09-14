@@ -72,7 +72,10 @@ class ValidationNodeService(NodeApiService):
             "task_id": task_id,
             "has_gap": has_gap,
             "has_duplicate": has_duplicate,
-            "sequence_numbers": sequence_numbers,
+            # Keep the evidence field names aligned with the WDIO contract.
+            # This file is consumed by the replay smoke test, not by the
+            # frontend projection, so the names must remain stable here.
+            "sequences": sequence_numbers,
             "event_count": len(events),
         }
         path = Path(self._replay_evidence_path)

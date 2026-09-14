@@ -12,7 +12,8 @@ class AcceptanceAuditTests(unittest.TestCase):
         self.assertFalse(report.passed)
         self.assertIn("external_gate", codes)
         self.assertIn("unresolved_evidence", codes)
-        self.assertIn("unsigned_domain_pack", codes)
+        # The refinery pack is signed; the audit must no longer flag it.
+        self.assertNotIn("unsigned_domain_pack", codes)
 
     def test_placeholder_scan_reports_nested_yaml_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

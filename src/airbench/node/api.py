@@ -1,9 +1,11 @@
 """Authenticated local Node API over the deterministic AirBench core.
 
-The API is deliberately a projection and command boundary. It does not run a
-model, parse a file, execute a tool, or make a network call. Mutating routes
-delegate to :class:`contracts.Orchestrator`; read routes project only the
-committed local ledger.
+The API is deliberately a projection and command boundary. It does not itself
+run a model, parse a file, execute a tool, or make a network call. Mutating
+routes delegate to :class:`contracts.Orchestrator`; read routes project only the
+committed local ledger. A ``model.call`` command is merely translated into a
+typed request and handed to the orchestrator, which routes it through the
+configured backend adapter and records the decision and result.
 """
 
 from __future__ import annotations
@@ -11,8 +13,9 @@ from __future__ import annotations
 import hmac
 import hashlib
 import json
+import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from email import policy
 from email.parser import BytesParser
 from threading import RLock
@@ -25,9 +28,15 @@ from fastapi.responses import JSONResponse, Response
 from contracts import (
     AuthorizationError,
     AuthorizationRejected,
+    BackendCallError,
+    BackendMessage,
+    BackendOutputSpec,
+    BackendTool,
+    CircuitOpen,
     Clearance,
     ContractValidationError,
     LedgerEventEnvelope,
+    ModelCallRequest,
     NodeCommandEnvelope,
     NodeCommandResult,
     NodeEvidenceRef,
@@ -41,6 +50,8 @@ from contracts import (
     NODE_PROTOCOL_VERSION,
     Orchestrator,
     PlanRejected,
+    RetryExhausted,
+    StepTimeout,
     StorageFailure,
     TaskEnvelope,
     TaskPlanReview,
@@ -62,6 +73,7 @@ MAX_MULTIPART_BODY_BYTES = MAX_QUERY_UPLOAD_BYTES + 64 * 1024
 MAX_EVENT_BATCH = 128
 MAX_EVIDENCE_ITEMS = 1_000
 MAX_ROUTE_ITEMS = 1_000
+logger = logging.getLogger(__name__)
 TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 NODE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _CLEARANCE_RANK = {
@@ -102,6 +114,7 @@ class NodeApiConfig:
     handshake_ledger_event_ref: str
     sovereignty_evidence_ref: str
     require_orchestrator_authorization: bool = True
+    authenticated_roles: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         try:
@@ -119,14 +132,71 @@ class NodeApiConfig:
             raise ValueError("node_identity has an invalid shape")
 
 
+def _fact_wire(fact: Any) -> dict[str, Any]:
+    return {
+        "fact_id": fact.fact_id,
+        "value": fact.value,
+        "source_ref": fact.source_ref,
+        "confidence": fact.confidence,
+        "clearance": fact.clearance.value,
+        "taint": fact.taint.value,
+        "extraction_method": fact.extraction_method,
+        "unit": fact.unit,
+        "observed_at": fact.observed_at,
+        "ingested_at": fact.ingested_at,
+        "supersedes_fact_id": fact.supersedes_fact_id,
+        "parent_fact_ids": list(fact.parent_fact_ids),
+    }
+
+
+def _image_media_type(content: bytes) -> str | None:
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    return None
+
+
 class NodeApiService:
     """Owns API authentication and projections, not task authority."""
 
-    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None):
+    def __init__(self, orchestrator: Orchestrator, config: NodeApiConfig, *, intake_gateway: NodeIntakeGateway | None = None, deliverable_gateway: NodeDeliverableGateway | None = None, model_router: Any = None, task_planner: Any = None, retrieval: Any = None, execution: Any = None, knowledge: Any = None, pack: Any = None, world_model: Any = None, consistency: Any = None, autonomy: Any = None, hardware_profile: Any = None, qualification_matrix: Any = None, routing_tiers: Any = None, pid_adapter: Any = None, pid_workspace: Any = None):
         self.orchestrator = orchestrator
         self.config = config
         self.intake_gateway = intake_gateway
         self.deliverable_gateway = deliverable_gateway
+        # The router is composed by the server layer and is only consulted for
+        # model-call steps.  ``None`` means model serving is not configured.
+        self.model_router = model_router
+        # The planner is an opt-in Node composition that commits a validated
+        # plan (and hardware admission) after authorization.
+        self.task_planner = task_planner
+        # The retrieval runtime (local BGE embeddings + reranker) is opt-in and
+        # consulted by the orchestrator for knowledge steps, never by clients.
+        self.retrieval = retrieval
+        # The execution coordinator is the Node-owned task runner.  When set,
+        # an approved plan is executed by the Node instead of waiting for
+        # client-driven model calls.
+        self.execution = execution
+        # The bulk knowledge ingestion service is opt-in and root-guarded.
+        self.knowledge = knowledge
+        # The verified domain pack declaration, or ``None`` when not configured.
+        self.pack = pack
+        # The committed world model graph, or ``None`` when not configured.
+        self.world_model = world_model
+        # The task-scoped consistency service, or ``None`` when not configured.
+        self.consistency = consistency
+        # The task-scoped autonomy service, or ``None`` when not configured.
+        self.autonomy = autonomy
+        # Hardware and qualification projections for the Node settings surface.
+        self.hardware_profile = hardware_profile
+        self.qualification_matrix = qualification_matrix
+        # Declared routing tiers (target_id -> "capable"|"efficient") projected
+        # from the signed model roster for display only.
+        self.routing_tiers = routing_tiers or {}
+        # The P&ID extraction adapter (offline) and its scoped workspace root.
+        self.pid_adapter = pid_adapter
+        self.pid_workspace = pid_workspace
         self._ledger: LedgerView = orchestrator.store
         self._lock = RLock()
 
@@ -193,6 +263,490 @@ class NodeApiService:
             except NodeIntakeError as exc:
                 raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
 
+    def intake_status(self, intake_id: str) -> dict[str, Any]:
+        with self._lock:
+            gateway = self._require_intake_gateway()
+            try:
+                return gateway.status(intake_id=intake_id)
+            except NodeIntakeError as exc:
+                raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
+    def pid_extract(self, subject: str, *, task_id: str, file_name: str, content: bytes) -> dict[str, Any]:
+        from hashlib import sha256
+        from pathlib import Path
+
+        from contracts import Taint, build_event, idempotency_key, stable_id
+
+        from airbench.intake.pid.adapter import PidAdapterError
+
+        with self._lock:
+            task = self._visible_task(task_id)
+            if task.principal_id != subject:
+                raise NodeApiError(403, "principal_mismatch", "The upload principal does not match the task principal.")
+            adapter = self._require_pid()
+            media_type = _image_media_type(content)
+            if media_type is None:
+                raise NodeApiError(415, "pid_unsupported_media", "The P&ID route accepts PNG or JPEG page images.")
+
+            # Production composition must enter through the single File Intake
+            # Layer. The no-gateway branch remains only for isolated adapter
+            # tests that intentionally exercise the adapter seam.
+            intake_manifest = None
+            intake_page = None
+            if self.intake_gateway is not None:
+                try:
+                    uploaded = self.intake_gateway.query_upload(
+                        subject=subject, task_id=task_id, file_name=file_name, content=content,
+                    )
+                    intake_id = str(uploaded["intake_id"])
+                    intake_manifest, intake_page, page_bytes = self.intake_gateway.read_rendered_page_for_adapter(
+                        intake_id=intake_id,
+                    )
+                    content = page_bytes
+                    media_type = intake_page.media_type
+                    content_hash = intake_page.content_hash
+                    revision_id = intake_manifest.revision_id
+                    source_ref = intake_manifest.source_ref
+                except NodeIntakeError as exc:
+                    raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+            else:
+                content_hash = sha256(content).hexdigest()
+                intake_id = stable_id("pid-intake", task_id, content_hash)
+                revision_id = stable_id("pid-revision", task_id, content_hash)
+                source_ref = f"query-upload:{task_id}:{file_name}"
+            workspace = Path(self.pid_workspace or ".").resolve() / task_id
+            try:
+                record = adapter.process(
+                    page_bytes=content, media_type=media_type, task_id=task_id, intake_id=intake_id,
+                    revision_id=revision_id,
+                    source_ref=source_ref, content_hash=content_hash,
+                    clearance=task.clearance, taint=Taint.untrusted, workspace=workspace,
+                )
+            except PidAdapterError as exc:
+                status = 503 if exc.code == "adapter_unavailable" else 422
+                raise NodeApiError(status, f"pid_{exc.code}", str(exc)) from exc
+            payload = record.to_dict()
+            event = build_event(
+                event_type="pid.extracted", task_id=task_id, actor_id="node.pid", actor_type="service",
+                payload_contract="PIDRecord", payload_version="1.0",
+                payload={
+                    **payload,
+                    "provenance": {
+                        "source_ref": record.source_ref, "confidence": 0.9,
+                        "clearance": task.clearance.value, "taint": Taint.untrusted.value,
+                    },
+                },
+                clearance=task.clearance,
+                idempotency=idempotency_key("pid.extracted", task_id, intake_id),
+                sequence=len(self._ledger.events), previous_event_hash=self._ledger.head_hash,
+            )
+            try:
+                self._ledger.append(event)
+            except Exception as exc:
+                raise NodeApiError(503, "pid_not_committed", "The P&ID extraction record could not be committed.") from exc
+            graph_projection = self._commit_pid_candidates(record)
+            return {**payload, "ledger_event_ref": event.event_id, "graph": graph_projection}
+
+    def _commit_pid_candidates(self, record: Any) -> dict[str, Any]:
+        """Stage P&ID facts and commit only candidates passing local gates."""
+        if self.world_model is None:
+            return {"status": "unavailable", "committed": 0, "review_required": 0, "candidates": []}
+        from airbench.intake.pid.records import candidate_facts_from_pid
+        from airbench.knowledge.world_model import CandidateFactWriter, WorldModelError
+
+        candidates = candidate_facts_from_pid(record)
+        if not candidates:
+            return {"status": "empty", "committed": 0, "review_required": 0, "candidates": []}
+        candidate_ids = {candidate.fact.fact_id for candidate in candidates}
+        known_ids = {fact.fact_id for fact in self.world_model.facts}
+
+        def consistency_gate(candidate: Any) -> bool:
+            return all(
+                relation.source_fact_id in candidate_ids | known_ids
+                and relation.target_fact_id in candidate_ids | known_ids
+                for relation in candidate.relations
+            )
+
+        def verification_gate(candidate: Any) -> bool:
+            # The adapter may propose facts, but graph visibility requires a
+            # bounded confidence floor and explicit source provenance. Taint
+            # remains untrusted even after this gate.
+            return bool(
+                candidate.fact.source_ref
+                and candidate.fact.confidence >= 0.65
+                and candidate.fact.taint.value == "untrusted"
+            )
+
+        writer = CandidateFactWriter(
+            self.world_model,
+            consistency_gate=consistency_gate,
+            verification_gate=verification_gate,
+            ledger=self._ledger,
+        )
+        committed: list[str] = []
+        review_required: list[str] = []
+        failed: list[dict[str, str]] = []
+        for candidate in candidates:
+            writer.stage(candidate)
+        for candidate in candidates:
+            try:
+                writer.reconcile(candidate.candidate_id, review_floor=0.65)
+                committed.append(candidate.fact.fact_id)
+            except WorldModelError as exc:
+                if exc.code == "review_required":
+                    review_required.append(candidate.candidate_id)
+                else:
+                    failed.append({"candidate_id": candidate.candidate_id, "code": exc.code})
+        status = "committed" if committed and not review_required and not failed else "needs_review" if review_required else "failed" if failed else "empty"
+        return {
+            "status": status,
+            "committed": len(committed),
+            "review_required": len(review_required),
+            "failed": failed,
+            "candidates": [candidate.candidate_id for candidate in candidates],
+        }
+
+    def _require_pid(self) -> Any:
+        if self.pid_adapter is None:
+            raise NodeApiError(503, "pid_unavailable", "The P&ID extraction adapter is not configured.")
+        return self.pid_adapter
+
+    def knowledge_status(self) -> dict[str, Any]:
+        runtime = self.retrieval
+        graph = self.graph_status()
+        if runtime is None:
+            return {"configured": graph["configured"], "status": "ready" if graph["configured"] else "disabled", "indexed_chunks": 0, "graph": graph}
+        store = getattr(runtime.index, "store", None)
+        response = {
+            "configured": True,
+            "status": "ready",
+            "embedding_model": runtime.embedding_model_id,
+            "embedding_qualification_reference": runtime.embedding_qualification_reference,
+            "reranker_model": runtime.reranker_model_id,
+            "reranker_qualification_reference": runtime.reranker_qualification_reference,
+            "indexed_chunks": len(runtime.index.chunks),
+            "vector_store": type(store).__name__ if store is not None else "json",
+            "graph": graph,
+        }
+        count = getattr(store, "chunk_count", None)
+        if isinstance(count, int):
+            response["store_chunk_count"] = count
+        return response
+
+    def pack_status(self) -> dict[str, Any]:
+        if self.pack is None:
+            return {"configured": False, "status": "disabled"}
+        return {"configured": True, "status": "ready", **self.pack.to_dict()}
+
+    def graph_status(self) -> dict[str, Any]:
+        world = self.world_model
+        if world is None:
+            return {"configured": False, "status": "disabled"}
+        backend = getattr(world, "_backend", None)
+        return {
+            "configured": True,
+            "status": "ready",
+            "node_count": len(world.facts),
+            "edge_count": len(world.relations),
+            "review_queue_count": len(world.review_queue),
+            "backend": type(backend).__name__ if backend is not None else "json",
+        }
+
+    def graph_query(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from airbench.knowledge.world_model import WorldModelQuery
+
+        world = self._require_world_model()
+        clearance = _clearance(payload.get("clearance")) if payload.get("clearance") is not None else self.config.clearance_context
+        self._check_clearance(clearance)
+        limit = payload.get("limit", 50)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 200:
+            raise NodeApiError(422, "invalid_limit", "limit must be between 1 and 200.")
+        max_depth = payload.get("max_depth", 1)
+        if not isinstance(max_depth, int) or isinstance(max_depth, bool) or not 0 <= max_depth <= 5:
+            raise NodeApiError(422, "invalid_limit", "max_depth must be between 0 and 5.")
+        facts = world.query(WorldModelQuery(
+            task_id="knowledge.graph",
+            key=str(payload.get("key", ""))[:256],
+            clearance=clearance,
+            limit=limit,
+            entity_id=str(payload.get("entity_id", ""))[:256],
+            relation=str(payload.get("relation", ""))[:128],
+            max_depth=max_depth,
+            as_of=str(payload["as_of"])[:64] if payload.get("as_of") else None,
+        ))
+        return {"result_count": len(facts), "facts": [_fact_wire(fact) for fact in facts]}
+
+    def graph_review_queue(self) -> dict[str, Any]:
+        world = self._require_world_model()
+        return {
+            "count": len(world.review_queue),
+            "items": [
+                {
+                    "candidate_id": item.candidate.candidate_id,
+                    "fact_id": item.candidate.fact.fact_id,
+                    "reason": item.reason,
+                    "enqueued_at": item.enqueued_at,
+                    "confidence": item.candidate.fact.confidence,
+                    "clearance": item.candidate.fact.clearance.value,
+                    "source_ref": item.candidate.fact.source_ref,
+                }
+                for item in world.review_queue
+            ],
+        }
+
+    def graph_resolve_review(self, payload: dict[str, Any]) -> dict[str, Any]:
+        world = self._require_world_model()
+        candidate_id = _text(payload, "candidate_id", 256)
+        accept = payload.get("accept")
+        if not isinstance(accept, bool):
+            raise NodeApiError(422, "invalid_decision", "accept must be a boolean.")
+        item = next((entry for entry in world.review_queue if entry.candidate.candidate_id == candidate_id), None)
+        if item is None:
+            raise NodeApiError(404, "review_not_found", "The review item does not exist.")
+        self._check_clearance(item.candidate.fact.clearance)
+        fact = world.resolve_review(candidate_id, accept=accept)
+        return {"candidate_id": candidate_id, "decision": "accept" if accept else "reject", "fact_id": fact.fact_id if fact else None}
+
+    def _require_world_model(self) -> Any:
+        if self.world_model is None:
+            raise NodeApiError(503, "world_model_unavailable", "The world model graph is not configured.")
+        return self.world_model
+
+    def consistency_report(self, task_id: str) -> dict[str, Any]:
+        self._require_task(task_id)
+        return self._require_consistency().latest(task_id)
+
+    def consistency_evaluate(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from .consistency_gateway import ConsistencyServiceError
+
+        service = self._require_consistency()
+        self._require_task(task_id)
+        features_raw = payload.get("features", {})
+        if not isinstance(features_raw, dict) or len(features_raw) > 100:
+            raise NodeApiError(422, "invalid_features", "features must be an object of at most 100 entries.")
+        material_raw = payload.get("material_features")
+        material: tuple[str, ...] | None = None
+        if material_raw is not None:
+            if not isinstance(material_raw, list) or len(material_raw) > 100:
+                raise NodeApiError(422, "invalid_features", "material_features must be a list.")
+            material = tuple(str(item) for item in material_raw)
+        clearance = _clearance(payload.get("clearance")) if payload.get("clearance") is not None else self.config.clearance_context
+        self._check_clearance(clearance)
+        try:
+            return service.evaluate(
+                task_id=task_id,
+                decision_id=_text(payload, "decision_id", 128),
+                decision_type=_text(payload, "decision_type", 128),
+                object_id=_text(payload, "object_id", 256),
+                features={str(key): str(value) for key, value in features_raw.items()},
+                decision=_text(payload, "decision", 256),
+                rule_ref=_text(payload, "rule_ref", 256, default=""),
+                authority=_text(payload, "authority", 128, default=""),
+                clearance=clearance,
+                material_features=material,
+            )
+        except ConsistencyServiceError as exc:
+            raise NodeApiError(409, exc.code, str(exc)) from exc
+
+    def consistency_justify(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from .consistency_gateway import ConsistencyServiceError
+
+        service = self._require_consistency()
+        self._require_task(task_id)
+        try:
+            return service.justify(
+                task_id=task_id, operator_id=subject, justification=_text(payload, "justification", 4_000),
+            )
+        except ConsistencyServiceError as exc:
+            raise NodeApiError(409, exc.code, str(exc)) from exc
+
+    def _require_consistency(self) -> Any:
+        if self.consistency is None:
+            raise NodeApiError(503, "consistency_unavailable", "The consistency service is not configured.")
+        return self.consistency
+
+    def autonomy_records(self, task_id: str) -> dict[str, Any]:
+        self._require_task(task_id)
+        service = self._require_autonomy()
+        return {"task_id": task_id, "decisions": list(service.decisions(task_id)), "is_blocked": service.is_blocked(task_id)}
+
+    def autonomy_score(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from contracts import Taint
+
+        from .autonomy_gateway import AutonomyServiceError
+
+        with self._lock:
+            service = self._require_autonomy()
+            self._require_task(task_id)
+            clearance = _clearance(payload.get("clearance")) if payload.get("clearance") is not None else self.config.clearance_context
+            self._check_clearance(clearance)
+            try:
+                taint = Taint(str(payload.get("taint", "untrusted")))
+            except ValueError as exc:
+                raise NodeApiError(422, "invalid_taint", "taint is invalid.") from exc
+            confidence = payload.get("confidence", 1.0)
+            if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= float(confidence) <= 1:
+                raise NodeApiError(422, "invalid_confidence", "confidence must be between 0 and 1.")
+            try:
+                return service.score(
+                    task_id=task_id,
+                    action_id=_text(payload, "action_id", 128),
+                    action_kind=_text(payload, "action_kind", 128),
+                    source_ref=_text(payload, "source_ref", 512),
+                    confidence=float(confidence),
+                    clearance=clearance,
+                    taint=taint,
+                    worker_id=str(payload.get("worker_id", "node.execution"))[:128],
+                    claimed_risk=str(payload["claimed_risk"])[:128] if payload.get("claimed_risk") else None,
+                    target_object_id=str(payload.get("target_object_id", ""))[:256],
+                )
+            except AutonomyServiceError as exc:
+                raise NodeApiError(409, exc.code, str(exc)) from exc
+            except (StorageFailure, LedgerError) as exc:
+                raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the score decision.") from exc
+
+    def autonomy_authorize(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from .autonomy_gateway import AutonomyServiceError
+
+        with self._lock:
+            service = self._require_autonomy()
+            self._require_task(task_id)
+            try:
+                return service.authorize(
+                    task_id=task_id,
+                    operator_id=subject,
+                    action_id=str(payload.get("action_id", ""))[:128],
+                    operator_roles=self.config.authenticated_roles,
+                )
+            except AutonomyServiceError as exc:
+                raise NodeApiError(409, exc.code, str(exc)) from exc
+            except (StorageFailure, LedgerError) as exc:
+                raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the task authorization.") from exc
+
+    def _require_autonomy(self) -> Any:
+        if self.autonomy is None:
+            raise NodeApiError(503, "autonomy_unavailable", "The autonomy service is not configured.")
+        return self.autonomy
+
+    def hardware_status(self) -> dict[str, Any]:
+        if self.hardware_profile is None:
+            return {"configured": False, "status": "disabled"}
+        from .hardware_gateway import hardware_status
+
+        return {"configured": True, "status": "ready", **hardware_status(self.hardware_profile)}
+
+    def qualification_status(self, target_id: str) -> dict[str, Any]:
+        if self.qualification_matrix is None:
+            return {"target_id": target_id, "status": "unavailable", "certificates": []}
+        from .qualification_gateway import qualification_status
+
+        return qualification_status(self.qualification_matrix, target_id, self.routing_tiers)
+
+    def qualification_roster(self) -> dict[str, Any]:
+        if self.qualification_matrix is None:
+            return {"configured": False, "count": 0, "targets": []}
+        from .qualification_gateway import qualification_roster
+
+        return {"configured": True, **qualification_roster(self.qualification_matrix, self.routing_tiers)}
+
+    def _require_task(self, task_id: str) -> str:
+        self._visible_task(task_id)
+        return self.orchestrator.state(task_id)
+
+    def knowledge_search(self, payload: dict[str, Any]) -> dict[str, Any]:
+        from airbench.knowledge.retrieval import RetrievalRequest
+        from airbench.knowledge.retrieval_loop import RetrievalLoopRequest, run_iterative_retrieval
+        from airbench.knowledge.world_model import WorldModelQuery
+
+        mode = payload.get("mode", "text")
+        if mode not in {"text", "graph", "hybrid"}:
+            raise NodeApiError(422, "invalid_search_mode", "mode must be text, graph, or hybrid.")
+        runtime = self.retrieval
+        if mode in {"text", "hybrid"} and runtime is None:
+            raise NodeApiError(503, "retrieval_unavailable", "The local retrieval service is not configured.")
+        if mode in {"graph", "hybrid"} and self.world_model is None:
+            raise NodeApiError(503, "world_model_unavailable", "The world model graph is not configured.")
+        query = _text(payload, "query", 4096)
+        clearance = _clearance(payload.get("clearance")) if payload.get("clearance") is not None else self.config.clearance_context
+        self._check_clearance(clearance)
+        top_k = payload.get("top_k", 5)
+        if not isinstance(top_k, int) or isinstance(top_k, bool) or not 1 <= top_k <= 20:
+            raise NodeApiError(422, "invalid_limit", "top_k must be between 1 and 20.")
+        citations: tuple[Any, ...] = ()
+        iterative = bool(payload.get("iterative", False)) and mode in {"text", "hybrid"}
+        if iterative:
+            max_rounds = payload.get("max_rounds", 2)
+            if not isinstance(max_rounds, int) or isinstance(max_rounds, bool) or not 1 <= max_rounds <= 5:
+                raise NodeApiError(422, "invalid_limit", "max_rounds must be between 1 and 5.")
+            citations = run_iterative_retrieval(
+                runtime.service,
+                RetrievalLoopRequest(
+                    task_id="knowledge.search", query=query, clearance=clearance, top_k=top_k, max_rounds=max_rounds,
+                ),
+            )
+        else:
+            raw_min = payload.get("min_score")
+            if raw_min is not None and (isinstance(raw_min, bool) or not isinstance(raw_min, (int, float))):
+                raise NodeApiError(422, "invalid_limit", "min_score must be a number.")
+            citations = runtime.service.search(RetrievalRequest(
+                task_id="knowledge.search", query=query, clearance=clearance, top_k=top_k,
+                min_score=float(raw_min) if raw_min is not None else None,
+            ))
+        graph_results: tuple[Any, ...] = ()
+        if mode in {"graph", "hybrid"}:
+            graph_limit = min(top_k, 20)
+            max_depth = payload.get("max_depth", 1)
+            if not isinstance(max_depth, int) or isinstance(max_depth, bool) or not 0 <= max_depth <= 5:
+                raise NodeApiError(422, "invalid_limit", "max_depth must be between 0 and 5.")
+            graph_results = self.world_model.query(WorldModelQuery(
+                task_id="knowledge.search",
+                key=str(payload.get("key", query))[:256],
+                clearance=clearance,
+                limit=graph_limit,
+                entity_id=str(payload.get("entity_id", ""))[:256],
+                relation=str(payload.get("relation", ""))[:128],
+                max_depth=max_depth,
+                as_of=str(payload["as_of"])[:64] if payload.get("as_of") else None,
+            ))
+        return {
+            "query": query,
+            "mode": mode,
+            "clearance": clearance.value,
+            "iterative": iterative,
+            "found": len(citations) > 0,
+            "result_count": len(citations),
+            "results": [
+                {
+                    "citation_id": citation.citation_id,
+                    "chunk_id": citation.chunk_id,
+                    "source_ref": citation.source_ref,
+                    "revision_id": citation.revision_id,
+                    "page_id": citation.page_id,
+                    "source_span": citation.source_span,
+                    "excerpt": citation.excerpt,
+                    "score": citation.score,
+                    "confidence": citation.confidence,
+                    "clearance": citation.clearance.value,
+                    "taint": citation.taint.value,
+                    "content_hash": citation.content_hash,
+                    "embedding_model": citation.embedding_model,
+                    "reranker_model": citation.reranker_model,
+                }
+                for citation in citations
+            ],
+            "graph_result_count": len(graph_results),
+            "graph_results": [_fact_wire(fact) for fact in graph_results],
+        }
+
+    def knowledge_ingest(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if self.knowledge is None:
+            raise NodeApiError(503, "knowledge_ingest_unavailable", "Bulk knowledge ingestion is not configured.")
+        path = _text(payload, "path", 4096, default=".")
+        try:
+            return self.knowledge.ingest_directory(path=path)
+        except NodeIntakeError as exc:
+            raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+
     def artifact_preview(self, artifact_id: str) -> dict[str, Any]:
         with self._lock:
             if self.deliverable_gateway is not None:
@@ -225,6 +779,21 @@ class NodeApiService:
         if self.intake_gateway is None:
             raise NodeApiError(503, "intake_unavailable", "The local File Intake service is not configured.")
         return self.intake_gateway
+
+    def _require_visible_deliverable(self, task_id: str, artifact_id: str) -> None:
+        """Bind a sign-off command to the task's current committed deliverable."""
+        if self.deliverable_gateway is None:
+            return
+        try:
+            review = self.deliverable_gateway.artifact_review(task_id=task_id)
+        except NodeIntakeError as exc:
+            raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+        committed = review.get("artifact_id") or review.get("artifactId")
+        if committed != artifact_id:
+            raise NodeApiError(409, "artifact_mismatch", "The artifact does not belong to this task's current deliverable.")
+        blockers = review.get("approval_blocking_reasons") or review.get("approvalBlockingReasons") or ()
+        if blockers:
+            raise NodeApiError(409, "artifact_blocked", "The deliverable still has unresolved verification blockers.")
 
     def create_task(self, subject: str, payload: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -291,6 +860,16 @@ class NodeApiService:
             created = next((event for event in self._ledger.events if event.task_id == task.task_id and event.event_type == "task.created"), None)
             if created is None:
                 raise NodeApiError(503, "task_commit_unreadable", "The committed task could not be read back from the ledger.")
+            # Text-only requests use the same File Intake Layer as files. The
+            # request is untrusted evidence and is committed before planning.
+            if arguments.get("input_kind") == "text" and not input_manifest_refs and self.intake_gateway is not None:
+                try:
+                    self.intake_gateway.query_upload(
+                        subject=subject, task_id=task.task_id, file_name="task-input.txt", content=request.encode("utf-8")
+                    )
+                except NodeIntakeError as exc:
+                    raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+            snapshot = self.snapshot(task.task_id)
             return {
                 "task": task.to_dict(),
                 "snapshot": snapshot,
@@ -315,6 +894,22 @@ class NodeApiService:
                 raise NodeApiError(409, "transition_rejected", "The task cannot be authorized from its current state.") from exc
             except (StorageFailure, LedgerError) as exc:
                 raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the transition.") from exc
+            if self.task_planner is not None:
+                try:
+                    self.task_planner.plan_and_admit(self._visible_task(task_id))
+                except (PlanRejected, TransitionRejected) as exc:
+                    raise NodeApiError(409, "task_planning_rejected", "The Node could not commit a validated plan for this task.") from exc
+                except (StorageFailure, LedgerError) as exc:
+                    raise NodeApiError(503, "task_planning_failed", "The local ledger did not commit the task plan.") from exc
+            if self.execution is not None:
+                from .task_execution import NodeTaskExecutionError
+                try:
+                    self.execution.prepare(task_id)
+                except NodeTaskExecutionError as exc:
+                    logger.exception("Node task execution failed", extra={"task_id": task_id})
+                    if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
+                        self.orchestrator.transition(task_id, "task.failed", {"failure_code": "task_execution_prepare_failed"})
+                    raise NodeApiError(409, "task_execution_prepare_failed", "The Node could not prepare the admitted plan for execution.") from exc
             return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
 
     def approve_plan(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -343,6 +938,23 @@ class NodeApiService:
                 raise NodeApiError(409, "transition_rejected", "The plan cannot be approved from its current task state.") from exc
             except (StorageFailure, LedgerError) as exc:
                 raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the plan approval.") from exc
+            if self.execution is not None:
+                from .task_execution import NodeTaskExecutionError
+                try:
+                    # The operator's approval is the named human authority the
+                    # autonomy governor requires before running work inherited
+                    # from untrusted input.
+                    if self.autonomy is not None and hasattr(self.execution, "authorize"):
+                        required_role = getattr(self.pack, "required_human_authority", "human_reviewer") if self.pack else "human_reviewer"
+                        if required_role not in self.config.authenticated_roles:
+                            raise NodeApiError(403, "human_authority_role_required", f"The authenticated operator is not assigned the pack-required {required_role} role.")
+                        self.execution.authorize(subject, task_id, operator_roles=self.config.authenticated_roles)
+                    self.execution.execute(task_id)
+                except NodeTaskExecutionError as exc:
+                    logger.exception("Node task execution failed", extra={"task_id": task_id})
+                    if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
+                        self.orchestrator.transition(task_id, "task.failed", {"failure_code": "task_execution_failed"})
+                    raise NodeApiError(503, "task_execution_failed", "The approved plan did not produce a verified draft.") from exc
             return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
 
     def cancel(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -398,6 +1010,12 @@ class NodeApiService:
             self._check_expected_sequence(command, task_id)
             artifact_id = _text(command.arguments, "artifact_id", 512)
             reason = _text(command.arguments, "reason", 4_096)
+            self._require_visible_deliverable(task_id, artifact_id)
+            if self.consistency is not None and self.consistency.is_blocked(task_id):
+                raise NodeApiError(
+                    409, "consistency_review_required",
+                    "A flagged consistency deviation requires an operator justification before approval.",
+                )
             try:
                 result = self.orchestrator.signoff(
                     self._visible_task(task_id).task_id,
@@ -429,6 +1047,7 @@ class NodeApiService:
             self._check_expected_sequence(command, task_id)
             artifact_id = _text(command.arguments, "artifact_id", 512)
             reason = _text(command.arguments, "reason", 4_096)
+            self._require_visible_deliverable(task_id, artifact_id)
             try:
                 result = self.orchestrator.signoff(
                     self._visible_task(task_id).task_id,
@@ -442,6 +1061,129 @@ class NodeApiService:
             except (StorageFailure, LedgerError) as exc:
                 raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the artifact return.") from exc
             return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
+
+    def _require_model_router(self) -> Any:
+        if self.model_router is None:
+            raise NodeApiError(503, "model_serving_unavailable", "Model serving is not configured on this Node.")
+        return self.model_router
+
+    def call_model(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Execute one typed model call through the orchestrator and router.
+
+        The API is only the command boundary: routing, admission, retry,
+        timeout, and ledger writes stay inside the orchestrator.  The model
+        response is a proposal with untrusted provenance, never an approved
+        result, and prompt/response text is never written to the ledger.
+        """
+        with self._lock:
+            command = self._command(subject, payload, "model.call", task_id)
+            task = self._visible_task(task_id)
+            arguments = command.arguments
+
+            raw_request = arguments.get("request")
+            if not isinstance(raw_request, dict):
+                raise NodeApiError(400, "model_request_invalid", "A model call request object is required.")
+            try:
+                request = ModelCallRequest.from_dict(dict(raw_request))
+            except (ContractValidationError, TypeError) as exc:
+                raise NodeApiError(400, "model_request_invalid", "The model call request does not satisfy the contract.") from exc
+            if request.task_id != task_id:
+                raise NodeApiError(400, "command_target_invalid", "The model request task must match the route.")
+            if request.clearance != task.clearance:
+                raise NodeApiError(409, "model_request_rejected", "The model request clearance must match the task clearance.")
+            request = replace(
+                request,
+                request_id=stable_id("model-call-request", task_id, command.idempotency_key),
+            )
+
+            raw_messages = arguments.get("messages")
+            if not isinstance(raw_messages, list) or not 1 <= len(raw_messages) <= 64:
+                raise NodeApiError(400, "model_messages_invalid", "One to sixty-four messages are required.")
+            try:
+                messages = tuple(BackendMessage.from_dict(dict(item)) for item in raw_messages)
+                output = BackendOutputSpec.from_dict(dict(arguments.get("output", {"mode": "text"})))
+                raw_tools = arguments.get("tools", [])
+                if not isinstance(raw_tools, list) or len(raw_tools) > 32:
+                    raise NodeApiError(400, "model_tools_invalid", "At most thirty-two tools may be declared.")
+                tools = tuple(BackendTool.from_dict(dict(item)) for item in raw_tools)
+            except (ContractValidationError, TypeError) as exc:
+                raise NodeApiError(400, "model_messages_invalid", "The model call messages do not satisfy the contract.") from exc
+            if arguments.get("stream") not in (None, False):
+                raise NodeApiError(400, "model_stream_unsupported", "Streaming model calls are not served by this route.")
+
+            existing = self._replay_model_call(command, task_id, request.request_id)
+            if existing is not None:
+                return existing
+            self._check_expected_sequence(command, task_id)
+
+            hardware_profile_ref = _text(arguments, "hardware_profile_ref", 512)
+            router = self._require_model_router()
+            try:
+                execution = self.orchestrator.execute_model_call(
+                    request, router=router, pack_ref=task.domain_pack_ref,
+                    hardware_profile_ref=hardware_profile_ref,
+                    messages=messages, output=output, tools=tools, stream=False,
+                )
+            except PlanRejected as exc:
+                raise NodeApiError(409, "model_request_rejected", "The model request conflicts with the task authority.") from exc
+            except TransitionRejected as exc:
+                raise NodeApiError(409, "transition_rejected", "The task is not in a state that admits a model call.") from exc
+            except BackendCallError as exc:
+                raise NodeApiError(502, "model_backend_failed", "The selected model backend failed.") from exc
+            except StepTimeout as exc:
+                raise NodeApiError(504, "model_timeout", "The model call exceeded its timeout.") from exc
+            except RetryExhausted as exc:
+                raise NodeApiError(502, "model_retry_exhausted", "The model call failed after its retries were exhausted.") from exc
+            except CircuitOpen as exc:
+                raise NodeApiError(503, "model_circuit_open", "The model dependency circuit is open.") from exc
+            except (StorageFailure, LedgerError) as exc:
+                raise NodeApiError(503, "transition_not_committed", "The local ledger did not commit the model call.") from exc
+
+            if execution.response is None or execution.step is None or isinstance(execution.response, tuple):
+                raise NodeApiError(503, "model_not_admitted", execution.route.decision.reason or "No qualified model target was admitted.")
+            return self._model_call_result(command, task_id, execution)
+
+    def _replay_model_call(self, command: NodeCommandEnvelope, task_id: str, request_id: str) -> dict[str, Any] | None:
+        event = next(
+            (
+                candidate for candidate in reversed(self._ledger.events)
+                if candidate.task_id == task_id
+                and candidate.event_type == "model.responded"
+                and isinstance(candidate.payload, dict)
+                and candidate.payload.get("request_id") == request_id
+            ),
+            None,
+        )
+        if event is None:
+            return None
+        return {
+            "command": _command_result(
+                command, task_id, event, self._task_sequence(task_id, event.event_id),
+                self.orchestrator.state(task_id), self.config,
+            ),
+            "replayed": True,
+        }
+
+    def _model_call_result(self, command: NodeCommandEnvelope, task_id: str, execution: Any) -> dict[str, Any]:
+        event = self._event_by_id(execution.step.transition.event_id)
+        response = execution.response
+        return {
+            "command": _command_result(
+                command, task_id, event, self._task_sequence(task_id, event.event_id),
+                self.orchestrator.state(task_id), self.config,
+            ),
+            "model": {
+                "request_id": execution.request_id,
+                "selected_target": response.target_id,
+                "status": execution.route.decision.status.value,
+                "output": response.output,
+                "usage": response.usage.to_dict(),
+                "provenance": response.provenance.to_dict(),
+                "finish_reason": response.finish_reason,
+                "tool_calls": [call.to_dict() for call in response.tool_calls],
+                "routing_decision": execution.route.decision.to_dict(),
+            },
+        }
 
     def _command(self, subject: str, payload: dict[str, Any], expected_type: str, route_task_id: str | None) -> NodeCommandEnvelope:
         try:
@@ -711,8 +1453,18 @@ class NodeApiService:
                     "payloadHash": event.payload_hash,
                 }
                 for key in ("request_id", "worker_id", "role", "task_kind", "required_capability", "selected_target", "decision_source", "rule_or_threshold", "qualification_certificate", "fallback_target", "reason", "status"):
-                    if key in payload:
-                        entry[key] = _safe_value(payload[key])
+                    source = payload
+                    if key not in source and isinstance(payload.get("decision"), dict):
+                        source = payload["decision"]
+                    if key in source:
+                        entry[key] = _safe_value(source[key])
+                decision = payload.get("decision") if isinstance(payload.get("decision"), dict) else {}
+                selected_target = entry.get("selected_target") or _safe_value(payload.get("target_id")) or _safe_value(decision.get("target_id"))
+                if selected_target:
+                    entry["selected_target"] = selected_target
+                    model_name = self._model_display_name(selected_target)
+                    if model_name:
+                        entry["selected_model_name"] = model_name
                 if "eligible_targets" in payload:
                     entry["eligible_targets"] = _string_list(payload["eligible_targets"])[:100]
                 entries.append(entry)
@@ -729,6 +1481,14 @@ class NodeApiService:
             except ContractValidationError as exc:
                 raise NodeApiError(503, "route_trace_contract_corrupt", "The routing trace could not be verified.") from exc
             return trace.to_wire_dict()
+
+    def _model_display_name(self, target_id: str) -> str | None:
+        router = self.model_router
+        registry = getattr(router, "registry", None)
+        targets = getattr(registry, "targets", ()) if registry is not None else ()
+        target = next((item for item in targets if getattr(item, "target_id", None) == target_id), None)
+        name = getattr(target, "display_name", "") if target is not None else ""
+        return name.strip() or None
 
     def review(self, task_id: str) -> dict[str, Any]:
         with self._lock:
@@ -1085,10 +1845,86 @@ def create_app(service: NodeApiService) -> FastAPI:
         task_id, file_name, content = await multipart_document(request)
         return service.query_upload(subject, task_id=task_id, file_name=file_name, content=content)
 
+    @app.post("/api/v1/intake/pid", status_code=200)
+    async def pid_extract(request: Request) -> dict[str, Any]:
+        subject = auth(request)
+        task_id, file_name, content = await multipart_document(request)
+        return service.pid_extract(subject, task_id=task_id, file_name=file_name, content=content)
+
     @app.get("/api/v1/intake/{preview_ref}/preview")
     async def safe_intake_preview(preview_ref: str, request: Request) -> dict[str, Any]:
         auth(request)
         return service.safe_preview(preview_ref)
+
+    @app.get("/api/v1/intake/status/{intake_id}")
+    async def intake_status(intake_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.intake_status(intake_id)
+
+    @app.get("/api/v1/knowledge/status")
+    async def knowledge_status(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.knowledge_status()
+
+    @app.post("/api/v1/knowledge/search", status_code=200)
+    async def knowledge_search(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.knowledge_search(await json_body(request))
+
+    @app.post("/api/v1/knowledge/ingest", status_code=202)
+    async def knowledge_ingest(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.knowledge_ingest(await json_body(request))
+
+    @app.get("/api/v1/knowledge/graph/stats")
+    async def graph_stats(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.graph_status()
+
+    @app.post("/api/v1/knowledge/graph/query", status_code=200)
+    async def graph_query(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.graph_query(await json_body(request))
+
+    @app.get("/api/v1/knowledge/graph/review-queue")
+    async def graph_review_queue(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.graph_review_queue()
+
+    @app.post("/api/v1/knowledge/graph/review/resolve", status_code=200)
+    async def graph_resolve_review(request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.graph_resolve_review(await json_body(request))
+
+    @app.get("/api/v1/tasks/{task_id}/consistency")
+    async def consistency_report(task_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.consistency_report(task_id)
+
+    @app.post("/api/v1/tasks/{task_id}/consistency/evaluate", status_code=200)
+    async def consistency_evaluate(task_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.consistency_evaluate(task_id, await json_body(request))
+
+    @app.post("/api/v1/tasks/{task_id}/consistency/justify", status_code=200)
+    async def consistency_justify(task_id: str, request: Request) -> dict[str, Any]:
+        subject = auth(request)
+        return service.consistency_justify(subject, task_id, await json_body(request))
+
+    @app.get("/api/v1/tasks/{task_id}/autonomy")
+    async def autonomy_records(task_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.autonomy_records(task_id)
+
+    @app.post("/api/v1/tasks/{task_id}/autonomy/score", status_code=200)
+    async def autonomy_score(task_id: str, request: Request) -> dict[str, Any]:
+        auth(request)
+        return service.autonomy_score(task_id, await json_body(request))
+
+    @app.post("/api/v1/tasks/{task_id}/autonomy/authorize", status_code=200)
+    async def autonomy_authorize(task_id: str, request: Request) -> dict[str, Any]:
+        subject = auth(request)
+        return service.autonomy_authorize(subject, task_id, await json_body(request))
 
     @app.get("/api/v1/artifacts/{artifact_id}/preview")
     async def artifact_preview(artifact_id: str, request: Request) -> dict[str, Any]:
@@ -1177,6 +2013,11 @@ def create_app(service: NodeApiService) -> FastAPI:
     async def return_artifact(task_id: str, request: Request) -> dict[str, Any]:
         subject = auth(request)
         return service.return_artifact(subject, task_id, await json_body(request))
+
+    @app.post("/api/v1/tasks/{task_id}/model-call", status_code=202)
+    async def model_call(task_id: str, request: Request) -> dict[str, Any]:
+        subject = auth(request)
+        return service.call_model(subject, task_id, await json_body(request))
 
     return app
 

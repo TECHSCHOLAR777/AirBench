@@ -1139,6 +1139,33 @@ class TestProvenanceIntegrity(unittest.TestCase):
         from contracts.models import Taint
         self.assertEqual(response.provenance.taint, Taint.untrusted)
 
+    def test_provenance_records_bound_endpoint_id(self) -> None:
+        ledger = _ledger_with_task()
+        adapter = VllmAdapter(
+            base_url="http://127.0.0.1:18002",
+            model_name="gemma4-26b-a4b-4bit",
+            tool_parser=ToolCallParserRegistry.get("none"),
+            ledger=ledger,
+            endpoint_id="endpoint.gemma-12b",
+            require_no_egress_env=False,
+        )
+        req = _backend_request()
+        health_resp = _mock_health_ok()
+        models_resp = _mock_urlopen_ok(_models_list())
+        completion_resp = _mock_urlopen_ok(_completion_response())
+        call_count = [0]
+
+        def fake_urlopen(req_obj, timeout=None):
+            call_count[0] += 1
+            if call_count[0] == 1: return health_resp
+            if call_count[0] == 2: return models_resp
+            return completion_resp
+
+        with patch("contracts.adapters.vllm_adapter.urlopen", fake_urlopen):
+            response = adapter.complete(req)
+        self.assertEqual(response.provenance.endpoint_id, "endpoint.gemma-12b")
+        self.assertEqual(response.provenance.execution_location, "local")
+
     def test_response_status_is_verified(self) -> None:
         response = self._response()
         from contracts.models import ContractStatus

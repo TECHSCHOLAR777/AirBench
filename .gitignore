@@ -57,3 +57,20 @@ papers/
 tmp
 Rajput_Not_All_Pixels_Sink_Phase-Guided_Representation_Learning_For_Underwater_Image_CVPRW_2026_paper.pdf
 AIRBENCH.pdf
+
+# Local EasyOCR models (downloaded on the deployment box, never committed)
+models/weights/pid/easyocr/
+
+# Local Node runtime stores and scratch
+.airbench-intake/
+.airbench-artifacts/
+.airbench-workspaces/
+.airbench-corpus/
+.airbench-chroma/
+.airbench-world-model.db
+.airbench-decisions.db
+retrieval-index.json
+
+# Local knowledge-base planning and demo notes
+LOCAL_KNOWLEDGE_BASE_AND_DEMO.md
+

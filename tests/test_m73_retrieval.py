@@ -123,6 +123,37 @@ class RetrievalTests(unittest.TestCase):
             with self.assertRaisesRegex(RetrievalError, "configured limit"):
                 LocalIndexer(index, DeterministicEmbeddingProvider()).index_manifest(IndexRequest("task.m73", manifest()))
 
+    def test_min_score_floor_returns_not_found_rather_than_a_weak_match(self) -> None:
+        index = LocalVectorIndex()
+        embeddings = DeterministicEmbeddingProvider()
+        LocalIndexer(index, embeddings).index_manifest(IndexRequest("task.m73", manifest()))
+        service = RetrievalService(index, embeddings, reranker=LexicalReranker())
+        weak = service.search(RetrievalRequest("task.m73", "pump pressure", Clearance.internal, top_k=5, min_score=99.0))
+        self.assertEqual(weak, ())
+        strong = service.search(RetrievalRequest("task.m73", "pump pressure", Clearance.internal, top_k=5, min_score=1.0))
+        self.assertTrue(strong)
+
+
+class TableIndexingTests(unittest.TestCase):
+    def test_structured_tables_are_indexed_as_whole_chunks(self) -> None:
+        from contracts import StructuredTable
+
+        table = StructuredTable(
+            table_id="table.tags", page_number=1, headers=("Tag", "Component", "Pressure (bar)"),
+            rows=(("V-101", "Gate valve", "12.5"), ("V-102", "Globe valve", "9.0")),
+            confidence=0.92, extraction_method="table_tesseract", source_ref="upload:report.pdf", source_span="page:1:table:0",
+        )
+        base = manifest()
+        page = replace(base.pages[0], text="", tables=(table,))
+        table_manifest = replace(base, pages=(page, base.pages[1]))
+        index = LocalVectorIndex()
+        embeddings = DeterministicEmbeddingProvider()
+        chunks = LocalIndexer(index, embeddings).index_manifest(IndexRequest("task.m73", table_manifest))
+        table_chunks = [chunk for chunk in chunks if "Gate valve" in chunk.text and "Pressure (bar)" in chunk.text]
+        self.assertTrue(table_chunks)
+        self.assertEqual(table_chunks[0].source_span, "page:1:table:0")
+        self.assertEqual(table_chunks[0].taint, Taint.untrusted)
+
 
 if __name__ == "__main__":
     unittest.main()

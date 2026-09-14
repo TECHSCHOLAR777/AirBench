@@ -228,7 +228,11 @@ class SQLiteLedgerStore:
             raise ValueError("signing_key is required for sealed ledger commits")
         self.path = str(path)
         self._signing_key = bytes(signing_key)
-        self._db = sqlite3.connect(self.path)
+        # The Node's bounded worker runtime executes model calls on a worker
+        # thread while sharing the process-owned ledger.  SQLite's default
+        # thread affinity would reject those reads/writes even though the
+        # Node serializes command mutations at its API boundary.
+        self._db = sqlite3.connect(self.path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys = ON")
         self._db.execute("PRAGMA journal_mode = WAL")

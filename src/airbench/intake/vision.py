@@ -14,8 +14,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Protocol
 
-from contracts import Clearance, EventLedger, Taint, build_event, stable_id
+from contracts import BoundingBox, Clearance, EventLedger, StructuredTable, Taint, build_event, stable_id
 from contracts.model.backend import BackendAdapter, BackendRequest, CancellationToken
+
+from .ocr_provider import OcrPageInput, OcrPageResult, OcrProvider
+from .table_extractor import TableExtractor, extract_tables
 
 
 class VisionError(RuntimeError):
@@ -57,10 +60,15 @@ class VisionRegion:
     text: str
     confidence: float
     source_span: str
+    bounding_box: BoundingBox | None = None
+    page_number: int | None = None
 
     def __post_init__(self) -> None:
         if not self.region_id or not self.source_span or not 0 <= self.confidence <= 1:
             raise VisionError("invalid_region", "vision region identity and confidence are required")
+        if self.bounding_box is not None and self.page_number is not None:
+            if self.bounding_box.page_number != self.page_number:
+                raise VisionError("page_mismatch", "vision region box page does not match its page")
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +90,7 @@ class VisionResult:
     taint: Taint
     content_hash: str
     regions: tuple[VisionRegion, ...] = ()
+    tables: tuple[StructuredTable, ...] = ()
     captured_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
 
     def __post_init__(self) -> None:
@@ -284,7 +293,73 @@ def backend_text_extractor(
     return extract
 
 
+def ocr_provider_extractor(
+    provider: OcrProvider,
+    *,
+    adapter_id: str,
+    adapter_version: str,
+    model_target_id: str,
+    qualification_reference: str,
+    dpi: int = 300,
+    table_extractor: TableExtractor | None = None,
+) -> VisionExtractor:
+    """Bridge a typed :class:`OcrProvider` into the qualified vision seam.
+
+    Bounding boxes and extraction confidences survive the bridge as
+    ``VisionRegion`` values so the intake layer can persist them.  An optional
+    ``table_extractor`` recovers structured tables from the OCR lines.
+    """
+
+    def extract(request: VisionRequest) -> VisionResult:
+        result = provider.extract(OcrPageInput(
+            page_number=request.page_number,
+            content=request.content,
+            content_hash=request.content_hash,
+            media_type=request.media_type,
+            dpi=dpi,
+        ))
+        if table_extractor is not None and not result.tables:
+            result = extract_tables(result, table_extractor, source_ref=request.source_ref)
+        regions = tuple(
+            VisionRegion(
+                region_id=region.region_id,
+                text=region.text,
+                confidence=region.confidence,
+                source_span=(
+                    f"page:{result.page_number}:bbox:"
+                    f"{region.bounding_box.x},{region.bounding_box.y},"
+                    f"{region.bounding_box.width},{region.bounding_box.height}"
+                ),
+                bounding_box=region.bounding_box,
+                page_number=result.page_number,
+            )
+            for region in result.regions(source_ref=request.source_ref)
+        )
+        return VisionResult(
+            extraction_id=stable_id("extraction", request.intake_id, request.page_id, result.provider_name, result.text),
+            task_id=request.task_id,
+            intake_id=request.intake_id,
+            revision_id=request.revision_id,
+            page_id=request.page_id,
+            source_ref=request.source_ref,
+            text=result.text,
+            confidence=result.confidence,
+            extraction_method=f"ocr_{provider.name}",
+            adapter_id=adapter_id,
+            adapter_version=adapter_version,
+            model_target_id=model_target_id,
+            qualification_reference=qualification_reference,
+            clearance=request.clearance,
+            taint=request.taint,
+            content_hash=request.content_hash,
+            regions=regions,
+            tables=result.tables,
+        )
+
+    return extract
+
+
 __all__ = [
     "LocalVisionAdapter", "VisionError", "VisionExtractor", "VisionRegion", "VisionRequest", "VisionResult",
-    "backend_text_extractor", "static_text_extractor",
+    "backend_text_extractor", "ocr_provider_extractor", "static_text_extractor",
 ]

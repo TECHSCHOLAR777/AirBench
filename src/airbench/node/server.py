@@ -19,6 +19,16 @@ Environment variables (all required unless a config file is supplied):
   AIRBENCH_SIGNING_KEY_PATH    Path to the 32-byte HMAC-SHA256 signing key file (optional).
   AIRBENCH_BUNDLE_MANIFEST_PATH Path to the signed offline bundle manifest (optional).
   AIRBENCH_BUNDLE_ROOT          Root directory used to resolve manifest asset paths (optional).
+
+Model serving is opt-in and fails closed:
+
+  AIRBENCH_MODEL_SERVING_ENABLED    Set to ``1`` to compose the model router.
+  AIRBENCH_POLICY_VERSION_HASH      Routing policy hash (required when enabled).
+  AIRBENCH_MODEL_SIGNING_KEY_PATH   Path to the 32-byte roster signing key.
+  AIRBENCH_MODEL_STORE              Canonical model store (artifact root).
+  AIRBENCH_MODEL_ROSTER_PATH        Signed roster YAML (default under models/roster/v0).
+  AIRBENCH_MODEL_E2B_URL / _12B_URL Loopback endpoint base URLs.
+  HF_HUB_OFFLINE=1, TRANSFORMERS_OFFLINE=1  Required for vLLM adapter no-egress checks.
 """
 
 from __future__ import annotations
@@ -32,6 +42,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+# Native import order matters on Windows: the torch/sentence-transformers stack
+# must initialise before pypdf (imported by File Intake) or the process can
+# crash.  Preload it only when retrieval is enabled, before the Node imports.
+os.environ.setdefault("USE_TF", "0")
+os.environ.setdefault("TRANSFORMERS_NO_TF", "1")
+if os.environ.get("AIRBENCH_RETRIEVAL_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+    try:
+        import sentence_transformers  # noqa: F401
+    except ImportError:
+        pass
+
 import yaml
 
 from contracts import (
@@ -43,6 +64,14 @@ from contracts import (
 from contracts.models import NODE_PROTOCOL_VERSION
 from .api import NodeApiConfig, NodeApiService, create_app
 from .bundle import BundleManifest, StartupVerifier
+from .model_serving import (
+    load_model_serving_runtime_from_env,
+    model_serving_enabled,
+    probe_endpoint_readiness,
+)
+from .task_planning import NodeTaskPlanner, PlannerConfig, planner_enabled
+from .task_execution import NodeExecutionConfig
+from airbench.knowledge.embedding_runtime import retrieval_enabled, retrieval_runtime_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +89,7 @@ class NodeServerConfig:
     domain_pack_ref: str
     clearance: Clearance
     subject: str
+    operator_roles: tuple[str, ...] = ("human_reviewer",)
     host: str = "127.0.0.1"
     port: int = 8765
     ledger_path: str | None = None
@@ -104,12 +134,20 @@ class NodeServerConfig:
         except ValueError as exc:
             raise EnvironmentError("AIRBENCH_PORT must be an integer") from exc
 
+        # An explicitly empty inherited variable must not erase the demo
+        # operator's pack-required review authority.  This commonly happens
+        # when the Node is restarted from a shell that previously disabled
+        # roles.  Treat blank as unset; an explicit non-empty value remains
+        # authoritative for least-privilege deployments.
+        operator_roles_raw = os.environ.get("AIRBENCH_OPERATOR_ROLES", "").strip() or "human_reviewer"
+
         return cls(
             node_identity=_require("AIRBENCH_NODE_IDENTITY"),
             bearer_token=_require("AIRBENCH_BEARER_TOKEN"),
             domain_pack_ref=_require("AIRBENCH_DOMAIN_PACK_REF"),
             clearance=clearance,
             subject=_require("AIRBENCH_SUBJECT"),
+            operator_roles=tuple(role.strip() for role in operator_roles_raw.split(",") if role.strip()),
             host=os.environ.get("AIRBENCH_HOST", "127.0.0.1").strip(),
             port=port,
             ledger_path=os.environ.get("AIRBENCH_LEDGER_PATH", "").strip() or None,
@@ -299,6 +337,7 @@ def _write_node_started(
     checks: StartupCheckResult,
     *,
     evidence_dir: Path | None = None,
+    pack: Any = None,
 ) -> dict[str, Any]:
     """Write a ``node.started`` sovereignty evidence record to a JSON sidecar.
 
@@ -324,6 +363,14 @@ def _write_node_started(
         "startup_checks": checks.as_dict(),
         "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
+    if pack is not None:
+        payload["domain_pack"] = pack.to_dict()
+    try:
+        from .no_egress import observe_no_egress
+
+        payload["no_egress"] = observe_no_egress().to_dict()
+    except Exception as exc:  # noqa: BLE001 - observation must never block startup
+        payload["no_egress"] = {"clean": None, "error": type(exc).__name__}
     if evidence_dir is not None:
         evidence_dir.mkdir(parents=True, exist_ok=True)
         evidence_path = evidence_dir / f"node_started_{config.node_identity.replace('.', '_')}.json"
@@ -370,10 +417,120 @@ def build_node_app(
 
     ledger = _build_ledger(config)
 
+    # Load and verify the domain pack before anything consumes it.  The pack
+    # declaration is sector knowledge; the core only carries it.  Fails closed
+    # on an unsigned or tampered pack unless AIRBENCH_PACK_ALLOW_UNSIGNED=1.
+    loaded_pack = None
+    pack_dir = os.environ.get("AIRBENCH_PACK_DIR", "").strip()
+    if pack_dir:
+        from .pack_loader import PackError, PackLoader
+
+        try:
+            loaded_pack = PackLoader.from_env().load(pack_dir)
+        except PackError as exc:
+            raise RuntimeError(f"Domain pack load failed ({exc.code}): {exc}") from exc
+        logger.info(
+            "Domain pack loaded: %s v%s (%s)",
+            loaded_pack.manifest.pack_id, loaded_pack.manifest.pack_version,
+            "signed" if loaded_pack.signature_verified else "unsigned",
+        )
+
+    # The committed world-model graph is opt-in.  SQLite gives durable storage
+    # with append-only history; the default JSON seam is also supported.
+    world_model = None
+    wm_path = os.environ.get("AIRBENCH_WORLD_MODEL_PATH", "").strip()
+    wm_backend = os.environ.get("AIRBENCH_WORLD_MODEL_BACKEND", "json").strip().lower() or "json"
+    if wm_path or wm_backend == "sqlite":
+        from airbench.knowledge.graph_store import build_graph_store_from_env
+        from airbench.knowledge.world_model import WorldModelStore
+
+        graph_backend = build_graph_store_from_env(default_path=wm_path or None)
+        world_model = WorldModelStore(ledger=ledger, path=(wm_path or None), backend=graph_backend)
+        logger.info("World model graph enabled (%s)", type(graph_backend).__name__ if graph_backend else "json")
+
+    # Decision consistency is opt-in and backed by a durable decision store.
+    consistency_service = None
+    decision_store_path = os.environ.get("AIRBENCH_DECISION_STORE_PATH", "").strip()
+    if decision_store_path:
+        from airbench.knowledge.consistency import ConsistencyEngine
+        from airbench.knowledge.decision_store import SqliteDecisionStore
+        from .consistency_gateway import LocalNodeConsistencyService
+
+        consistency_service = LocalNodeConsistencyService(
+            engine=ConsistencyEngine(ledger),
+            store=SqliteDecisionStore(decision_store_path),
+            ledger=ledger,
+            clearance_context=config.clearance,
+            required_review_types=frozenset(
+                decision_type.decision_type_id
+                for decision_type in (loaded_pack.decision_types if loaded_pack is not None else ())
+                if decision_type.require_deviation_review
+            ),
+        )
+        logger.info("Consistency service enabled at %s", decision_store_path)
+
+    # Autonomy scoring is pack-driven: risk mappings compile into risk rules.
+    autonomy_service = None
+    if loaded_pack is not None:
+        from airbench.verification.autonomy import AutonomyGovernor, risk_rules_from_mappings
+        from .autonomy_gateway import LocalNodeAutonomyService
+
+        risk_rules = risk_rules_from_mappings(loaded_pack.risk_mappings)
+        autonomy_service = LocalNodeAutonomyService(
+            governor=AutonomyGovernor(ledger, risk_rules),
+            ledger=ledger,
+            clearance_context=config.clearance,
+            world_model=world_model,
+        )
+        logger.info("Autonomy governor enabled with %d pack risk rule(s)", len(risk_rules))
+
+    # Hardware and qualification projections for the Node settings surface.
+    hardware_profile = None
+    hardware_path = (
+        os.environ.get("AIRBENCH_HARDWARE_PROFILE", "").strip()
+        or os.environ.get("AIRBENCH_HARDWARE_PROFILE_PATH", "").strip()
+        or str(Path("profiles/hardware/workstation_demo.yaml"))
+    )
+    if Path(hardware_path).is_file():
+        try:
+            from .hardware_gateway import load_hardware_profile
+
+            hardware_profile = load_hardware_profile(hardware_path)
+            logger.info("Hardware profile loaded: %s", hardware_profile.profile_id)
+        except Exception as exc:  # noqa: BLE001 - surface, do not crash the Node on an optional asset
+            logger.warning("Hardware profile not loaded: %s", exc)
+    qualification_matrix = None
+    matrix_path = os.environ.get("AIRBENCH_QUALIFICATION_MATRIX", "").strip() or str(Path("qualifications/model_qualification_matrix.yaml"))
+    if Path(matrix_path).is_file():
+        try:
+            from .qualification_gateway import load_qualification_matrix
+
+            qualification_matrix = load_qualification_matrix(matrix_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Qualification matrix not loaded: %s", exc)
+
+    # P&ID extraction is offline and opt-in: it is available when the local
+    # vision stack and the committed detector weights are present.
+    pid_adapter = None
+    try:
+        from airbench.intake.pid.adapter import PidIntakeAdapter
+
+        legend = (Path(pack_dir) / "pid_legend.yaml") if pack_dir else (Path("packs/refinery_psu_v0/pid_legend.yaml"))
+        pid_adapter = PidIntakeAdapter(legend_path=legend if legend.is_file() else None)
+        logger.info("P&ID adapter composed (legend=%s)", legend.name if legend.is_file() else "default")
+    except Exception as exc:  # noqa: BLE001 - optional subsystem
+        logger.warning("P&ID adapter not initialized: %s", exc)
+    pid_workspace = (
+        os.environ.get("AIRBENCH_PID_WORKSPACE", "").strip()
+        or os.environ.get("AIRBENCH_ARTIFACT_ROOT", "").strip()
+        or os.environ.get("AIRBENCH_INTAKE_ROOT", "").strip()
+        or str(Path.cwd())
+    )
+
     # Write node-started sovereignty evidence (sidecar JSON, not the task ledger)
     if evidence_dir is None and config.ledger_path:
         evidence_dir = Path(config.ledger_path).parent
-    _write_node_started(config, checks, evidence_dir=evidence_dir)
+    _write_node_started(config, checks, evidence_dir=evidence_dir, pack=loaded_pack)
 
     orchestrator = Orchestrator(ledger)
 
@@ -386,6 +543,7 @@ def build_node_app(
         protocol_version=NODE_PROTOCOL_VERSION,
         clearance_context=config.clearance,
         authenticated_subject=config.subject,
+        authenticated_roles=config.operator_roles,
         domain_pack_ref=config.domain_pack_ref,
         bearer_token=config.bearer_token,
         handshake_ledger_event_ref=head,
@@ -393,10 +551,224 @@ def build_node_app(
         require_orchestrator_authorization=False,
     )
 
-    service = NodeApiService(orchestrator, api_config)
+    # Model serving is opt-in.  When enabled the signed roster must load and
+    # every declared artifact must verify, otherwise startup fails loudly.
+    model_router = None
+    routing_tiers: dict[str, str] = {}
+    if model_serving_enabled():
+        runtime = load_model_serving_runtime_from_env(ledger=ledger)
+        if runtime is not None:
+            model_router = runtime.router
+            for target in getattr(runtime.registry, "targets", ()):
+                target_id = str(getattr(target, "target_id", ""))
+                tier = str(getattr(target, "routing_tier", "") or "")
+                if target_id and tier:
+                    routing_tiers[target_id] = tier
+            logger.info(
+                "Model serving enabled: %d endpoint binding(s)",
+                len(model_router.endpoint_bindings),
+            )
+
+    # Node-owned execution is opt-in; when set it also owns plan creation.
+    execution_config = NodeExecutionConfig.from_env(default_root=Path.cwd())
+
+    # Deterministic planning is opt-in and never lets a client drive the loop.
+    # It is disabled when the execution coordinator owns planning.
+    task_planner = None
+    if planner_enabled() and execution_config is None:
+        task_planner = NodeTaskPlanner(orchestrator, PlannerConfig.from_env())
+        logger.info("Task planning enabled (hardware profile configured: %s)", task_planner.has_hardware_profile)
+
+    # Local retrieval (BGE-M3 embeddings + reranker) is opt-in.
+    retrieval_runtime = None
+    if retrieval_enabled():
+        retrieval_runtime = retrieval_runtime_from_env(ledger=ledger)
+        logger.info("Retrieval enabled: embedding=%s reranker=%s",
+                    retrieval_runtime.embedding_model_id, retrieval_runtime.reranker_model_id or "none")
+
+    # File Intake and generated deliverables are composed here so the normal
+    # Node exposes the documented upload/preview/review/download path.
+    intake_store = None
+    intake_gateway = None
+    intake_root = os.environ.get("AIRBENCH_INTAKE_ROOT", "").strip()
+    if intake_root:
+        from airbench.intake import FileIntakeLayer, LocalIntakeStore
+        from airbench.intake.ocr_provider import build_ocr_provider_from_env
+        from airbench.intake.raster_renderer import PdfRasterPageRenderer
+        from airbench.intake.table_extractor import GridLineTableExtractor
+        from airbench.intake.vision import LocalVisionAdapter, ocr_provider_extractor
+        from .intake_gateway import LocalNodeIntakeGateway
+        intake_store = LocalIntakeStore(intake_root)
+
+        vision_adapter = None
+        ocr_provider = build_ocr_provider_from_env()
+        if ocr_provider is not None:
+            adapter_id = f"airbench.ocr.{ocr_provider.name}"
+            vision_adapter = LocalVisionAdapter(
+                adapter_id=adapter_id,
+                adapter_version=ocr_provider.version,
+                model_target_id=os.environ.get("OCR_MODEL_TARGET_ID", "target.ocr.local").strip() or "target.ocr.local",
+                qualification_reference=os.environ.get("OCR_QUALIFICATION_REFERENCE", "qualification.ocr.local").strip()
+                or "qualification.ocr.local",
+                extractor=ocr_provider_extractor(
+                    ocr_provider,
+                    adapter_id=adapter_id,
+                    adapter_version=ocr_provider.version,
+                    model_target_id=os.environ.get("OCR_MODEL_TARGET_ID", "target.ocr.local").strip() or "target.ocr.local",
+                    qualification_reference=os.environ.get("OCR_QUALIFICATION_REFERENCE", "qualification.ocr.local").strip()
+                    or "qualification.ocr.local",
+                    table_extractor=GridLineTableExtractor(),
+                ),
+                ledger=ledger,
+                kind="ocr",
+            )
+            logger.info("OCR enabled: provider=%s", ocr_provider.name)
+
+        renderer = PdfRasterPageRenderer() if PdfRasterPageRenderer.available() else None
+        intake_layer = FileIntakeLayer(ledger, store=intake_store, renderer=renderer, vision_adapter=vision_adapter)
+        intake_gateway = LocalNodeIntakeGateway(
+            layer=intake_layer,
+            store=intake_store,
+            ledger=ledger,
+            clearance_context=config.clearance,
+        )
+        logger.info("File Intake enabled at %s (pdf rasteriser: %s)", intake_root, renderer is not None)
+
+    # Bulk knowledge ingestion is opt-in and confined to an operator root.
+    knowledge_service = None
+    ingest_root = os.environ.get("AIRBENCH_KNOWLEDGE_INGEST_ROOT", "").strip()
+    if ingest_root and intake_root and retrieval_runtime is not None:
+        from .knowledge_gateway import LocalNodeKnowledgeService
+        ingest_task_id = "task.knowledge.ingest"
+        try:
+            orchestrator.create_task(
+                principal_id=config.subject, clearance=config.clearance,
+                request="Bulk knowledge ingestion", domain_pack_ref=config.domain_pack_ref,
+                risk_class="low", autonomy_ceiling="system", task_id=ingest_task_id,
+            )
+        except Exception:  # the task already exists on a restarted Node; its event is already in the ledger
+            logger.debug("Knowledge ingest task already exists")
+        knowledge_service = LocalNodeKnowledgeService(
+            layer=intake_layer, indexer=retrieval_runtime.indexer,
+            ingest_root=ingest_root, task_id=ingest_task_id, clearance_context=config.clearance,
+        )
+        logger.info("Bulk knowledge ingestion enabled at %s", ingest_root)
+
+    deliverable_gateway = None
+    artifact_root = os.environ.get("AIRBENCH_ARTIFACT_ROOT", "").strip()
+    if artifact_root:
+        from airbench.delivery import LocalArtifactStore
+        from .deliverable_gateway import LocalDeliverableGateway
+        deliverable_gateway = LocalDeliverableGateway(
+            ledger=ledger,
+            artifact_store=LocalArtifactStore(artifact_root),
+            node_identity=config.node_identity,
+            protocol_version=NODE_PROTOCOL_VERSION,
+            clearance_context=config.clearance,
+        )
+        logger.info("Deliverable Engine enabled at %s", artifact_root)
+
+    # Node-owned task execution is opt-in.  When enabled the Node drives an
+    # approved plan through team, verification, and deliverable steps instead
+    # of waiting for client-driven model calls.
+    execution = None
+    if execution_config is not None:
+        if intake_store is None:
+            raise RuntimeError("task execution requires AIRBENCH_INTAKE_ROOT")
+        from .task_execution import NodeTaskExecutionCoordinator
+        from .autonomy_gateway import select_execution_action_kind
+
+        execution_action_kind = select_execution_action_kind(
+            loaded_pack.risk_mappings if loaded_pack is not None else (),
+            os.environ.get("AIRBENCH_EXECUTION_ACTION_KIND", "").strip(),
+        )
+        execution = NodeTaskExecutionCoordinator(
+            orchestrator=orchestrator,
+            ledger=ledger,
+            intake_store=intake_store,
+            config=execution_config,
+            model_router=model_router,
+            consistency_service=consistency_service,
+            autonomy_service=autonomy_service,
+            execution_action_kind=execution_action_kind,
+        )
+        logger.info("Task execution enabled (model router configured: %s, autonomy gate action: %s)",
+                    model_router is not None, execution_action_kind if autonomy_service is not None else "disabled")
+
+    service = NodeApiService(
+        orchestrator, api_config, model_router=model_router, task_planner=task_planner,
+        retrieval=retrieval_runtime, intake_gateway=intake_gateway,
+        deliverable_gateway=deliverable_gateway, execution=execution, knowledge=knowledge_service,
+        pack=loaded_pack, world_model=world_model, consistency=consistency_service, autonomy=autonomy_service,
+        hardware_profile=hardware_profile, qualification_matrix=qualification_matrix,
+        routing_tiers=routing_tiers,
+        pid_adapter=pid_adapter, pid_workspace=pid_workspace,
+    )
     app = create_app(service)
     add_readiness_route(app, service)
+    add_model_serving_route(app, service)
+    add_retrieval_route(app, service)
+    add_pack_route(app, service)
+    add_node_asset_routes(app, service)
     return app
+
+
+def add_node_asset_routes(app: Any, service: NodeApiService) -> None:
+    """Attach ``GET /api/v1/node/hardware`` and ``/api/v1/node/qualification/{id}``."""
+
+    from starlette.requests import Request as StarletteRequest
+    from starlette.responses import JSONResponse as StarletteJSONResponse
+    from starlette.routing import Route
+
+    async def hardware(request: StarletteRequest) -> StarletteJSONResponse:  # noqa: ARG001
+        return StarletteJSONResponse(status_code=200, content=service.hardware_status())
+
+    async def qualification(request: StarletteRequest) -> StarletteJSONResponse:
+        target_id = request.path_params["target_id"]
+        return StarletteJSONResponse(status_code=200, content=service.qualification_status(target_id))
+
+    async def qualification_roster(request: StarletteRequest) -> StarletteJSONResponse:  # noqa: ARG001
+        return StarletteJSONResponse(status_code=200, content=service.qualification_roster())
+
+    app.router.routes.insert(0, Route("/api/v1/node/hardware", endpoint=hardware, methods=["GET"]))
+    app.router.routes.insert(0, Route("/api/v1/node/qualification", endpoint=qualification_roster, methods=["GET"]))
+    app.router.routes.insert(0, Route("/api/v1/node/qualification/{target_id}", endpoint=qualification, methods=["GET"]))
+
+
+def add_pack_route(app: Any, service: NodeApiService) -> None:
+    """Attach ``GET /api/v1/node/pack`` for the Domain Pack settings card."""
+
+    from starlette.requests import Request as StarletteRequest
+    from starlette.responses import JSONResponse as StarletteJSONResponse
+    from starlette.routing import Route
+
+    async def domain_pack(request: StarletteRequest) -> StarletteJSONResponse:  # noqa: ARG001
+        return StarletteJSONResponse(status_code=200, content=service.pack_status())
+
+    app.router.routes.insert(0, Route("/api/v1/node/pack", endpoint=domain_pack, methods=["GET"]))
+
+
+def add_retrieval_route(app: Any, service: NodeApiService) -> None:
+    """Attach ``GET /api/v1/node/retrieval`` for the local retrieval stack."""
+    from starlette.requests import Request as StarletteRequest
+    from starlette.responses import JSONResponse as StarletteJSONResponse
+    from starlette.routing import Route
+
+    async def retrieval(request: StarletteRequest) -> StarletteJSONResponse:  # noqa: ARG001
+        runtime = getattr(service, "retrieval", None)
+        if runtime is None:
+            return StarletteJSONResponse(status_code=200, content={"configured": False, "status": "disabled"})
+        return StarletteJSONResponse(status_code=200, content={
+            "configured": True,
+            "status": "ready",
+            "embedding_model": runtime.embedding_model_id,
+            "embedding_qualification_reference": runtime.embedding_qualification_reference,
+            "reranker_model": runtime.reranker_model_id,
+            "reranker_qualification_reference": runtime.reranker_qualification_reference,
+            "indexed_chunks": len(runtime.index.chunks),
+        })
+
+    app.router.routes.insert(0, Route("/api/v1/node/retrieval", endpoint=retrieval, methods=["GET"]))
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +803,44 @@ def add_readiness_route(app: Any, service: NodeApiService) -> None:
     starlette_route = Route("/api/v1/node/readiness", endpoint=readiness, methods=["GET"])
     app.router.routes.insert(0, starlette_route)
 
+
+def add_model_serving_route(app: Any, service: NodeApiService) -> None:
+    """Attach ``GET /api/v1/node/model-serving`` for the two-lane demo.
+
+    Like the readiness probe this endpoint requires no token so deployment
+    checks can reach it.  It reports only endpoint identity, adapter identity,
+    and health/readiness states — never prompts, payloads, credentials, or
+    provider error text.
+    """
+    from starlette.requests import Request as StarletteRequest
+    from starlette.responses import JSONResponse as StarletteJSONResponse
+    from starlette.routing import Route
+
+    async def model_serving(request: StarletteRequest) -> StarletteJSONResponse:  # noqa: ARG001
+        router = getattr(service, "model_router", None)
+        if router is None:
+            return StarletteJSONResponse(
+                status_code=200,
+                content={"configured": False, "status": "disabled", "endpoints": []},
+            )
+        endpoints = probe_endpoint_readiness(router, timeout_s=2.0)
+        ready = bool(endpoints) and all(
+            endpoint["health"] == "healthy" and endpoint["readiness"] == "ready"
+            for endpoint in endpoints
+        )
+        return StarletteJSONResponse(
+            # Health is a projection, not an admission decision. A degraded
+            # lane must be visible; the router still fails closed for calls.
+            status_code=200,
+            content={
+                "configured": True,
+                "status": "ready" if ready else "degraded",
+                "endpoints": endpoints,
+            },
+        )
+
+    starlette_route = Route("/api/v1/node/model-serving", endpoint=model_serving, methods=["GET"])
+    app.router.routes.insert(0, starlette_route)
 
 
 # ---------------------------------------------------------------------------

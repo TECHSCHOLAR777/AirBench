@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyIntakeFailure, intakeStateFromManifest, intakeStatusCopy } from "./intakeState";
+import { classifyIntakeFailure, intakeConfidenceCopy, intakeStateFromManifest, intakeStatusCopy, isIntakeConfidenceBand } from "./intakeState";
 
 describe("File Intake presentation state", () => {
   it("recognizes processing manifests without treating them as ready", () => {
@@ -28,5 +28,15 @@ describe("File Intake presentation state", () => {
     });
     expect(intakeStatusCopy("clearance_mismatch").retryable).toBe(false);
     expect(intakeStatusCopy("clearance_mismatch").recovery.nextAction).toContain("required clearance");
+  });
+
+  it("maps extraction confidence bands to review guidance", () => {
+    expect(intakeConfidenceCopy("green").reviewRecommended).toBe(false);
+    expect(intakeConfidenceCopy("amber").reviewRecommended).toBe(true);
+    expect(intakeConfidenceCopy("red").reviewRecommended).toBe(true);
+    expect(intakeConfidenceCopy("red").detail).toContain("below 65%");
+    expect(isIntakeConfidenceBand("red")).toBe(true);
+    expect(isIntakeConfidenceBand("blue")).toBe(false);
+    expect(isIntakeConfidenceBand(undefined)).toBe(false);
   });
 });

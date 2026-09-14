@@ -96,8 +96,11 @@ class LocalDeliverableGateway:
     def download(self, *, artifact_id: str) -> NodeArtifactDownload:
         event = self._visible_record(artifact_id)
         payload = event.payload
+        file_format = self._required_text(payload.get("format"), "artifact format", 16)
+        if file_format not in {"docx", "xlsx", "pptx"}:
+            raise NodeIntakeError(503, "deliverable_format_unsupported", "The local output format is not supported by this Node.")
         try:
-            content = self._artifact_store.read(artifact_id)
+            content = self._artifact_store.read(artifact_id, file_format)
         except Exception as exc:
             raise NodeIntakeError(503, "deliverable_unavailable", "The committed output bytes are not available locally.") from exc
         content_hash = hashlib.sha256(content).hexdigest()
@@ -106,16 +109,13 @@ class LocalDeliverableGateway:
         if content_hash != expected_hash or type(expected_size) is not int or len(content) != expected_size:
             raise NodeIntakeError(503, "deliverable_integrity_failed", "The local output bytes do not match the committed artifact.")
         access_ref = self._record_access(event, "artifact.downloaded")
-        file_format = self._required_text(payload.get("format"), "artifact format", 16)
-        if file_format != "docx":
-            raise NodeIntakeError(503, "deliverable_format_unsupported", "The local output format is not supported by this Node.")
         return NodeArtifactDownload(
             artifact_id=artifact_id,
             content=content,
             media_type=self._required_text(payload.get("media_type"), "artifact media type", 256),
             content_hash=f"sha256:{content_hash}",
             ledger_event_ref=access_ref,
-            file_name=f"{artifact_id}.docx",
+            file_name=f"{artifact_id}.{file_format}",
         )
 
     def _visible_record(self, artifact_id: str):

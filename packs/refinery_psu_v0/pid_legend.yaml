@@ -1,0 +1,46 @@
+# AirBench Domain Pack: Custom P&ID Symbol Legend
+# Pack: refinery_psu_v0
+legend_name: "Refinery_PSU_Taxonomy_v1"
+company: "Sovereign Refining & Petrochemicals"
+description: "Site-specific engineering symbol taxonomy overriding standard P&ID class classifications"
+
+classes:
+  # Valves (0 - 6, 8 - 15, 24)
+  "0": "gate_valve"
+  "1": "globe_valve"
+  "2": "ball_valve"
+  "3": "needle_valve"
+  "4": "butterfly_valve"
+  "5": "plug_valve"
+  "6": "check_valve"
+  "8": "angle_valve"
+  "9": "diaphragm_valve"
+  "10": "control_valve"
+  "11": "pressure_relief_valve"
+  "12": "safety_valve"
+  "13": "three_way_valve"
+  "14": "solenoid_valve"
+  "15": "motor_operated_valve"
+  "24": "manual_valve"
+
+  # General & Piping Equipment (7, 16 - 22)
+  "7": "filter_strainer"
+  "16": "centrifugal_pump"
+  "17": "compressor"
+  "18": "heat_exchanger"
+  "19": "storage_vessel"
+  "20": "distillation_column"
+  "21": "blind_flange"
+  "22": "spectacle_blind"
+
+  # Flow Direction (23)
+  "23": "flow_direction_arrow"
+
+  # Instrumentation & Transmitters (25 - 31)
+  "25": "pressure_indicator"
+  "26": "temperature_indicator"
+  "27": "level_transmitter"
+  "28": "flow_transmitter"
+  "29": "pressure_transmitter"
+  "30": "temperature_transmitter"
+  "31": "analyzer_indicator"
