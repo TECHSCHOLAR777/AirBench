@@ -1,10 +1,10 @@
 """P&ID Extraction and Digitization Subsystem for AirBench Intake Layer."""
 
 from .adapter import PidAdapterError, PidIntakeAdapter
-from .records import PIDRecord, PidComponent, PidRelation
+from .records import PIDRecord, PidComponent, PidRelation, candidate_facts_from_pid
 
 __all__ = [
-    "PIDRecord", "PidAdapterError", "PidComponent", "PidIntakeAdapter", "PidRelation",
+    "PIDRecord", "PidAdapterError", "PidComponent", "PidIntakeAdapter", "PidRelation", "candidate_facts_from_pid",
 ]
 
 try:

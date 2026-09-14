@@ -58,15 +58,18 @@ class LocalNodeKnowledgeService:
 
         total_bytes = 0
         ingested: list[dict] = []
+        failures: list[dict] = []
         chunk_total = 0
         for candidate in files:
             try:
                 content = candidate.read_bytes()
             except OSError as exc:
-                raise NodeIntakeError(503, "ingest_read_failed", "An ingestion file could not be read.") from exc
+                failures.append({"file_name": candidate.name, "code": "ingest_read_failed", "message": "The file could not be read."})
+                continue
             total_bytes += len(content)
             if total_bytes > self._max_total_bytes:
-                raise NodeIntakeError(413, "ingest_too_large", "The directory exceeds the ingestion byte limit.")
+                failures.append({"file_name": candidate.name, "code": "ingest_too_large", "message": "The directory exceeds the ingestion byte limit."})
+                break
             source_ref = f"ingest:{resolved.relative_to(self._root).as_posix()}/{candidate.name}"
             try:
                 manifest = self._layer.bulk_ingest(
@@ -77,8 +80,13 @@ class LocalNodeKnowledgeService:
                     clearance=self._clearance,
                 )
             except IntakeError as exc:
-                raise NodeIntakeError(422, f"ingest_{exc.code}", str(exc)) from exc
-            chunks = self._indexer.index_manifest(IndexRequest(self._task_id, manifest))
+                failures.append({"file_name": candidate.name, "code": f"ingest_{exc.code}", "message": str(exc)})
+                continue
+            try:
+                chunks = self._indexer.index_manifest(IndexRequest(self._task_id, manifest))
+            except Exception as exc:  # noqa: BLE001 - report a bounded per-file failure
+                failures.append({"file_name": candidate.name, "code": "ingest_index_failed", "message": "The file was accepted but could not be indexed."})
+                continue
             chunk_total += len(chunks)
             ingested.append({
                 "file_name": candidate.name,
@@ -87,12 +95,15 @@ class LocalNodeKnowledgeService:
                 "page_count": manifest.page_count,
                 "chunk_count": len(chunks),
             })
+        status = "completed" if not failures else ("partial" if ingested else "failed")
         return {
-            "status": "completed",
+            "status": status,
             "root": str(self._root),
             "file_count": len(ingested),
             "chunk_count": chunk_total,
             "files": ingested,
+            "failure_count": len(failures),
+            "failures": failures,
         }
 
 

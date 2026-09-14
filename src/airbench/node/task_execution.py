@@ -487,7 +487,10 @@ class NodeTaskExecutionCoordinator:
             "task_id": task.task_id,
             "team_id": stable_id("node-team", task.task_id),
             "worker_id": stable_id("node-worker", task.task_id),
-            "task_kind": task.output_contract or "text",
+            # The deliverable format (document/xlsx/pptx) is not a model
+            # qualification lane. Route the worker by the governed workload
+            # kind so the signed roster can select an eligible target.
+            "task_kind": "inspection_review",
             "modality": "text",
             "required_capability": task.permitted_worker_capabilities[0] if task.permitted_worker_capabilities else "reasoning",
             "evidence_summary": [manifest.intake_id],

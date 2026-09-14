@@ -71,3 +71,6 @@ models/weights/pid/easyocr/
 .airbench-decisions.db
 retrieval-index.json
 
+# Local knowledge-base planning and demo notes
+LOCAL_KNOWLEDGE_BASE_AND_DEMO.md
+

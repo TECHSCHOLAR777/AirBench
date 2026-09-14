@@ -432,31 +432,34 @@ certificates:
   - low_risk
   modality: text
   clearance_ceiling: restricted
-  input_fixture_set_hash: f10b03c36661d16d7499806c074fe0354a95de0e37715f16d1c5d33f85afc25b
+  input_fixture_set_hash: e5853d90a8492df4e21674183ab3af01324ce1775c687a3985f761ba2928c501
   output_schema_id: airbench.reasoning_result.v1
   tool_permissions: []
   context_limit: 32768
   image_token_limit: 0
   benchmark_scores:
-    inspection_review_accuracy: PENDING:float-0-to-1
-    evidence_faithfulness: PENDING:float-0-to-1
-    structured_output_validity: 0.75
-    hallucination_rate: PENDING:float-0-to-1
+    inspection_review_accuracy: 0.0
+    evidence_faithfulness: 0.0
+    structured_output_validity: 1.0
+    hallucination_rate: 0.0
+    citation_provenance_retention: 0.0
+    cancellation_and_timeout: 0.0
+    no_egress_startup: 0.0
   pass_rates:
-    structured_output_pass_rate: 0.75
+    structured_output_pass_rate: 1.0
     tool_call_pass_rate: n/a
     citation_provenance_retention: PENDING:float-0-to-1
     cancellation_and_timeout: PENDING:float-0-to-1
     safety_injection_resistance: PENDING:float-0-to-1
     no_egress_startup: PENDING:pass-or-fail
   safety_results:
-    injection_resistance_result: fail
-    cancellation_result: PENDING:pass-or-fail
-    timeout_result: PENDING:pass-or-fail
-    no_egress_startup_result: PENDING:pass-or-fail
+    injection_resistance_result: pass
+    cancellation_result: pending
+    timeout_result: pending
+    no_egress_startup_result: pending
     known_failure_modes: []
   evaluator_id: airbench-qualify-0.1
-  qualified_at: '2026-09-13T22:03:51.388459Z'
+  qualified_at: '2026-09-14T10:23:23.711862Z'
   expires_at: '2027-09-06T00:00:00Z'
   requalification_triggers:
   - artifact_hash_changes
@@ -464,7 +467,7 @@ certificates:
   - evaluation_set_updated
   - incident_or_drift_signal
   signer_key_id: airbench-local-signing-key-v1
-  signature: 2e8fbd1b9c4921a47554ebf98bc762c5a8fbb51b20b339b320b4b3ad19feea33
+  signature: 971b4199f1ea839eb8e43d6e38e2f352e71fa3cf30f573f272d0015a88d1477c
 - certificate_id: cert.airbench-gemma-4-12b.reasoning.v0
   target_id: airbench-gemma-4-12b
   artifact_hash: 60b6e3989502969d8ae04185d72ecbbc7db63978d5af747a493d53895aa6bfa3
@@ -487,31 +490,34 @@ certificates:
   - low_risk
   modality: text
   clearance_ceiling: restricted
-  input_fixture_set_hash: f10b03c36661d16d7499806c074fe0354a95de0e37715f16d1c5d33f85afc25b
+  input_fixture_set_hash: e5853d90a8492df4e21674183ab3af01324ce1775c687a3985f761ba2928c501
   output_schema_id: airbench.reasoning_result.v1
   tool_permissions: []
   context_limit: 32768
   image_token_limit: 0
   benchmark_scores:
-    inspection_review_accuracy: PENDING:float-0-to-1
-    evidence_faithfulness: PENDING:float-0-to-1
-    structured_output_validity: 0.75
-    hallucination_rate: PENDING:float-0-to-1
+    inspection_review_accuracy: 0.0
+    evidence_faithfulness: 0.0
+    structured_output_validity: 1.0
+    hallucination_rate: 0.0
+    citation_provenance_retention: 0.0
+    cancellation_and_timeout: 0.0
+    no_egress_startup: 0.0
   pass_rates:
-    structured_output_pass_rate: 0.75
+    structured_output_pass_rate: 1.0
     tool_call_pass_rate: n/a
     citation_provenance_retention: PENDING:float-0-to-1
     cancellation_and_timeout: PENDING:float-0-to-1
     safety_injection_resistance: PENDING:float-0-to-1
     no_egress_startup: PENDING:pass-or-fail
   safety_results:
-    injection_resistance_result: fail
-    cancellation_result: PENDING:pass-or-fail
-    timeout_result: PENDING:pass-or-fail
-    no_egress_startup_result: PENDING:pass-or-fail
+    injection_resistance_result: pass
+    cancellation_result: pending
+    timeout_result: pending
+    no_egress_startup_result: pending
     known_failure_modes: []
   evaluator_id: airbench-qualify-0.1
-  qualified_at: '2026-09-13T22:03:58.949335Z'
+  qualified_at: '2026-09-14T10:23:30.106052Z'
   expires_at: '2027-09-06T00:00:00Z'
   requalification_triggers:
   - artifact_hash_changes
@@ -519,7 +525,7 @@ certificates:
   - evaluation_set_updated
   - incident_or_drift_signal
   signer_key_id: airbench-local-signing-key-v1
-  signature: f86bf6196cd18d13aecaa73138e3bf8337b6b75b558160cce88feb083a309476
+  signature: 8f6382037ddf109f354507b3394f7aee32164a9a46cc6774725817f3c9ae78f1
 - certificate_id: cert.airbench-gemma-4-12b.lead_worker.v0
   target_id: airbench-gemma-4-12b
   artifact_hash: 60b6e3989502969d8ae04185d72ecbbc7db63978d5af747a493d53895aa6bfa3
@@ -540,31 +546,34 @@ certificates:
   - high_consequence
   modality: text
   clearance_ceiling: restricted
-  input_fixture_set_hash: f10b03c36661d16d7499806c074fe0354a95de0e37715f16d1c5d33f85afc25b
+  input_fixture_set_hash: e5853d90a8492df4e21674183ab3af01324ce1775c687a3985f761ba2928c501
   output_schema_id: airbench.plan_proposal.v1
   tool_permissions: []
   context_limit: 32768
   image_token_limit: 0
   benchmark_scores:
-    inspection_review_accuracy: PENDING:float-0-to-1
-    evidence_faithfulness: PENDING:float-0-to-1
-    structured_output_validity: 0.75
-    hallucination_rate: PENDING:float-0-to-1
+    inspection_review_accuracy: 0.0
+    evidence_faithfulness: 0.0
+    structured_output_validity: 1.0
+    hallucination_rate: 0.0
+    citation_provenance_retention: 0.0
+    cancellation_and_timeout: 0.0
+    no_egress_startup: 0.0
   pass_rates:
-    structured_output_pass_rate: 0.75
+    structured_output_pass_rate: 1.0
     tool_call_pass_rate: n/a
     citation_provenance_retention: PENDING:float-0-to-1
     cancellation_and_timeout: PENDING:float-0-to-1
     safety_injection_resistance: PENDING:float-0-to-1
     no_egress_startup: PENDING:pass-or-fail
   safety_results:
-    injection_resistance_result: fail
-    cancellation_result: PENDING:pass-or-fail
-    timeout_result: PENDING:pass-or-fail
-    no_egress_startup_result: PENDING:pass-or-fail
+    injection_resistance_result: pass
+    cancellation_result: pending
+    timeout_result: pending
+    no_egress_startup_result: pending
     known_failure_modes: []
   evaluator_id: airbench-qualify-0.1
-  qualified_at: '2026-09-13T22:04:04.245358Z'
+  qualified_at: '2026-09-14T10:23:36.546211Z'
   expires_at: '2027-09-06T00:00:00Z'
   requalification_triggers:
   - artifact_hash_changes
@@ -572,4 +581,4 @@ certificates:
   - evaluation_set_updated
   - incident_or_drift_signal
   signer_key_id: airbench-local-signing-key-v1
-  signature: c6682ecdd257da6abf23745376e5c6514666993745b7cc74cdf6a4fd26ec631e
+  signature: 243952e780f25e3ffb0b3f1a9c5bf9bc6a072aa8ce3c35dec4dd3a2c07721d9e

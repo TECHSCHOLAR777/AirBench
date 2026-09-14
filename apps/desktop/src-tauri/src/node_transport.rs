@@ -10,6 +10,7 @@ use std::{
     fs,
 };
 use tauri::Manager;
+use rfd::FileDialog;
 
 const HANDSHAKE_PATH: &str = "/api/v1/node/handshake";
 const MAX_TASK_ID_BYTES: usize = 128;
@@ -1822,6 +1823,80 @@ pub async fn fetch_qualification_roster(
         )
         .to_string()),
     }
+}
+
+/// Fetch the unified knowledge status projection from the approved Node.
+#[tauri::command]
+pub async fn fetch_knowledge_status(
+    app: tauri::AppHandle,
+    profile_id: String,
+) -> Result<Value, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::GET, "/api/v1/knowledge/status", None)
+        .await.map_err(|e| e.to_string())?;
+    if result.get("configured").and_then(Value::as_bool).is_none() {
+        return Err(NodeTransportError::NonAirbenchResponse("The Node returned an invalid knowledge status.".to_string()).to_string());
+    }
+    Ok(result)
+}
+
+/// Search text, graph, or both through the Node-owned knowledge boundary.
+#[tauri::command]
+pub async fn search_knowledge(
+    app: tauri::AppHandle,
+    profile_id: String,
+    body: Value,
+) -> Result<Value, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::POST, "/api/v1/knowledge/search", Some(&body))
+        .await.map_err(|e| e.to_string())?;
+    if result.get("query").and_then(Value::as_str).is_none() || result.get("mode").and_then(Value::as_str).is_none() {
+        return Err(NodeTransportError::NonAirbenchResponse("The Node returned an invalid knowledge search.".to_string()).to_string());
+    }
+    Ok(result)
+}
+
+/// Query committed P&ID/world-model facts through the Node boundary.
+#[tauri::command]
+pub async fn query_knowledge_graph(
+    app: tauri::AppHandle,
+    profile_id: String,
+    body: Value,
+) -> Result<Value, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::POST, "/api/v1/knowledge/graph/query", Some(&body))
+        .await.map_err(|e| e.to_string())?;
+    if result.get("result_count").and_then(Value::as_u64).is_none() || result.get("facts").and_then(Value::as_array).is_none() {
+        return Err(NodeTransportError::NonAirbenchResponse("The Node returned an invalid knowledge graph response.".to_string()).to_string());
+    }
+    Ok(result)
+}
+
+/// Select a local, operator-approved corpus directory through the native
+/// picker and ask the Node to ingest it. The Node still enforces its
+/// configured ingestion root and all parser/provenance policy.
+#[tauri::command]
+pub async fn ingest_knowledge_folder(
+    app: tauri::AppHandle,
+    profile_id: String,
+) -> Result<Value, String> {
+    let Some(path) = FileDialog::new().pick_folder() else {
+        return Err("No knowledge-base folder was selected.".to_string());
+    };
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let body = serde_json::json!({"path": path.to_string_lossy().to_string()});
+    let result: Value = request_json(&profile, Method::POST, "/api/v1/knowledge/ingest", Some(&body))
+        .await
+        .map_err(|e| e.to_string())?;
+    if result.get("status").and_then(Value::as_str).is_none()
+        || result.get("file_count").and_then(Value::as_u64).is_none()
+        || result.get("failure_count").and_then(Value::as_u64).is_none()
+    {
+        return Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid knowledge ingestion response.".to_string(),
+        ).to_string());
+    }
+    Ok(result)
 }
 
 fn redact_request_error(error: &reqwest::Error) -> String {

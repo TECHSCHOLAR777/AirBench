@@ -10,26 +10,15 @@ import { domainPackSignatureTone, fetchDomainPack, type DomainPackStatus } from 
 interface NodeReadinessPanelProps {
   connection: NodeConnectionView;
   profile: ApprovedNodeProfileReference | null;
-  onProjection?: (projection: NodeOperationalProjection) => void;
+  projection: NodeOperationalProjection;
 }
 
-export function NodeReadinessPanel({ connection, profile, onProjection }: NodeReadinessPanelProps) {
+export function NodeReadinessPanel({ connection, profile, projection }: NodeReadinessPanelProps) {
   const readiness = buildNodeReadiness(connection, profile);
   const connectionIcon = readiness.connection.tone === "trusted" ? "shield" : "node";
   const verified = readiness.connection.tone === "trusted";
   const [domainPack, setDomainPack] = useState<DomainPackStatus | null>(null);
   const [domainPackUnavailable, setDomainPackUnavailable] = useState(false);
-  const [projection, setProjection] = useState<NodeOperationalProjection>({ hardware: null, modelServing: null, qualification: null });
-
-  useEffect(() => {
-    let active = true;
-    if (!verified || !profile) {
-      setProjection({ hardware: null, modelServing: null, qualification: null });
-      return () => { active = false; };
-    }
-    fetchNodeOperationalProjection(profile).then((next) => { if (active) { setProjection(next); onProjection?.(next); } });
-    return () => { active = false; };
-  }, [verified, profile, onProjection]);
 
   useEffect(() => {
     let active = true;

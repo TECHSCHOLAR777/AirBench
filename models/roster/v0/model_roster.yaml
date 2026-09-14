@@ -53,7 +53,7 @@ roster:
     qualified_roles:
     - role: reasoning
       certificate_id: cert.airbench-gemma-4-e2b.reasoning.v0
-      qualification_hash: 9b3073571ce6282f667cc552d4d43552640772919165094ad0069efbe2597078
+      qualification_hash: 7a0dd14e52686c29e065863c118c44420b410f4464678ce613d7e5adbb93b19c
       note: 'UNQUALIFIED CANDIDATE. Must pass inspection_review and approval_note_draft
         eval suites before this certificate can be signed.
 
@@ -128,14 +128,14 @@ roster:
     qualified_roles:
     - role: reasoning
       certificate_id: cert.airbench-gemma-4-12b.reasoning.v0
-      qualification_hash: 8a67cc22a12ff7053fd5afe2879958c31d71caddc7d4c7ea826011594f811beb
+      qualification_hash: d738274ff2fd343f5baf92512913ce74e0b0a91277b51eeacf4156259e1e00c4
       note: 'UNQUALIFIED CANDIDATE. Must pass inspection_review, approval_note_draft,
         and evidence_synthesis eval suites before this certificate can be signed.
 
         '
     - role: lead_worker
       certificate_id: cert.airbench-gemma-4-12b.lead_worker.v0
-      qualification_hash: d9396474e9e5ea5dfd6831c74d36e1631f7abce683061d202999d3f1270062e7
+      qualification_hash: fdbf48a1609f1523c3186acc5c259ac24ed88051da6eec648b2bbf2a3c030659
     tool_call_parser: json
     structured_output_modes:
     - json_schema

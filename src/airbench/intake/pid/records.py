@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from contracts import Clearance, Taint
+from contracts import FactEnvelope, stable_id
+from airbench.knowledge.world_model import CandidateFact, WorldModelRelation
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,4 +92,73 @@ class PIDRecord:
         }
 
 
-__all__ = ["PIDRecord", "PidComponent", "PidRelation"]
+def candidate_facts_from_pid(record: PIDRecord, *, task_id: str | None = None) -> tuple[CandidateFact, ...]:
+    """Convert an extracted P&ID into gated World Model candidates.
+
+    The returned values are deliberately still untrusted. This function only
+    creates typed candidates; callers must pass them through
+    ``CandidateFactWriter`` before they become graph facts.
+    """
+    candidate_task_id = task_id or record.task_id
+    fact_ids = {
+        component.component_id: stable_id("pid-fact", record.revision_id, component.component_id)
+        for component in record.components
+        if component.component_id
+    }
+    relations_by_source: dict[str, list[WorldModelRelation]] = {}
+    for relation in record.relations:
+        source_fact_id = fact_ids.get(relation.source)
+        target_fact_id = fact_ids.get(relation.target)
+        if not source_fact_id or not target_fact_id:
+            continue
+        relations_by_source.setdefault(relation.source, []).append(WorldModelRelation(
+            relation_id=stable_id("pid-relation", record.revision_id, relation.relation_id),
+            source_fact_id=source_fact_id,
+            relation=relation.relation,
+            target_fact_id=target_fact_id,
+            source_ref=f"{record.source_ref}#relation:{relation.relation_id}",
+            confidence=relation.confidence,
+            clearance=record.clearance,
+            taint=record.taint,
+        ))
+
+    candidates: list[CandidateFact] = []
+    for component in record.components:
+        if not component.component_id or component.component_id not in fact_ids:
+            continue
+        source_ref = f"{record.source_ref}#component:{component.component_id}"
+        fact = FactEnvelope(
+            fact_id=fact_ids[component.component_id],
+            value={
+                "entity_id": component.component_id,
+                "object_type": "engineering_component",
+                "attributes": {
+                    "label": component.label,
+                    "tag": component.tag,
+                    "bbox": list(component.bbox),
+                    "revision_id": record.revision_id,
+                },
+            },
+            source_ref=source_ref,
+            confidence=component.confidence,
+            clearance=record.clearance,
+            taint=record.taint,
+            extraction_method=f"pid_adapter:{record.adapter_version}",
+            observed_at=record.extracted_at,
+            ingested_at=record.extracted_at,
+        )
+        evidence_ref = stable_id("pid-evidence", record.intake_id, component.component_id)
+        candidate_identity = stable_id("pid-candidate", candidate_task_id, fact.fact_id, record.revision_id)
+        candidates.append(CandidateFact(
+            candidate_id=candidate_identity,
+            task_id=candidate_task_id,
+            fact=fact,
+            provenance_refs=(evidence_ref, record.intake_id),
+            consistency_reference=f"pid-consistency:{candidate_identity}",
+            verification_reference=f"pid-verification:{candidate_identity}",
+            relations=tuple(relations_by_source.get(component.component_id, ())),
+        ))
+    return tuple(candidates)
+
+
+__all__ = ["PIDRecord", "PidComponent", "PidRelation", "candidate_facts_from_pid"]

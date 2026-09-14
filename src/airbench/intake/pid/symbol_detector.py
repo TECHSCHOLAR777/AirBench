@@ -1,7 +1,7 @@
-from typing import List, Dict, Any
-import cv2
-import numpy as np
-from ultralytics import YOLO
+from typing import TYPE_CHECKING, List, Dict, Any
+
+if TYPE_CHECKING:
+    import numpy as np
 
 from .config import (
     SYMBOL_WEIGHTS_PATH,
@@ -30,8 +30,10 @@ def ensure_weights_exist():
         )
 
 
-def non_max_suppression_boxes(boxes: np.ndarray, scores: np.ndarray, classes: np.ndarray, iou_threshold: float = 0.45):
+def non_max_suppression_boxes(boxes: Any, scores: Any, classes: Any, iou_threshold: float = 0.45):
     """Simple Non-Maximum Suppression for global coordinate aggregation across patches."""
+    import numpy as np
+
     if len(boxes) == 0:
         return []
 
@@ -76,6 +78,16 @@ class SymbolDetector:
         tile_size: int = None,
         tile_overlap: int = None
     ):
+        try:
+            import cv2
+            import numpy as np
+            from ultralytics import YOLO
+        except Exception as exc:  # noqa: BLE001 - optional local dependency must fail as typed availability
+            raise PidUnavailable(
+                "vision_dependency_unavailable",
+                "the local P&ID vision dependencies could not be loaded",
+            ) from exc
+
         ensure_weights_exist()
         self.weights_path = weights_path or str(SYMBOL_WEIGHTS_PATH)
         self.confidence_threshold = confidence_threshold or SYMBOL_CONFIG["confidence_threshold"]
@@ -84,6 +96,8 @@ class SymbolDetector:
         self.iou_threshold = SYMBOL_CONFIG["iou_threshold"]
 
         print(f"[SymbolDetector] Loading YOLO model from {self.weights_path}...")
+        self._cv2 = cv2
+        self._np = np
         self.model = YOLO(self.weights_path)
 
     def detect(self, image_path: str) -> List[Dict[str, Any]]:
@@ -91,7 +105,7 @@ class SymbolDetector:
         Runs sliding-window inference on a high-resolution P&ID image and returns
         detected symbol dictionaries with full-image coordinates.
         """
-        img = cv2.imread(image_path)
+        img = self._cv2.imread(image_path)
         if img is None:
             raise FileNotFoundError(f"Could not load image from {image_path}")
 
@@ -135,9 +149,9 @@ class SymbolDetector:
             print("[SymbolDetector] No symbols detected.")
             return []
 
-        all_boxes = np.array(all_boxes)
-        all_scores = np.array(all_scores)
-        all_classes = np.array(all_classes)
+        all_boxes = self._np.array(all_boxes)
+        all_scores = self._np.array(all_scores)
+        all_classes = self._np.array(all_classes)
 
         # Global NMS pass
         keep_indices = non_max_suppression_boxes(
