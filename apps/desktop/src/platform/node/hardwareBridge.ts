@@ -20,6 +20,7 @@ export interface HardwareStatus {
   ram_bytes: number | null;
   safe_parallel_slots: number | null;
   egress_policy: string | null;
+  sandbox_runtime: string | null;
   measurement_pending: boolean;
 }
 
@@ -48,7 +49,7 @@ export function validateHardwareStatus(value: unknown): HardwareStatus {
       configured: false,
       profile_id: null, gpu_model: null, gpu_count: null, vram_bytes: null,
       cpu_model: null, cpu_cores: null, ram_bytes: null,
-      safe_parallel_slots: null, egress_policy: null, measurement_pending: false,
+      safe_parallel_slots: null, egress_policy: null, sandbox_runtime: null, measurement_pending: false,
     };
   }
   return {
@@ -62,6 +63,7 @@ export function validateHardwareStatus(value: unknown): HardwareStatus {
     ram_bytes: optionalInt(value.ram_bytes),
     safe_parallel_slots: optionalInt(value.safe_parallel_slots),
     egress_policy: optionalString(value.egress_policy),
+    sandbox_runtime: optionalString(value.sandbox_runtime),
     measurement_pending: typeof value.measurement_pending === "boolean"
       ? value.measurement_pending
       : false,

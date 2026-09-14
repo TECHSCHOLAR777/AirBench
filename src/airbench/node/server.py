@@ -544,10 +544,16 @@ def build_node_app(
     # Model serving is opt-in.  When enabled the signed roster must load and
     # every declared artifact must verify, otherwise startup fails loudly.
     model_router = None
+    routing_tiers: dict[str, str] = {}
     if model_serving_enabled():
         runtime = load_model_serving_runtime_from_env(ledger=ledger)
         if runtime is not None:
             model_router = runtime.router
+            for target in getattr(runtime.registry, "targets", ()):
+                target_id = str(getattr(target, "target_id", ""))
+                tier = str(getattr(target, "routing_tier", "") or "")
+                if target_id and tier:
+                    routing_tiers[target_id] = tier
             logger.info(
                 "Model serving enabled: %d endpoint binding(s)",
                 len(model_router.endpoint_bindings),
@@ -685,6 +691,7 @@ def build_node_app(
         deliverable_gateway=deliverable_gateway, execution=execution, knowledge=knowledge_service,
         pack=loaded_pack, world_model=world_model, consistency=consistency_service, autonomy=autonomy_service,
         hardware_profile=hardware_profile, qualification_matrix=qualification_matrix,
+        routing_tiers=routing_tiers,
         pid_adapter=pid_adapter, pid_workspace=pid_workspace,
     )
     app = create_app(service)

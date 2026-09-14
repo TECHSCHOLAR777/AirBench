@@ -3,23 +3,29 @@ import type { HomeWorkSummary } from "../work_trace/homeWorkSummary";
 
 interface TaskHistoryViewProps {
   tasks: HomeWorkSummary[];
+  onRemove: (taskId: string) => void;
+  onNewTask: () => void;
 }
 
-export function TaskHistoryView({ tasks }: TaskHistoryViewProps) {
+export function TaskHistoryView({ tasks, onRemove, onNewTask }: TaskHistoryViewProps) {
   return <section className="task-history-view" data-testid="task-history-view" aria-label="Task history">
     <header className="task-history-head">
       <div>
         <p className="eyebrow">HISTORY</p>
         <h1>Task History</h1>
-        <p className="lead">Completed tasks from the approved Node projection.</p>
+        <p className="lead">Completed tasks from the approved Node projection. Removing one clears it from this desktop list only; the Node record and its ledger entries are unchanged.</p>
       </div>
-      <AppIcon name="history" size={19} />
+      <div className="task-history-head-actions">
+        <button type="button" className="secondary-button bordered-button compact-button" onClick={onNewTask}>New query</button>
+        <AppIcon name="history" size={19} />
+      </div>
     </header>
     {tasks.length === 0 ? (
       <div className="task-history-empty">
         <AppIcon name="archive" size={19} />
         <strong>No task history available.</strong>
         <p>History comes from the Node. Completed tasks will appear here after they are recorded in the ledger.</p>
+        <button type="button" className="primary-button compact-button" onClick={onNewTask}>Start a new query</button>
       </div>
     ) : (
       <ul className="task-history-list">
@@ -47,6 +53,9 @@ export function TaskHistoryView({ tasks }: TaskHistoryViewProps) {
                 </>
               )}
             </dl>
+            <div className="task-history-item-actions">
+              <button type="button" className="text-button" onClick={() => onRemove(task.taskId)} aria-label={`Remove ${task.title} from this desktop list`}>Remove</button>
+            </div>
           </li>
         ))}
       </ul>
