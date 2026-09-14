@@ -22,6 +22,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+import uuid
 
 
 def _request(method: str, url: str, token: str, body: dict | None = None) -> dict:
@@ -57,6 +58,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--protocol-version", default="0.1")
     args = parser.parse_args(argv)
     base = args.base_url.rstrip("/")
+    run_id = uuid.uuid4().hex[:12]
+
+    def run_key(prefix: str) -> str:
+        return f"{prefix}.{run_id}"
 
     def get(path: str) -> dict:
         return _request("GET", base + path, args.token)
@@ -71,14 +76,15 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps(get("/api/v1/node/model-serving"), indent=2))
 
     body = _command(
-        "command.demo.create", "idem.demo.create", "task.create",
+        run_key("command.demo.create"), run_key("idem.demo.create"), "task.create",
         {
             "principal_id": args.subject, "clearance": "internal",
-            "request": "Summarise the pump inspection finding.", "risk_class": "inspection_review",
+            "request": f"Summarise the pump inspection finding (demo run {run_id}).", "risk_class": "inspection_review",
             "autonomy_ceiling": "review_required", "allowed_evidence_scope": ["inspection-report"],
             "permitted_worker_capabilities": ["reasoning"], "permitted_tools": [],
             "output_contract": "text", "verification_criteria": ["source_check"],
             "resource_budget": {"max_concurrency": 1},
+            "input_kind": "text",
         },
         task_id=None, expected_sequence=None, subject=args.subject, client_version=args.protocol_version,
     )
@@ -88,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print("\n== authorize (Node plans + admits) ==")
     authorize = _command(
-        "command.demo.authorize", "idem.demo.authorize", "task.authorize", {"authorization_ref": "auth.demo"},
+        run_key("command.demo.authorize"), run_key("idem.demo.authorize"), "task.authorize", {"authorization_ref": "auth.demo"},
         task_id=task_id, expected_sequence=task_sequence(task_id), subject=args.subject,
         client_version=args.protocol_version,
     )
@@ -100,40 +106,17 @@ def main(argv: list[str] | None = None) -> int:
 
     print("\n== approve ==")
     approve = _command(
-        "command.demo.approve", "idem.demo.approve", "task.approve_plan", {"approval_ref": "approval.demo"},
+        run_key("command.demo.approve"), run_key("idem.demo.approve"), "task.approve_plan", {"approval_ref": "approval.demo"},
         task_id=task_id, expected_sequence=task_sequence(task_id), subject=args.subject,
         client_version=args.protocol_version,
     )
     print(json.dumps(post(f"/api/v1/tasks/{task_id}/approve", approve), indent=2))
 
-    print("\n== model call (two-lane routing) ==")
-    model_call = _command(
-        "command.demo.call", "idem.demo.call", "model.call",
-        {
-            "hardware_profile_ref": args.hardware_profile_ref,
-            "request": {
-                "request_id": "request.demo.call", "task_id": task_id, "team_id": "team.demo",
-                "worker_id": "worker.demo", "task_kind": "inspection_review", "modality": "text",
-                "required_capability": "reasoning", "evidence_summary": ["evidence.demo"],
-                "clearance": "internal", "action_risk": "inspection_review",
-                "resource_budget": {"context_tokens": 512}, "attempt": 1,
-                "idempotency_key": "idem.demo.request", "timeout_ms": 180000,
-                "role": "reasoning", "resource_lease_id": "lease.demo",
-            },
-            "messages": [{"role": "user", "content": [{"kind": "text", "text": "Reply with exactly AIRBENCH_OK."}]}],
-            "output": {"mode": "text"},
-        },
-        task_id=task_id, expected_sequence=task_sequence(task_id), subject=args.subject,
-        client_version=args.protocol_version,
-    )
-    result = post(f"/api/v1/tasks/{task_id}/model-call", model_call)
-    if "model" not in result:
-        print(json.dumps(result, indent=2))
-        return 0
-    model = result["model"]
-    print(f"selected_target={model['selected_target']} status={model['status']}")
-    print(f"output={model['output']!r}")
-    print(f"endpoint_id={model['provenance'].get('endpoint_id')} response_hash={model['provenance'].get('response_hash','')[:16]}...")
+    print("\n== execution snapshot ==")
+    snapshot = get(f"/api/v1/tasks/{task_id}")
+    print(f"status={snapshot['status']} phase={snapshot['phase']} artifacts={snapshot['artifactRefs']}")
+    if snapshot["status"] != "needs_review" or not snapshot["artifactRefs"]:
+        raise SystemExit("approved execution did not produce a reviewable artifact")
 
     print("\n== route trace ==")
     trace = get(f"/api/v1/tasks/{task_id}/route-trace")

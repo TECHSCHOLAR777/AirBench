@@ -13,6 +13,7 @@ from __future__ import annotations
 import hmac
 import hashlib
 import json
+import logging
 import re
 from dataclasses import dataclass, field, replace
 from email import policy
@@ -72,6 +73,7 @@ MAX_MULTIPART_BODY_BYTES = MAX_QUERY_UPLOAD_BYTES + 64 * 1024
 MAX_EVENT_BATCH = 128
 MAX_EVIDENCE_ITEMS = 1_000
 MAX_ROUTE_ITEMS = 1_000
+logger = logging.getLogger(__name__)
 TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 NODE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _CLEARANCE_RANK = {
@@ -780,6 +782,7 @@ class NodeApiService:
                 try:
                     self.execution.prepare(task_id)
                 except NodeTaskExecutionError as exc:
+                    logger.exception("Node task execution failed", extra={"task_id": task_id})
                     if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
                         self.orchestrator.transition(task_id, "task.failed", {"failure_code": "task_execution_prepare_failed"})
                     raise NodeApiError(409, "task_execution_prepare_failed", "The Node could not prepare the admitted plan for execution.") from exc
@@ -823,6 +826,7 @@ class NodeApiService:
                         self.execution.authorize(subject, task_id)
                     self.execution.execute(task_id)
                 except NodeTaskExecutionError as exc:
+                    logger.exception("Node task execution failed", extra={"task_id": task_id})
                     if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
                         self.orchestrator.transition(task_id, "task.failed", {"failure_code": "task_execution_failed"})
                     raise NodeApiError(503, "task_execution_failed", "The approved plan did not produce a verified draft.") from exc
