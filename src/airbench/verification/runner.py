@@ -578,7 +578,7 @@ class VerificationRunner:
         return VerificationCheck(outcome=VerificationOutcome.passed, reason="check passed", **base), available
 
     def _event_by_key(self, key: str) -> LedgerEventEnvelope | None:
-        return next((event for event in self.ledger.events if event.idempotency_key == key), None)
+        return self.ledger.find_by_idempotency(key)
 
     def _append(self, *, event_type: str, task_id: str, payload: dict[str, Any], contract: str, key: str, clearance: Clearance) -> LedgerEventEnvelope:
         event = build_event(
@@ -591,7 +591,7 @@ class VerificationRunner:
             payload=payload,
             clearance=clearance,
             idempotency=key,
-            sequence=len(self.ledger.events),
+            sequence=len(self.ledger),
             previous_event_hash=self.ledger.head_hash,
         )
         try:

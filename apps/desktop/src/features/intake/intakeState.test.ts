@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyIntakeFailure, intakeConfidenceCopy, intakeStateFromManifest, intakeStatusCopy, isIntakeConfidenceBand } from "./intakeState";
+import { classifyIntakeFailure, intakeConfidenceCopy, intakeStateFromManifest, intakeStateFromStatus, intakeStatusCopy, isIntakeConfidenceBand } from "./intakeState";
 
 describe("File Intake presentation state", () => {
   it("recognizes processing manifests without treating them as ready", () => {
@@ -9,6 +9,12 @@ describe("File Intake presentation state", () => {
     expect(intakeStateFromManifest({ ocr_status: "unknown", vision_status: "completed" })).toBe("partial");
     expect(intakeStatusCopy("processing").retryable).toBe(false);
     expect(intakeStatusCopy("partial").retryable).toBe(false);
+  });
+
+  it("maps a live Node status to the same safe state model", () => {
+    expect(intakeStateFromStatus({ ocr_status: "pending", vision_status: "completed" })).toBe("processing");
+    expect(intakeStateFromStatus({ ocr_status: "completed", vision_status: "not_applicable" })).toBe("ready");
+    expect(intakeStateFromStatus({ ocr_status: "unavailable", vision_status: "completed" })).toBe("partial");
   });
 
   it("maps Node rejection categories to safe user-facing states", () => {

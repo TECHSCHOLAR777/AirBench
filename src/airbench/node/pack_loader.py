@@ -394,7 +394,7 @@ def _append_pack_event(ledger: Any, pack: LoadedPack, task_id: str) -> None:
         event_type=event_type, task_id=task_id, actor_id="node.pack-loader", actor_type="service",
         payload_contract="LoadedPack", payload_version="1.0", payload=payload,
         clearance=Clearance.internal, idempotency=idempotency_key(event_type, task_id, pack.manifest.pack_id),
-        sequence=len(ledger.events), previous_event_hash=ledger.head_hash,
+        sequence=len(ledger), previous_event_hash=ledger.head_hash,
     ))
 
 

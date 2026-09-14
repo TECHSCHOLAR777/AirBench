@@ -9,7 +9,10 @@ export interface TaskEventLoopOptions {
   onError?: (error: unknown) => void;
 }
 
-const TERMINAL_STATUSES = new Set(["completed", "failed", "stopped"]);
+// Terminal for the event loop: the Node will not emit further task events
+// from these states without a new operator command, so polling stops
+// (Phase 3: polling must stop on completed, failed, blocked, or needs-review).
+const TERMINAL_STATUSES = new Set(["completed", "failed", "stopped", "needs_review"]);
 
 /**
  * Polls the authoritative Node event cursor without creating a second task

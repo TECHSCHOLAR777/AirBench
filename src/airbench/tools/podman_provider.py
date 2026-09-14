@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -38,6 +39,7 @@ _DEFAULT_CPU_SECONDS = 10.0
 _DEFAULT_MEMORY_BYTES = 512 * 1024 * 1024
 _DEFAULT_DISK_BYTES = 64 * 1024 * 1024
 _DEFAULT_PROCESS_COUNT = 64
+_POST_KILL_DRAIN_TIMEOUT_S = 10.0
 
 
 @dataclass(slots=True)
@@ -207,9 +209,21 @@ class PodmanProvider:
         try:
             stdout, stderr = process.communicate(request.stdin, timeout=request.timeout_seconds)
         except subprocess.TimeoutExpired:
+            # Kill the client AND force-remove the container BEFORE draining
+            # pipes: conmon and container processes inherit the pipe handles,
+            # so communicate() blocks until the container itself dies.  A
+            # payload that sleeps forever (no CPU burn, so the ulimit never
+            # fires) would otherwise hang the call permanently.
             process.kill()
-            stdout, stderr = process.communicate()
             cleanup_status = self._remove_container(executable, container_name)
+            try:
+                stdout, stderr = process.communicate(timeout=_POST_KILL_DRAIN_TIMEOUT_S)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                try:
+                    stdout, stderr = process.communicate(timeout=_POST_KILL_DRAIN_TIMEOUT_S)
+                except subprocess.TimeoutExpired:
+                    stdout, stderr = "", ""
             return SandboxExecutionResponse(
                 "timed_out",
                 None,
@@ -358,8 +372,12 @@ class PodmanProvider:
         return usage
 
     def _container_name(self, request: SandboxExecutionRequest) -> str:
+        # A per-execution nonce keeps concurrent identical requests (same cwd
+        # and stdin, e.g. a retried action) from mapping to one container
+        # name, where the second run's pre-clean rm --force would kill the
+        # first run's live container.
         digest = hashlib.sha256((str(request.cwd.resolve()) + request.stdin).encode("utf-8")).hexdigest()[:20]
-        return f"airbench-sbx-{digest}"
+        return f"airbench-sbx-{digest}-{uuid.uuid4().hex[:8]}"
 
     def _evidence_refs(self, command: tuple[str, ...], state_digest: str | None = None) -> tuple[str, ...]:
         verification = self._verification_digest or _digest({"status": "unverified"})

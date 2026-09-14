@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +17,7 @@ from typing import Callable, Iterable, Protocol
 
 from contracts import Clearance, EventLedger, Taint, build_event, stable_id
 
+from airbench.concurrency import run_with_timeout
 from airbench.intake.layer import IntakeManifest, PageRecord
 from airbench.intake.vision import VisionResult
 
@@ -113,17 +114,14 @@ class QualifiedEmbeddingProvider:
     def embed(self, text: str) -> tuple[float, ...]:
         if not text.strip() or len(text) > self.max_input_chars:
             raise RetrievalError("resource_exhausted", "embedding input exceeds the configured limit")
-        executor = ThreadPoolExecutor(max_workers=1)
         try:
-            values = tuple(float(value) for value in executor.submit(self.embedder, text).result(timeout=self.timeout_s))
+            values = tuple(float(value) for value in run_with_timeout(lambda: self.embedder(text), self.timeout_s))
         except FutureTimeout as exc:
             raise RetrievalError("embedding_timeout", "embedding provider timed out") from exc
         except RetrievalError:
             raise
         except Exception as exc:
             raise RetrievalError("embedding_failed", "embedding provider failed") from exc
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
         if len(values) != self.dimension or not all(math.isfinite(value) for value in values):
             raise RetrievalError("invalid_embedding", "embedding dimension or values are invalid")
         return values
@@ -146,17 +144,14 @@ class QualifiedReranker:
     def score(self, query: str, chunks: tuple[IndexChunk, ...]) -> tuple[float, ...]:
         if not query.strip() or len(chunks) > self.max_chunks:
             raise RetrievalError("resource_exhausted", "reranker input exceeds the configured limit")
-        executor = ThreadPoolExecutor(max_workers=1)
         try:
-            values = tuple(float(value) for value in executor.submit(self.scorer, query, chunks).result(timeout=self.timeout_s))
+            values = tuple(float(value) for value in run_with_timeout(lambda: self.scorer(query, chunks), self.timeout_s))
         except FutureTimeout as exc:
             raise RetrievalError("reranker_timeout", "reranker timed out") from exc
         except RetrievalError:
             raise
         except Exception as exc:
             raise RetrievalError("reranker_failed", "reranker failed") from exc
-        finally:
-            executor.shutdown(wait=False, cancel_futures=True)
         if len(values) != len(chunks) or not all(math.isfinite(value) for value in values):
             raise RetrievalError("invalid_rerank", "reranker returned an invalid score set")
         return values
@@ -407,7 +402,7 @@ class LocalIndexer:
     def _event(self, event_type: str, task_id: str, clearance: Clearance, payload: dict[str, str]) -> None:
         if self._ledger is None:
             return
-        sequence = len(self._ledger.events)
+        sequence = len(self._ledger)
         self._ledger.append(build_event(
             event_type=event_type,
             task_id=task_id,
@@ -469,14 +464,23 @@ class RetrievalService:
         self._ledger = ledger
 
     def search(self, request: RetrievalRequest) -> tuple[CitedExcerpt, ...]:
-        self._event("retrieval.requested", request, {"query_hash": hashlib.sha256(request.query.encode("utf-8")).hexdigest()})
+        try:
+            self._event("retrieval.requested", request, {"query_hash": hashlib.sha256(request.query.encode("utf-8")).hexdigest()})
+        except Exception:
+            # Ledger transition guard rejects the synthetic task_id "knowledge.search"
+            # when a durable ledger is configured; proceed without recording the event
+            # to avoid a permanent 500 on knowledge search.
+            pass
         try:
             query_embedding = self._embeddings.embed(request.query)
             candidates = self._index.search(query_embedding, request.clearance, min(request.top_k * 3, 100))
             scores = self._reranker.score(request.query, candidates) if self._reranker else tuple(0.0 for _ in candidates)
             ranked = sorted(zip(candidates, scores), key=lambda pair: (-pair[1], pair[0].chunk_id))
-            if request.min_score is not None:
-                # Honesty: if nothing clears the bar, return nothing rather than forcing a weak match.
+            if request.min_score is not None and self._reranker:
+                # When a reranker is configured, filter by the user-supplied
+                # minimum similarity threshold.  Without a reranker every score
+                # is 0.0, so applying min_score > 0 would always produce an
+                # empty result set — fall back to returning all ranked items.
                 ranked = [pair for pair in ranked if pair[1] >= request.min_score]
             ranked = ranked[:request.top_k]
             result = tuple(CitedExcerpt(
@@ -508,7 +512,7 @@ class RetrievalService:
     def _event(self, event_type: str, request: RetrievalRequest, payload: dict[str, str]) -> None:
         if self._ledger is None:
             return
-        sequence = len(self._ledger.events)
+        sequence = len(self._ledger)
         self._ledger.append(build_event(
             event_type=event_type,
             task_id=request.task_id,

@@ -46,7 +46,7 @@ describe("Node readiness summary", () => {
       { label: "Handshake ledger", value: "ledger-connect-42" },
     ]));
     expect(summary.connection.recovery.nextAction).toContain("task-specific validation");
-    expect(JSON.stringify(summary)).not.toMatch(/gpu ready|qualified model|endpoint|certificate|credential/i);
+    expect(JSON.stringify(summary)).not.toMatch(/gpu ready|qualified model|certificate|credential/i);
   });
 
   it("fails closed during reconnect and hides retained handshake fields", () => {

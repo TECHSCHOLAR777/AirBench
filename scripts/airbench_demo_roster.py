@@ -88,6 +88,40 @@ def _pending_digests(target: dict) -> list[str]:
     return pending
 
 
+def _is_pending_text(text: str) -> bool:
+    lowered = text.strip().lower()
+    return lowered in {"pending", "not_measured"} or "pending:" in lowered or "replace_with_measured:" in lowered
+
+
+def _contains_pending(value: object) -> bool:
+    if isinstance(value, str):
+        return _is_pending_text(value)
+    if isinstance(value, dict):
+        return any(_contains_pending(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_pending(item) for item in value)
+    return False
+
+
+def _measured_role_certificates(matrix_path: Path) -> dict[tuple[str, str], str]:
+    """Map (target_id, worker_role) -> certificate_id for fully measured, signed certificates."""
+    if not matrix_path.is_file():
+        return {}
+    import yaml  # type: ignore
+    document = yaml.safe_load(matrix_path.read_text(encoding="utf-8"))
+    measured: dict[tuple[str, str], str] = {}
+    for certificate in document.get("certificates", []) or []:
+        if not isinstance(certificate, dict):
+            continue
+        if _contains_pending(certificate) or not str(certificate.get("signature", "")):
+            continue
+        target_id = str(certificate.get("target_id", ""))
+        role = str(certificate.get("worker_role", ""))
+        if target_id and role:
+            measured[(target_id, role)] = str(certificate.get("certificate_id", ""))
+    return measured
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
@@ -96,6 +130,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-sign", action="store_true", help="Write the roster without signatures.")
     parser.add_argument("--include-retrieval", action="store_true",
                         help="Also include the local BGE embedding and reranker targets.")
+    parser.add_argument("--require-measured", action="store_true",
+                        help="Only include targets whose roster roles hold signed, fully measured "
+                             "qualification certificates; unmeasured targets are disabled (dropped).")
+    parser.add_argument("--matrix", type=Path,
+                        default=REPO_ROOT / "qualifications" / "model_qualification_matrix.yaml",
+                        help="Qualification matrix consulted by --require-measured.")
     args = parser.parse_args(argv)
 
     wanted = list(DEMO_TARGET_IDS) + (list(RETRIEVAL_TARGET_IDS) if args.include_retrieval else [])
@@ -109,6 +149,26 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         print(f"ERROR: demo targets not found in source roster: {missing}", file=sys.stderr)
         return 1
+
+    if args.require_measured:
+        measured = _measured_role_certificates(args.matrix)
+        disabled: list[str] = []
+        kept: list[dict] = []
+        for target in targets:
+            target_id = str(target.get("target_id", ""))
+            roles = target.get("qualified_roles", []) or []
+            if roles and all((target_id, str(role.get("role", ""))) in measured for role in roles):
+                kept.append(target)
+            else:
+                disabled.append(target_id)
+        for target_id in disabled:
+            print(f"DISABLED (unmeasured): {target_id} has no signed, fully measured qualification "
+                  "certificate in the matrix; run scripts/airbench_measure_lane.py and "
+                  "scripts/airbench_qualify.py first.", file=sys.stderr)
+        if not kept:
+            print("ERROR: --require-measured disabled every demo target; nothing to write.", file=sys.stderr)
+            return 1
+        targets = kept
 
     unresolved: dict[str, list[str]] = {}
     for target in targets:

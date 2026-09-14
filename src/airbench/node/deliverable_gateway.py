@@ -76,7 +76,20 @@ class LocalDeliverableGateway:
         )
         if event is None:
             raise NodeIntakeError(404, "deliverable_not_found", "The task has no committed output deliverable.")
-        return self._review_wire(event)
+        review = self._review_wire(event)
+        # The committed human sign-off is the authoritative approval state; the
+        # deliverable event itself is immutable and stays "pending".
+        signoff = next(
+            (
+                item for item in reversed(self._ledger.events)
+                if item.task_id == task_id and item.event_type == "human.signoff"
+                and item.payload.get("artifact_id") == review.get("artifactId")
+            ),
+            None,
+        )
+        if signoff is not None and signoff.payload.get("decision") == "approved":
+            review["approvalState"] = "approved"
+        return review
 
     def artifact_preview(self, *, artifact_id: str) -> dict[str, Any]:
         event = self._visible_record(artifact_id)
@@ -201,7 +214,7 @@ class LocalDeliverableGateway:
 
     def _record_access(self, event, event_type: str) -> str:
         key = idempotency_key("node-deliverable-access", event_type, event.payload["artifact_id"])
-        existing = next((item for item in self._ledger.events if item.idempotency_key == key), None)
+        existing = self._ledger.find_by_idempotency(key)
         if existing is not None:
             return existing.event_id
         access = build_event(
@@ -218,7 +231,7 @@ class LocalDeliverableGateway:
             },
             clearance=event.clearance,
             idempotency=key,
-            sequence=len(self._ledger.events),
+            sequence=len(self._ledger),
             previous_event_hash=self._ledger.head_hash,
         )
         try:

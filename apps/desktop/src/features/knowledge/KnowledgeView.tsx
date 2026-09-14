@@ -15,15 +15,15 @@ export function KnowledgeView({ profile, nodeConnected }: { profile: ApprovedNod
 
   useEffect(() => {
     let active = true;
+    setStatus(null);
+    setResult(null);
+    setIngestResult(null);
+    setMessage(null);
     if (!profile || !nodeConnected) {
-      setStatus(null);
-      setResult(null);
-      setMessage(null);
       setStatusBusy(false);
       return () => { active = false; };
     }
     setStatusBusy(true);
-    setMessage(null);
     fetchKnowledgeStatus(profile)
       .then((value) => { if (active) setStatus(value); })
       .catch((error) => { if (active) setMessage(error instanceof Error ? error.message : "Knowledge status is unavailable."); })
@@ -33,22 +33,30 @@ export function KnowledgeView({ profile, nodeConnected }: { profile: ApprovedNod
 
   async function submit() {
     if (!profile || !query.trim()) return;
-    setBusy(true); setMessage(null);
-    try { setResult(await searchKnowledge(profile, { query, mode, top_k: 8 })); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "Knowledge search failed."); }
-    finally { setBusy(false); }
+    setBusy(true);
+    setMessage(null);
+    try {
+      setResult(await searchKnowledge(profile, { query, mode, top_k: 8 }));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Knowledge search failed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function ingestFolder() {
     if (!profile) return;
+    if (profile.transport !== "loopback") {
+      setMessage("Bulk ingestion is disabled here because a remote Node cannot read a laptop folder path.");
+      return;
+    }
     setIngestBusy(true);
     setMessage(null);
     setIngestResult(null);
     try {
       const response = await ingestKnowledgeFolder(profile);
       setIngestResult(response);
-      const refreshed = await fetchKnowledgeStatus(profile);
-      setStatus(refreshed);
+      setStatus(await fetchKnowledgeStatus(profile));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Knowledge ingestion failed.");
     } finally {
@@ -57,19 +65,40 @@ export function KnowledgeView({ profile, nodeConnected }: { profile: ApprovedNod
   }
 
   return <section className="record-gateway" aria-label="Knowledge base explorer">
-    <header><p className="eyebrow">KNOWLEDGE BASE</p><h1>Search governed knowledge</h1><p className="lead">Text and image-derived evidence stays in the vector store; P&amp;ID entities and relations stay in the world-model graph. Hybrid search shows both.</p></header>
+    <header><p className="eyebrow">KNOWLEDGE BASE</p><h1>Search governed knowledge</h1><p className="lead">Text and image-derived evidence stays in the vector store, while P&amp;ID entities and relations stay in the world-model graph. Hybrid search shows both.</p></header>
     {!nodeConnected || !profile ? <section className="record-gateway-state record-gateway-state-node_unavailable" role="status"><strong>Connect an approved Node</strong><p>The desktop does not read or parse knowledge files locally.</p></section> : <>
-      <section className="workspace-metrics"><div><span>Node knowledge</span><strong>{statusBusy ? "Checking…" : status?.status ?? "Unavailable"}</strong></div><div><span>Indexed chunks</span><strong>{status?.indexed_chunks ?? "—"}</strong></div><div><span>Graph</span><strong>{status?.graph ? "Ready" : status ? "Not configured" : "Unavailable"}</strong></div></section>
-      <section className="knowledge-ingest-card"><div><p className="eyebrow">CORPUS INGESTION</p><strong>Add an approved local corpus</strong><p>Select the configured knowledge folder through the native picker. Files remain governed by the Node’s intake, clearance, and provenance rules.</p></div><button className="secondary-button" type="button" onClick={() => void ingestFolder()} disabled={ingestBusy}>{ingestBusy ? "Ingesting…" : "Choose folder"}</button></section>
-      <form className="composer" onSubmit={(event) => { event.preventDefault(); void submit(); }}><label htmlFor="knowledge-query">Question or entity</label><input type="search" id="knowledge-query" name="knowledge-query" aria-label="Question or entity" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="e.g. seal leakage or P-101" /><select value={mode} onChange={(event) => setMode(event.target.value as typeof mode)} aria-label="Knowledge search mode"><option value="hybrid">Hybrid: text + graph</option><option value="text">Text and images</option><option value="graph">P&amp;ID graph</option></select><button className="primary-button" type="submit" disabled={busy || !query.trim()}>{busy ? "Searching…" : "Search knowledge"}</button></form>
+      <section className="workspace-metrics" aria-label="Knowledge status" aria-busy={statusBusy || ingestBusy}><div><span>Node knowledge</span><strong>{statusBusy ? "Checking..." : humanizeToken(status?.status ?? "Unavailable")}</strong></div><div><span>Indexed chunks</span><strong>{status?.indexed_chunks ?? "Not supplied"}</strong></div><div><span>Graph</span><strong>{status?.graph ? "Available" : status ? "Not configured" : "Unavailable"}</strong></div></section>
+      <section className="knowledge-ingest-card"><div><p className="eyebrow">CORPUS INGESTION</p><strong>Add an approved Node-visible corpus</strong><p>{profile.transport === "loopback" ? "Choose a folder on this workstation. The local Node will apply its intake, clearance, and provenance rules." : "Bulk ingestion is disabled for this remote profile because a laptop folder is not automatically visible to the Node. Provision the corpus on the Node or use the approved transfer workflow."}</p></div><button className="secondary-button" type="button" onClick={() => void ingestFolder()} disabled={ingestBusy || profile.transport !== "loopback"} title={profile.transport === "loopback" ? "Choose a local folder for the local Node" : "A remote Node cannot read a laptop path"}>{ingestBusy ? "Ingesting..." : profile.transport === "loopback" ? "Choose folder" : "Node folder required"}</button></section>
+      <form className="composer" onSubmit={(event) => { event.preventDefault(); void submit(); }}><label htmlFor="knowledge-query">Question or entity</label><input type="search" id="knowledge-query" name="knowledge-query" aria-label="Question or entity" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="e.g. seal leakage or P-101" maxLength={4096} /><select value={mode} onChange={(event) => setMode(event.target.value as typeof mode)} aria-label="Knowledge search mode"><option value="hybrid">Hybrid: text + graph</option><option value="text">Text and images</option><option value="graph">P&amp;ID graph</option></select><button className="primary-button" type="submit" disabled={busy || !query.trim()}>{busy ? "Searching..." : "Search knowledge"}</button></form>
       {message && <p role="alert" className="notice notice-error">{message}</p>}
       {ingestResult && <p className="notice">Indexed {ingestResult.file_count} file{ingestResult.file_count === 1 ? "" : "s"} and {ingestResult.chunk_count} chunk{ingestResult.chunk_count === 1 ? "" : "s"}. {ingestResult.failure_count ? `${ingestResult.failure_count} file${ingestResult.failure_count === 1 ? "" : "s"} need attention.` : "No file failures."}</p>}
-      {result && <section className="worktrace-detail-card"><div className="worktrace-detail-head"><div><h2>Evidence returned</h2><p>{result.result_count} text/image results · {result.graph_result_count} graph facts</p></div></div>{result.result_count === 0 && result.graph_result_count === 0 ? <p className="record-gateway-empty">No governed evidence matched this question.</p> : <div className="workspace-activity">{result.results.map((item, index) => <article key={String(item.citation_id ?? item.chunk_id ?? `evidence-${index}`)}><strong>{String(item.excerpt ?? "Document evidence")}</strong><small>{readableSource(item)} · confidence {String(item.confidence ?? "—")} · {String(item.taint ?? "untrusted")}</small></article>)}{result.graph_results.map((item, index) => { const value = item.value as Record<string, unknown> | undefined; return <article key={String(item.fact_id ?? `graph-${index}`)}><strong>{String(value?.label ?? value?.entity_id ?? "Graph fact")}</strong><small>{readableSource(item)} · confidence {String(item.confidence ?? "—")} · P&amp;ID graph</small></article>; })}</div>}</section>}
+      {result && <section className="worktrace-detail-card" aria-live="polite"><div className="worktrace-detail-head"><div><h2>Evidence returned</h2><p>{result.result_count} text/image results, {result.graph_result_count} graph facts</p></div><span>{humanizeToken(result.mode)} search</span></div>{result.result_count === 0 && result.graph_result_count === 0 ? <p className="record-gateway-empty">No governed evidence matched this question.</p> : <div className="workspace-activity">{result.results.map((item, index) => <article key={String(item.citation_id ?? item.chunk_id ?? `evidence-${index}`)}><strong>{String(item.excerpt ?? "Document evidence")}</strong><small>{readableSource(item)}, confidence {readableConfidence(item.confidence)}, {String(item.clearance)} clearance, {String(item.taint)} data</small></article>)}{result.graph_results.map((item, index) => <article key={String(item.fact_id ?? `graph-${index}`)}><strong>{readableGraphValue(item)}</strong><small>{readableSource(item)}, confidence {readableConfidence(item.confidence)}, {String(item.clearance)} clearance, {String(item.taint)} data, P&amp;ID graph</small></article>)}</div>}</section>}
     </>}
   </section>;
 }
 
 function readableSource(item: Record<string, unknown>): string {
   const source = item.source_ref ?? item.source_id ?? item.page_id ?? item.intake_id;
-  return source ? `Source: ${String(source)}` : "Source unavailable";
+  const location = item.source_span ?? item.page_id;
+  if (!source) return "Source unavailable";
+  return location ? `Source: ${String(source)}, ${String(location)}` : `Source: ${String(source)}`;
+}
+
+function readableConfidence(value: unknown): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${Math.round(value * 100)}%` : "Not supplied";
+}
+
+function readableGraphValue(item: Record<string, unknown>): string {
+  const value = item.value;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const label = record.label ?? record.entity_id ?? record.name ?? record.value;
+    if (typeof label === "string" || typeof label === "number") return String(label);
+  }
+  return "Graph fact";
+}
+
+function humanizeToken(value: string): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }

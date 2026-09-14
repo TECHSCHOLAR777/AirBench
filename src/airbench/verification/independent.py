@@ -32,8 +32,7 @@ class Evaluator(Protocol):
 
 def _append(ledger: EventLedger, event_type: str, request: EvaluatorInput, payload: dict) -> object:
     provenance = {"source_ref": request.proposal_ref, "confidence": request.confidence, "clearance": request.clearance.value, "taint": request.taint.value}
-    ledger.append(build_event(event_type=event_type, task_id=request.task_id, actor_id=request.evaluator_worker_id, actor_type="verification_worker", payload_contract="EvaluatorResult", payload_version="1.0", payload={**payload, "provenance": provenance}, clearance=request.clearance, idempotency=idempotency_key(event_type, request.task_id, request.evaluation_id), sequence=len(ledger.events), previous_event_hash=ledger.head_hash))
-    return ledger.events[-1]
+    return ledger.append(build_event(event_type=event_type, task_id=request.task_id, actor_id=request.evaluator_worker_id, actor_type="verification_worker", payload_contract="EvaluatorResult", payload_version="1.0", payload={**payload, "provenance": provenance}, clearance=request.clearance, idempotency=idempotency_key(event_type, request.task_id, request.evaluation_id), sequence=len(ledger), previous_event_hash=ledger.head_hash))
 
 class IndependentEvaluator:
     """Evaluate a proposal from a fresh, separately identified worker context."""

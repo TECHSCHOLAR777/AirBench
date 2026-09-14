@@ -728,7 +728,7 @@ def _column_number(cell_ref: str) -> int:
     value = 0
     for char in letters:
         value = value * 26 + ord(char) - ord("A") + 1
-    return value
+    return min(value, 16_384)
 
 
 def _xlsx_shared_strings(root: ElementTree.Element | None) -> list[str]:
@@ -888,7 +888,7 @@ class LedgerSink(Protocol):
 
 def _append_evidence_event(ledger: LedgerSink, manifest: IntakeManifest) -> str:
     key = idempotency_key("intake.evidence.created", manifest.task_id, manifest.intake_id)
-    existing = next((event for event in ledger.events if event.idempotency_key == key), None)
+    existing = ledger.find_by_idempotency(key)
     if existing is not None:
         return existing.event_id
     event = build_event(
@@ -921,7 +921,7 @@ def _append_evidence_event(ledger: LedgerSink, manifest: IntakeManifest) -> str:
         },
         clearance=manifest.clearance,
             idempotency=key,
-        sequence=len(ledger.events),
+        sequence=len(ledger),
         previous_event_hash=ledger.head_hash,
         occurred_at=manifest.ingested_at,
     )

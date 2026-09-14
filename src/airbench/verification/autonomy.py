@@ -140,7 +140,7 @@ class AutonomyGovernor:
                     str(existing_payload.get("reason", reason)),
                     existing.event_id,
                 )
-        committed = self.ledger.append(build_event(event_type=event_type, task_id=proposal.task_id, actor_id="autonomy-governor", actor_type="policy", payload_contract="AuthorityDecision", payload_version="1.0", payload=payload, clearance=proposal.clearance, idempotency=event_key, sequence=len(self.ledger.events), previous_event_hash=self.ledger.head_hash))
+        committed = self.ledger.append(build_event(event_type=event_type, task_id=proposal.task_id, actor_id="autonomy-governor", actor_type="policy", payload_contract="AuthorityDecision", payload_version="1.0", payload=payload, clearance=proposal.clearance, idempotency=event_key, sequence=len(self.ledger), previous_event_hash=self.ledger.head_hash))
         # In-memory ledgers return the committed event; sealed SQLite ledgers
         # return a transaction envelope.  Preserve the same event reference
         # across both implementations.
