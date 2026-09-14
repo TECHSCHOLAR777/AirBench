@@ -83,8 +83,8 @@ Wait until the console outputs `Starting AirBench Node ...` (after it finishes h
 Open another terminal and verify the Node has successfully mounted both endpoints:
 
 ```powershell
-$env:AIRBENCH_BEARER_TOKEN="dev-token-123"
-curl -H "Authorization: Bearer dev-token-123" http://127.0.0.1:8765/api/v1/node/model-serving
+$env:AIRBENCH_BEARER_TOKEN="<operator-token>"
+curl -H "Authorization: Bearer $env:AIRBENCH_BEARER_TOKEN" http://127.0.0.1:8765/api/v1/node/model-serving
 ```
 
 You should see `"configured": true` and `"status": "ready"` with both the E2B and 12B endpoints listed in the response payload.

@@ -177,9 +177,17 @@ class ModelServingConfigTests(unittest.TestCase):
             with self.assertRaises(EnvironmentError):
                 ModelServingConfig.from_env()
 
+    def test_from_env_requires_explicit_endpoint_configuration(self) -> None:
+        with patch.dict(os.environ, {'AIRBENCH_POLICY_VERSION_HASH': 'policy-v1-test'}, clear=True):
+            with self.assertRaisesRegex(EnvironmentError, 'AIRBENCH_MODEL_E2B_URL'):
+                ModelServingConfig.from_env()
+
     def test_single_endpoint_factory(self) -> None:
         config = ModelServingConfig.single_endpoint(
             policy_version_hash='policy-single',
+            base_url='http://127.0.0.1:18001',
+            target_id='airbench-gemma-4-e2b',
+            served_model_name='airbench-gemma-4-e2b',
             require_no_egress_env=False,
         )
         self.assertEqual(len(config.endpoints), 1)

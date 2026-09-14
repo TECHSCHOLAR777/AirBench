@@ -62,12 +62,26 @@ class ModelServingConfig:
         policy_hash = os.environ.get('AIRBENCH_POLICY_VERSION_HASH', '').strip()
         if not policy_hash:
             raise EnvironmentError('AIRBENCH_POLICY_VERSION_HASH is required')
-        e2b_url = os.environ.get('AIRBENCH_MODEL_E2B_URL', 'http://127.0.0.1:18001').strip()
-        twelve_url = os.environ.get('AIRBENCH_MODEL_12B_URL', 'http://127.0.0.1:18002').strip()
-        e2b_target = os.environ.get('AIRBENCH_MODEL_E2B_TARGET_ID', 'airbench-gemma-4-e2b').strip()
-        twelve_target = os.environ.get('AIRBENCH_MODEL_12B_TARGET_ID', 'airbench-gemma-4-12b').strip()
-        e2b_served = os.environ.get('AIRBENCH_MODEL_E2B_SERVED_NAME', 'airbench-gemma-4-e2b').strip()
-        twelve_served = os.environ.get('AIRBENCH_MODEL_12B_SERVED_NAME', 'airbench-gemma-4-12b').strip()
+        required = {
+            name: os.environ.get(name, '').strip()
+            for name in (
+                'AIRBENCH_MODEL_E2B_URL', 'AIRBENCH_MODEL_12B_URL',
+                'AIRBENCH_MODEL_E2B_TARGET_ID', 'AIRBENCH_MODEL_12B_TARGET_ID',
+                'AIRBENCH_MODEL_E2B_SERVED_NAME', 'AIRBENCH_MODEL_12B_SERVED_NAME',
+            )
+        }
+        missing = tuple(name for name, value in required.items() if not value)
+        if missing:
+            raise EnvironmentError(
+                'model serving endpoint configuration is incomplete; '
+                f'missing {", ".join(missing)}'
+            )
+        e2b_url = required['AIRBENCH_MODEL_E2B_URL']
+        twelve_url = required['AIRBENCH_MODEL_12B_URL']
+        e2b_target = required['AIRBENCH_MODEL_E2B_TARGET_ID']
+        twelve_target = required['AIRBENCH_MODEL_12B_TARGET_ID']
+        e2b_served = required['AIRBENCH_MODEL_E2B_SERVED_NAME']
+        twelve_served = required['AIRBENCH_MODEL_12B_SERVED_NAME']
         try:
             timeout_s = float(os.environ.get('AIRBENCH_MODEL_TIMEOUT_S', '120').strip())
         except ValueError as exc:
@@ -82,9 +96,9 @@ class ModelServingConfig:
 
     @classmethod
     def single_endpoint(cls, *, policy_version_hash: str,
-                        base_url: str = 'http://127.0.0.1:18001',
-                        target_id: str = 'airbench-gemma-4-e2b',
-                        served_model_name: str = 'airbench-gemma-4-e2b',
+                        base_url: str,
+                        target_id: str,
+                        served_model_name: str,
                         require_no_egress_env: bool = True,
                         timeout_s: float = 120.0) -> 'ModelServingConfig':
         return cls(policy_version_hash=policy_version_hash,
@@ -182,7 +196,9 @@ def load_model_serving_runtime_from_env(*, ledger: Any = None,
     )
     if not artifact_root:
         raise EnvironmentError('AIRBENCH_MODEL_STORE is required when model serving is enabled')
-    roster_path = os.environ.get('AIRBENCH_MODEL_ROSTER_PATH', 'models/roster/v0/model_roster.yaml').strip()
+    roster_path = os.environ.get('AIRBENCH_MODEL_ROSTER_PATH', '').strip()
+    if not roster_path:
+        raise EnvironmentError('AIRBENCH_MODEL_ROSTER_PATH is required when model serving is enabled')
     signing_key = Path(signing_key_path).read_bytes()
     config = ModelServingConfig.from_env()
     return load_model_serving_runtime(

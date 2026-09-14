@@ -92,6 +92,10 @@ def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _rfc3339_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _event_hash(event: LedgerEventEnvelope) -> str:
     body = {
         "event_id": event.event_id, "event_type": event.event_type, "task_id": event.task_id,
@@ -127,16 +131,17 @@ def build_event(*, event_type: str, task_id: str, actor_id: str, actor_type: str
                 payload_contract: str, payload_version: str, payload: dict[str, Any],
                 clearance: Clearance | str, idempotency: str, sequence: int = 0,
                 previous_event_hash: str | None = None, parent_event_id: str | None = None,
-                occurred_at: str = "2026-01-01T00:00:00Z") -> LedgerEventEnvelope:
+                occurred_at: str | None = None) -> LedgerEventEnvelope:
     """Build one immutable event. ``Ledger.append`` remains the authority to commit it."""
     if event_type not in EVENT_TYPES:
         raise ContractValidationError("LedgerEventEnvelope", [ValidationIssue("event_type", "event", "unknown ledger event type")])
     level = clearance if isinstance(clearance, Clearance) else Clearance(clearance)
     payload_hash = _sha256(_canonical(payload))
+    event_time = occurred_at or _rfc3339_now()
     draft = LedgerEventEnvelope(
         event_id=stable_id("event", task_id, sequence, event_type, idempotency),
         event_type=event_type, task_id=task_id, parent_event_id=parent_event_id,
-        sequence=sequence, occurred_at=occurred_at, actor_id=actor_id, actor_type=actor_type,
+        sequence=sequence, occurred_at=event_time, actor_id=actor_id, actor_type=actor_type,
         clearance=level, payload_contract=payload_contract, payload_version=payload_version,
         payload_hash=payload_hash, idempotency_key=idempotency, previous_event_hash=previous_event_hash,
         event_hash="0" * 64, immutable=True, payload=payload,

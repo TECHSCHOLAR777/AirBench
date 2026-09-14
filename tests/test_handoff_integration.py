@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import threading
 import unittest
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -161,9 +162,16 @@ class _VllmHandler(BaseHTTPRequestHandler):
 
 class _LoopbackServer:
     def __init__(self, served_models: list[str]) -> None:
-        _VllmHandler.served_models = list(served_models)
-        _VllmHandler.calls = []
-        self._server = ThreadingHTTPServer(("127.0.0.1", 0), _VllmHandler)
+        # Each endpoint needs isolated handler state.  The previous shared
+        # class attributes meant starting the 12B fixture rewrote the E2B
+        # fixture's served-model list, causing false routing failures.
+        class Handler(_VllmHandler):
+            pass
+
+        Handler.served_models = list(served_models)
+        Handler.calls = []
+        self._handler_cls = Handler
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         self.base_url = f"http://127.0.0.1:{self._server.server_port}"
@@ -175,7 +183,7 @@ class _LoopbackServer:
 
     @property
     def calls(self) -> list[str]:
-        return list(_VllmHandler.calls)
+        return list(self._handler_cls.calls)
 
 
 # ===========================================================================
@@ -442,8 +450,12 @@ class Test6_LedgerProvenance(unittest.TestCase):
             resource_admission=lambda _t, _r: "admitted",
             endpoint_bindings={"airbench-gemma-4-12b": FakeBackend()},
         )
+        request = replace(
+            _request("task.no.prompt"),
+            evidence_summary=("ev.handoff", "SECRET_PROMPT_DATA_MUST_NOT_APPEAR"),
+        )
         result = router.route(
-            _request("task.no.prompt", prompt_content_marker="SECRET_PROMPT_DATA_MUST_NOT_APPEAR"),
+            request,
             pack_ref=_PACK_REF, hardware_profile_ref=_HW_REF,
         )
         serialized = json.dumps(result.decision.to_dict())

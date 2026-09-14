@@ -657,11 +657,17 @@ class VllmAdapter:
         *,
         retryable: bool,
     ) -> BackendCallError:
+        # Validation and no-egress gates can fail before a fully materialized
+        # ModelCallRequest reaches the adapter (for example during startup or
+        # a provider-compatibility probe).  Failure reporting must remain
+        # typed and redacted without assuming every test/adapter seam exposes
+        # request_id on its lightweight request object.
+        request_id = str(getattr(request.model_call, "request_id", ""))
         return BackendCallError(BackendFailure(
             code=code,
             message=message,
             retryable=retryable,
-            request_id=request.model_call.request_id,
+            request_id=request_id,
             target_id=request.target_id,
         ))
 
