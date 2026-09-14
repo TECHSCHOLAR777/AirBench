@@ -2,6 +2,7 @@
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -186,7 +187,7 @@ def load_model_serving_runtime_from_env(*, ledger: Any = None,
     )
 
 
-def probe_endpoint_readiness(router: ModelRouter) -> list[dict[str, Any]]:
+def probe_endpoint_readiness(router: ModelRouter, *, timeout_s: float | None = None) -> list[dict[str, Any]]:
     """Report per-endpoint health/readiness without exposing prompts or secrets."""
     results: list[dict[str, Any]] = []
     for target_id, adapter in sorted(router.endpoint_bindings.items()):
@@ -197,8 +198,22 @@ def probe_endpoint_readiness(router: ModelRouter) -> list[dict[str, Any]]:
             'adapter_version': getattr(adapter, 'adapter_version', ''),
         }
         try:
-            identity['health'] = adapter.health().value
-            identity['readiness'] = adapter.readiness().value
+            if timeout_s is None:
+                identity['health'] = adapter.health().value
+                identity['readiness'] = adapter.readiness().value
+            else:
+                # Provider probes must never make the Node status route wait
+                # for the full model-call timeout.  A timed-out probe is a
+                # visible degraded state; routing still fails closed.
+                executor = ThreadPoolExecutor(max_workers=1)
+                future = executor.submit(lambda: (adapter.health().value, adapter.readiness().value))
+                try:
+                    identity['health'], identity['readiness'] = future.result(timeout=max(0.1, timeout_s))
+                except TimeoutError:
+                    identity['health'] = BackendHealth.unhealthy.value
+                    identity['readiness'] = BackendReadiness.not_ready.value
+                finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
         except Exception:  # never leak provider detail from a probe
             identity['health'] = BackendHealth.unhealthy.value
             identity['readiness'] = BackendReadiness.not_ready.value
