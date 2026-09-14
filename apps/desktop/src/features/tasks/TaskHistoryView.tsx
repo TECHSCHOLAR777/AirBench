@@ -3,11 +3,12 @@ import type { HomeWorkSummary } from "../work_trace/homeWorkSummary";
 
 interface TaskHistoryViewProps {
   tasks: HomeWorkSummary[];
+  onOpen: (taskId: string) => void;
   onRemove: (taskId: string) => void;
   onNewTask: () => void;
 }
 
-export function TaskHistoryView({ tasks, onRemove, onNewTask }: TaskHistoryViewProps) {
+export function TaskHistoryView({ tasks, onOpen, onRemove, onNewTask }: TaskHistoryViewProps) {
   return <section className="task-history-view" data-testid="task-history-view" aria-label="Task history">
     <header className="task-history-head">
       <div>
@@ -54,6 +55,7 @@ export function TaskHistoryView({ tasks, onRemove, onNewTask }: TaskHistoryViewP
               )}
             </dl>
             <div className="task-history-item-actions">
+              <button type="button" className="secondary-button compact-button" onClick={() => onOpen(task.taskId)}>Open task</button>
               <button type="button" className="text-button" onClick={() => onRemove(task.taskId)} aria-label={`Remove ${task.title} from this desktop list`}>Remove</button>
             </div>
           </li>

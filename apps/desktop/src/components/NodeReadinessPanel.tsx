@@ -4,46 +4,32 @@ import type { ApprovedNodeProfileReference } from "../platform/node/nodeConnecti
 import type { NodeConnectionView } from "../platform/node/nodeConnectionController";
 import { buildNodeReadiness } from "../platform/node/nodeReadiness";
 import { buildOperationalProjection } from "../platform/node/operationalReadiness";
-import { fetchNodeHardware, type HardwareStatus } from "../platform/node/hardwareBridge";
-import { fetchModelServing, type ModelServingStatus } from "../platform/node/modelServingBridge";
-import { fetchQualificationRoster, type QualificationRoster } from "../platform/node/qualificationBridge";
+import { fetchNodeOperationalProjection, type NodeOperationalProjection } from "../platform/node/nodeOperationalProjection";
 import { domainPackSignatureTone, fetchDomainPack, type DomainPackStatus } from "../platform/node/domainPack";
 
 interface NodeReadinessPanelProps {
   connection: NodeConnectionView;
   profile: ApprovedNodeProfileReference | null;
+  onProjection?: (projection: NodeOperationalProjection) => void;
 }
 
-export function NodeReadinessPanel({ connection, profile }: NodeReadinessPanelProps) {
+export function NodeReadinessPanel({ connection, profile, onProjection }: NodeReadinessPanelProps) {
   const readiness = buildNodeReadiness(connection, profile);
   const connectionIcon = readiness.connection.tone === "trusted" ? "shield" : "node";
   const verified = readiness.connection.tone === "trusted";
   const [domainPack, setDomainPack] = useState<DomainPackStatus | null>(null);
   const [domainPackUnavailable, setDomainPackUnavailable] = useState(false);
-  const [hardware, setHardware] = useState<HardwareStatus | null>(null);
-  const [modelServing, setModelServing] = useState<ModelServingStatus | null>(null);
-  const [qualification, setQualification] = useState<QualificationRoster | null>(null);
+  const [projection, setProjection] = useState<NodeOperationalProjection>({ hardware: null, modelServing: null, qualification: null });
 
   useEffect(() => {
     let active = true;
     if (!verified || !profile) {
-      setHardware(null);
-      setModelServing(null);
-      setQualification(null);
+      setProjection({ hardware: null, modelServing: null, qualification: null });
       return () => { active = false; };
     }
-    Promise.allSettled([
-      fetchNodeHardware(profile),
-      fetchModelServing(profile),
-      fetchQualificationRoster(profile),
-    ]).then(([hardwareResult, servingResult, qualificationResult]) => {
-      if (!active) return;
-      setHardware(hardwareResult.status === "fulfilled" ? hardwareResult.value : null);
-      setModelServing(servingResult.status === "fulfilled" ? servingResult.value : null);
-      setQualification(qualificationResult.status === "fulfilled" ? qualificationResult.value : null);
-    });
+    fetchNodeOperationalProjection(profile).then((next) => { if (active) { setProjection(next); onProjection?.(next); } });
     return () => { active = false; };
-  }, [verified, profile]);
+  }, [verified, profile, onProjection]);
 
   useEffect(() => {
     let active = true;
@@ -59,7 +45,7 @@ export function NodeReadinessPanel({ connection, profile }: NodeReadinessPanelPr
   }, [verified, profile]);
 
   const packTone = domainPack ? domainPackSignatureTone(domainPack) : "attention";
-  const operational = buildOperationalProjection({ verified, hardware, modelServing, qualification });
+  const operational = buildOperationalProjection({ verified, ...projection });
 
   return <div className="node-readiness" data-testid="node-readiness-panel">
     <p className="sr-only" role="status">{readiness.connection.title}</p>
