@@ -187,9 +187,42 @@ def load_model_serving_runtime_from_env(*, ledger: Any = None,
     )
 
 
+def _probe_adapter(adapter: Any) -> dict[str, Any]:
+    """Probe one adapter, preferring its one-pass ``probe()`` when available."""
+    probe = getattr(adapter, "probe", None)
+    if probe is not None:
+        return probe()
+    health = adapter.health().value
+    readiness = adapter.readiness().value
+    if health != BackendHealth.healthy.value:
+        reason = "unhealthy"
+    elif readiness != BackendReadiness.ready.value:
+        reason = "not_ready"
+    else:
+        reason = "ready"
+    return {"health": health, "readiness": readiness, "reason": reason, "served_models": []}
+
+
+def _endpoint_probe_unavailable() -> dict[str, Any]:
+    return {
+        "health": BackendHealth.unhealthy.value,
+        "readiness": BackendReadiness.not_ready.value,
+        "reason": "unhealthy",
+        "served_models": [],
+    }
+
+
 def probe_endpoint_readiness(router: ModelRouter, *, timeout_s: float | None = None) -> list[dict[str, Any]]:
-    """Report per-endpoint health/readiness without exposing prompts or secrets."""
+    """Report per-endpoint health/readiness with a typed reason.
+
+    The reason is one of ``ready``, ``unhealthy``, ``not_ready``,
+    ``model_mismatch``, ``adapter_mismatch``, or ``qualification_missing``.
+    Endpoint-level reasons come from the adapter probe; the registry adds the
+    signed roster's adapter-identity and qualification checks.  No prompts,
+    secrets, or provider error text are ever exposed.
+    """
     results: list[dict[str, Any]] = []
+    targets = {target.target_id: target for target in getattr(router.registry, "targets", ())}
     for target_id, adapter in sorted(router.endpoint_bindings.items()):
         identity: dict[str, Any] = {
             'target_id': target_id,
@@ -197,36 +230,46 @@ def probe_endpoint_readiness(router: ModelRouter, *, timeout_s: float | None = N
             'adapter_id': getattr(adapter, 'adapter_id', ''),
             'adapter_version': getattr(adapter, 'adapter_version', ''),
         }
+        expected_model = getattr(adapter, 'model_name', None)
+        if expected_model:
+            identity['expected_model'] = expected_model
         try:
             if timeout_s is None:
-                identity['health'] = adapter.health().value
-                identity['readiness'] = adapter.readiness().value
+                probe = _probe_adapter(adapter)
             else:
                 # Provider probes must never make the Node status route wait
                 # for the full model-call timeout.  A timed-out probe is a
                 # visible degraded state; routing still fails closed.
                 executor = ThreadPoolExecutor(max_workers=1)
-                future = executor.submit(lambda: (adapter.health().value, adapter.readiness().value))
+                future = executor.submit(_probe_adapter, adapter)
                 try:
-                    identity['health'], identity['readiness'] = future.result(timeout=max(0.1, timeout_s))
+                    probe = future.result(timeout=max(0.1, timeout_s))
                 except TimeoutError:
-                    identity['health'] = BackendHealth.unhealthy.value
-                    identity['readiness'] = BackendReadiness.not_ready.value
+                    probe = _endpoint_probe_unavailable()
                 finally:
                     executor.shutdown(wait=False, cancel_futures=True)
         except Exception:  # never leak provider detail from a probe
-            identity['health'] = BackendHealth.unhealthy.value
-            identity['readiness'] = BackendReadiness.not_ready.value
+            probe = _endpoint_probe_unavailable()
+        identity.update(probe)
+        # Registry-level checks composed on a live endpoint: the bound adapter
+        # must match the signed target's adapter identity, and the target must
+        # carry qualification certificates for its roles.
+        target = targets.get(target_id)
+        if probe.get('reason') == 'ready' and target is not None:
+            if ((target.adapter_id and identity['adapter_id'] != target.adapter_id)
+                    or (target.adapter_version and identity['adapter_version'] != target.adapter_version)):
+                identity['readiness'] = BackendReadiness.not_ready.value
+                identity['reason'] = 'adapter_mismatch'
+            elif not target.qualification_certificate or not target.role_qualifications:
+                identity['readiness'] = BackendReadiness.not_ready.value
+                identity['reason'] = 'qualification_missing'
         results.append(identity)
     return results
 
 
 def model_serving_is_ready(router: ModelRouter) -> bool:
     probes = probe_endpoint_readiness(router)
-    return bool(probes) and all(
-        probe['health'] == BackendHealth.healthy.value and probe['readiness'] == BackendReadiness.ready.value
-        for probe in probes
-    )
+    return bool(probes) and all(probe.get('reason') == 'ready' for probe in probes)
 
 
 __all__ = [

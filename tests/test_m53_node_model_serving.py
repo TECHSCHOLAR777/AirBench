@@ -56,7 +56,8 @@ _SIGNING_KEY = b"k" * 32
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _target(target_id: str, routing_tier: str) -> ModelTarget:
+def _target(target_id: str, routing_tier: str, *, adapter_id: str = 'airbench.vllm',
+            qualified: bool = True) -> ModelTarget:
     return ModelTarget.from_dict({
         'target_id': target_id,
         'repository': 'local/gemma',
@@ -83,9 +84,9 @@ def _target(target_id: str, routing_tier: str) -> ModelTarget:
         'qualification_certificate': f'cert.{target_id}',
         'qualification_expires_at': '2030-01-01T00:00:00Z',
         'qualification_signature': 'd' * 64,
-        'role_qualifications': [['reasoning', f'cert.{target_id}']],
-        'adapter_id': 'airbench.vllm',
-        'adapter_version': '0.5',
+        'role_qualifications': [['reasoning', f'cert.{target_id}']] if qualified else [],
+        'adapter_id': adapter_id,
+        'adapter_version': '0.5' if adapter_id == 'airbench.vllm' else '1.0',
         'streaming': True,
         'cancellation': True,
         'routing_tier': routing_tier,
@@ -340,9 +341,12 @@ class LoadModelServingRuntimeTests(unittest.TestCase):
 
 
 class ProbeEndpointReadinessTests(unittest.TestCase):
-    def _router(self, e2b: FakeBackend, twelve: FakeBackend) -> ModelRouter:
+    def _router(self, e2b: FakeBackend, twelve: FakeBackend, **target_kwargs) -> ModelRouter:
         return ModelRouter(
-            _registry(_target('airbench-gemma-4-e2b', 'efficient'), _target('airbench-gemma-4-12b', 'capable')),
+            _registry(
+                _target('airbench-gemma-4-e2b', 'efficient', **target_kwargs),
+                _target('airbench-gemma-4-12b', 'capable', **target_kwargs),
+            ),
             {},
             policy_version_hash='policy.probe',
             resource_admission=lambda _target, _request: 'admitted',
@@ -350,19 +354,68 @@ class ProbeEndpointReadinessTests(unittest.TestCase):
         )
 
     def test_healthy_endpoints_report_ready(self) -> None:
-        router = self._router(FakeBackend(), FakeBackend())
+        router = self._router(FakeBackend(), FakeBackend(), adapter_id='airbench.fake-backend')
         probes = probe_endpoint_readiness(router)
         self.assertEqual(
             sorted(p['target_id'] for p in probes),
             ['airbench-gemma-4-12b', 'airbench-gemma-4-e2b'],
         )
         self.assertTrue(all(p['health'] == 'healthy' and p['readiness'] == 'ready' for p in probes))
+        self.assertTrue(all(p['reason'] == 'ready' for p in probes))
         self.assertTrue(model_serving_is_ready(router))
 
     def test_one_unhealthy_endpoint_degrades_readiness(self) -> None:
         twelve = FakeBackend()
         twelve.set_state(health=BackendHealth.unhealthy, readiness=BackendReadiness.not_ready)
-        router = self._router(FakeBackend(), twelve)
+        router = self._router(FakeBackend(), twelve, adapter_id='airbench.fake-backend')
+        self.assertFalse(model_serving_is_ready(router))
+        probes = {p['target_id']: p for p in probe_endpoint_readiness(router)}
+        self.assertEqual(probes['airbench-gemma-4-12b']['reason'], 'unhealthy')
+
+    def test_adapter_identity_mismatch_is_reported(self) -> None:
+        # FakeBackend is 'airbench.fake-backend'; the roster declares 'airbench.vllm'.
+        router = self._router(FakeBackend(), FakeBackend())
+        probes = {p['target_id']: p for p in probe_endpoint_readiness(router)}
+        self.assertEqual(probes['airbench-gemma-4-e2b']['reason'], 'adapter_mismatch')
+        self.assertEqual(probes['airbench-gemma-4-e2b']['readiness'], 'not_ready')
+        self.assertFalse(model_serving_is_ready(router))
+
+    def test_missing_qualification_is_reported(self) -> None:
+        router = self._router(FakeBackend(), FakeBackend(), adapter_id='airbench.fake-backend', qualified=False)
+        probes = {p['target_id']: p for p in probe_endpoint_readiness(router)}
+        self.assertEqual(probes['airbench-gemma-4-e2b']['reason'], 'qualification_missing')
+        self.assertFalse(model_serving_is_ready(router))
+
+
+class _ProbeStubBackend:
+    """Deterministic stand-in exposing the VllmAdapter-style probe() contract."""
+
+    adapter_id = 'airbench.vllm'
+    adapter_version = '0.5'
+
+    def __init__(self, probe_result: dict, model_name: str = 'airbench-gemma-4-e2b') -> None:
+        self._probe_result = probe_result
+        self.model_name = model_name
+
+    def probe(self) -> dict:
+        return self._probe_result
+
+
+class ProbeReasonPassthroughTests(unittest.TestCase):
+    def test_model_mismatch_reason_survives_composition(self) -> None:
+        stub = _ProbeStubBackend({
+            'health': 'healthy', 'readiness': 'not_ready',
+            'reason': 'model_mismatch', 'served_models': ['some-other-model'],
+        })
+        router = ModelRouter(
+            _registry(_target('airbench-gemma-4-e2b', 'efficient')),
+            {}, policy_version_hash='policy.probe',
+            endpoint_bindings={'airbench-gemma-4-e2b': stub},
+        )
+        probes = probe_endpoint_readiness(router)
+        self.assertEqual(probes[0]['reason'], 'model_mismatch')
+        self.assertEqual(probes[0]['expected_model'], 'airbench-gemma-4-e2b')
+        self.assertEqual(probes[0]['served_models'], ['some-other-model'])
         self.assertFalse(model_serving_is_ready(router))
 
 
@@ -390,7 +443,7 @@ class ModelServingRouteTests(unittest.TestCase):
 
         class _Service:
             model_router = ModelRouter(
-                _registry(_target('airbench-gemma-4-e2b', 'efficient')),
+                _registry(_target('airbench-gemma-4-e2b', 'efficient', adapter_id='airbench.fake-backend')),
                 {},
                 policy_version_hash='policy.route',
                 resource_admission=lambda _target, _request: 'admitted',
@@ -405,6 +458,7 @@ class ModelServingRouteTests(unittest.TestCase):
         self.assertTrue(body['configured'])
         self.assertEqual(body['status'], 'ready')
         self.assertEqual(body['endpoints'][0]['target_id'], 'airbench-gemma-4-e2b')
+        self.assertEqual(body['endpoints'][0]['reason'], 'ready')
 
 
 if __name__ == '__main__':

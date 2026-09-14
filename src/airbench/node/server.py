@@ -338,6 +338,7 @@ def _write_node_started(
     *,
     evidence_dir: Path | None = None,
     pack: Any = None,
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Write a ``node.started`` sovereignty evidence record to a JSON sidecar.
 
@@ -345,6 +346,9 @@ def _write_node_started(
     ``task.created``.  Following the M9 pattern, node-lifecycle evidence is
     written as a separate signed JSON file that an offline verifier can read
     without replaying the task ledger.
+
+    ``extra`` carries the post-composition startup summary (store paths,
+    execution mode, model serving, ledger head) recorded by Phase 0.
 
     Returns the evidence payload dict so callers can include it in the API
     config's ``sovereignty_evidence_ref``.
@@ -363,6 +367,8 @@ def _write_node_started(
         "startup_checks": checks.as_dict(),
         "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
+    if extra:
+        payload["startup_summary"] = extra
     if pack is not None:
         payload["domain_pack"] = pack.to_dict()
     try:
@@ -534,6 +540,19 @@ def build_node_app(
 
     orchestrator = Orchestrator(ledger)
 
+    # Phase 6 startup reconciliation: state that only a live coordinator
+    # process could advance must become typed, committed state again.  Only a
+    # durable ledger can contain stale tasks; an in-memory ledger is fresh.
+    if config.ledger_path:
+        from .recovery import reconcile_stale_tasks
+
+        reconciliation = reconcile_stale_tasks(orchestrator, ledger)
+        if reconciliation["interrupted"] or reconciliation["recovered_to_review"]:
+            logger.warning(
+                "Startup reconciliation: %d task(s) interrupted -> failed, %d recovered to review",
+                len(reconciliation["interrupted"]), len(reconciliation["recovered_to_review"]),
+            )
+
     # The handshake_ledger_event_ref is the head of the ledger at the moment of
     # binding — for a fresh node this will be the empty-ledger sentinel.
     head = ledger.head_hash or "ledger.empty"
@@ -695,6 +714,36 @@ def build_node_app(
         logger.info("Task execution enabled (model router configured: %s, autonomy gate action: %s)",
                     model_router is not None, execution_action_kind if autonomy_service is not None else "disabled")
 
+    # Phase 0 machine-readable startup summary: one JSON line describing what
+    # this Node actually bound — stores, execution mode, model serving, and
+    # the ledger head — so a demo run never depends on assumed dependencies.
+    startup_summary: dict[str, Any] = {
+        "execution_enabled": execution is not None,
+        "model_serving_configured": model_router is not None,
+        "retrieval_enabled": retrieval_runtime is not None,
+        "knowledge_ingestion_configured": knowledge_service is not None,
+        "intake_root": os.environ.get("AIRBENCH_INTAKE_ROOT", "") or None,
+        "artifact_root": os.environ.get("AIRBENCH_ARTIFACT_ROOT", "") or None,
+        "workspace_root": os.environ.get("AIRBENCH_WORKSPACE_ROOT", "") or None,
+        "world_model_path": os.environ.get("AIRBENCH_WORLD_MODEL_PATH", "") or None,
+        "decision_store_path": os.environ.get("AIRBENCH_DECISION_STORE_PATH", "") or None,
+        "knowledge_ingest_root": os.environ.get("AIRBENCH_KNOWLEDGE_INGEST_ROOT", "") or None,
+        "vector_store_path": os.environ.get("AIRBENCH_VECTOR_STORE_PATH", "") or None,
+        "ledger_head": ledger.head_hash or "ledger.empty",
+    }
+    logger.info("NODE_STARTUP_SUMMARY %s", json.dumps(startup_summary, sort_keys=True))
+    # Enrich the node.started evidence sidecar with the same summary.
+    evidence_path_dir = evidence_dir if evidence_dir is not None else (
+        Path(config.ledger_path).parent if config.ledger_path else None)
+    if evidence_path_dir is not None:
+        evidence_path = evidence_path_dir / f"node_started_{config.node_identity.replace('.', '_')}.json"
+        try:
+            record = json.loads(evidence_path.read_text(encoding="utf-8"))
+            record["startup_summary"] = startup_summary
+            evidence_path.write_text(json.dumps(record, indent=2, sort_keys=True), encoding="utf-8")
+        except (OSError, ValueError):
+            logger.warning("Could not enrich node.started evidence sidecar with the startup summary")
+
     service = NodeApiService(
         orchestrator, api_config, model_router=model_router, task_planner=task_planner,
         retrieval=retrieval_runtime, intake_gateway=intake_gateway,
@@ -824,10 +873,7 @@ def add_model_serving_route(app: Any, service: NodeApiService) -> None:
                 content={"configured": False, "status": "disabled", "endpoints": []},
             )
         endpoints = probe_endpoint_readiness(router, timeout_s=2.0)
-        ready = bool(endpoints) and all(
-            endpoint["health"] == "healthy" and endpoint["readiness"] == "ready"
-            for endpoint in endpoints
-        )
+        ready = bool(endpoints) and all(endpoint.get("reason") == "ready" for endpoint in endpoints)
         return StarletteJSONResponse(
             # Health is a projection, not an admission decision. A degraded
             # lane must be visible; the router still fails closed for calls.
