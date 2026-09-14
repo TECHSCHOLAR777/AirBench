@@ -914,7 +914,8 @@ class NodeApiService:
                 except NodeTaskExecutionError as exc:
                     logger.exception("Node task execution failed", extra={"task_id": task_id})
                     if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
-                        self.orchestrator.transition(task_id, "task.failed", {"failure_code": "task_execution_prepare_failed"})
+                        self.orchestrator.transition(task_id, "task.failed", {
+                            "failure_code": getattr(exc, "failure_code", "task_execution_prepare_failed")})
                     raise NodeApiError(409, "task_execution_prepare_failed", "The Node could not prepare the admitted plan for execution.") from exc
             return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
 
@@ -929,6 +930,20 @@ class NodeApiService:
             review = self.plan(task_id)
             if review["plan_state"] != "ready":
                 raise NodeApiError(409, "plan_not_approvable", "The Node has not produced an approvable plan and hardware admission.")
+            # Phase 1 model-lane preflight: the approval must not be committed
+            # when no ready, qualified model lane can serve the worker step.
+            # The task stays plan-ready so the operator can retry once the
+            # remote containers and SSH tunnel are healthy.
+            if self.execution is not None:
+                from .task_execution import ModelLaneNotReady
+                try:
+                    self.execution.preflight(task_id)
+                except ModelLaneNotReady as exc:
+                    raise NodeApiError(
+                        503, "model_lane_not_ready",
+                        "The required model lane is not ready. Start the remote vLLM containers and open the SSH tunnel, "
+                        f"then retry the approval. Routing reason: {exc.reason}",
+                    ) from exc
             approval_ref = _text(command.arguments, "approval_ref", 512)
             try:
                 result = self.orchestrator.approve_plan(
@@ -959,8 +974,17 @@ class NodeApiService:
                 except NodeTaskExecutionError as exc:
                     logger.exception("Node task execution failed", extra={"task_id": task_id})
                     if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
-                        self.orchestrator.transition(task_id, "task.failed", {"failure_code": "task_execution_failed"})
+                        self.orchestrator.transition(task_id, "task.failed", {
+                            "failure_code": getattr(exc, "failure_code", "task_execution_failed")})
                     raise NodeApiError(503, "task_execution_failed", "The approved plan did not produce a verified draft.") from exc
+                except Exception as exc:  # noqa: BLE001 - Phase 3: unexpected failures become typed terminal states
+                    logger.exception("Node task execution hit an unexpected failure", extra={"task_id": task_id})
+                    if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
+                        self.orchestrator.transition(task_id, "task.failed", {
+                            "failure_code": "task_execution_internal_error"})
+                    raise NodeApiError(503, "task_execution_internal_error",
+                                       "The approved plan hit an unexpected internal failure. The task was moved to a "
+                                       "terminal failed state instead of leaving a partial commit.") from exc
             return _command_result(command, task_id, self._event_by_id(result.event_id), self._task_sequence(task_id, result.event_id), result.state, self.config)
 
     def cancel(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1724,6 +1748,7 @@ def create_app(service: NodeApiService) -> FastAPI:
     """Build an API app with documentation endpoints disabled by default."""
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app.state.service = service
 
     @app.exception_handler(NodeApiError)
     async def node_error_handler(_: Request, error: NodeApiError) -> JSONResponse:

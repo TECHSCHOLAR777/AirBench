@@ -33,6 +33,15 @@ def load_qualification_matrix(path: str | Path) -> dict[str, Any]:
     return dict(payload)
 
 
+def _is_pending_text(text: str) -> bool:
+    lowered = text.strip().lower()
+    return (
+        lowered in {"pending", "not_measured"}
+        or "pending:" in lowered
+        or "replace_with_measured:" in lowered
+    )
+
+
 def _flatten_strings(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value]
@@ -44,7 +53,7 @@ def _flatten_strings(value: Any) -> list[str]:
 
 
 def _certificate_status(certificate: Mapping[str, Any]) -> str:
-    placeholders = [text for text in _flatten_strings(certificate) if "PENDING:" in text or "REPLACE_WITH_MEASURED:" in text]
+    placeholders = [text for text in _flatten_strings(certificate) if _is_pending_text(text)]
     if placeholders:
         return "pending"
     if not certificate.get("signature"):
@@ -58,11 +67,11 @@ def _certificate_missing_evidence(certificate: Mapping[str, Any]) -> list[str]:
         values = certificate.get(section)
         if isinstance(values, Mapping):
             for name, value in values.items():
-                if isinstance(value, str) and (value.startswith("PENDING:") or value.startswith("REPLACE_WITH_MEASURED:")):
+                if isinstance(value, str) and _is_pending_text(value):
                     missing.append(str(name))
     for name in ("runtime_container_digest", "input_fixture_set_hash", "qualified_at", "signature"):
         value = certificate.get(name)
-        if not value or (isinstance(value, str) and (value.startswith("PENDING:") or value.startswith("REPLACE_WITH_MEASURED:"))):
+        if not value or (isinstance(value, str) and _is_pending_text(value)):
             missing.append(name)
     return sorted(set(missing))
 

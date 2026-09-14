@@ -76,6 +76,33 @@ Starting another Node while an older Node process still owned port 8765 produced
 
 ## 4. Ordered implementation plan
 
+### Phase status (updated 2026-09-14)
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0 — Runtime lifecycle | Implemented (this session) | Port-owner refusal, Fresh/Resume modes, machine-readable startup summary, `scripts/node_preflight.py`; UI already shows connecting/ready/degraded |
+| 1 — Remote GPU/tunnel | Implemented, live verification pending | Preflight script, typed lane reasons, approve-time admission gate done; "route trace records selected target" verifies the moment lanes are up |
+| 2 — Qualification | Pipeline implemented; live measurement blocked | Measurement → qualify → sign → `--require-measured` roster chain done and tested offline. Blocked by the remote tunnel outage (see below), not by code |
+| 3 — Real model-backed task | Code-side items 1-4, 6 done | Items 1-2 (preflight gate) done in Phase 1 work; item 3 typed terminal failure codes; item 4 route trace already records target/model/certificate/fallback; item 6 UI polling stops on needs-review. Item 5 (live vLLM run) awaits the tunnel |
+| 4-9 | Not started | Dependency order preserved; nothing skipped |
+
+**Phase 2 external blocker (2026-09-14):** the remote GPU server's Cloudflare Tunnel
+(`ssh-mmmut.aimsdtu.in`) is down — Cloudflare returns **Error 1033** (no live
+connector), so `ssh mmmut-server` fails with `websocket: bad handshake` and
+local ports 18001/18002 are unreachable. Resolution: someone with console/VPN
+access to `workstation-04` must restart the `cloudflared` service and the two
+vLLM containers; then run `cloudflared access login`, reopen the tunnel, and
+execute `docs/operations/MODEL_QUALIFICATION_RUNBOOK.md` steps 1-4 (measure →
+qualify → sign → rebuild roster). No code changes are required; the runbook
+and scripts are ready.
+
+**Live-GPU integration seam:** all GPU-dependent work is isolated behind two
+stable seams — (a) the SSH tunnel + roster-declared endpoint URLs
+(`demo_endpoint_url`), and (b) `scripts/model_endpoint_preflight.py` +
+`NodeTaskExecutionCoordinator.preflight()` admission. When the server returns,
+no code changes are needed: run the preflight, then the qualification runbook,
+then the Phase 3 acceptance task.
+
 ### Phase 0 — Clean runtime lifecycle
 
 Problems:

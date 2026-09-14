@@ -137,6 +137,11 @@ class VllmAdapter:
         """Deployment identity recorded in response provenance, if bound."""
         return self._endpoint_id
 
+    @property
+    def model_name(self) -> str:
+        """The exact served model identity this adapter expects."""
+        return self._model_name
+
     # ------------------------------------------------------------------
     # BackendAdapter protocol
     # ------------------------------------------------------------------
@@ -163,6 +168,36 @@ class VllmAdapter:
             return BackendReadiness.ready if self._model_name in ids else BackendReadiness.not_ready
         except Exception:
             return BackendReadiness.not_ready
+
+    def probe(self) -> dict[str, Any]:
+        """One-pass health/readiness probe with a typed reason.
+
+        Returns the endpoint states plus the served model IDs so callers can
+        report *why* a lane is unavailable without extra HTTP round trips.
+        The reason is one of ``unhealthy``, ``not_ready``, ``model_mismatch``,
+        or ``ready``; registry-level adapter and qualification checks are
+        composed on top by the Node's serving layer.
+        """
+        if self._get("/health") is None:
+            return {"health": BackendHealth.unhealthy.value,
+                    "readiness": BackendReadiness.not_ready.value,
+                    "reason": "unhealthy", "served_models": []}
+        data = self._get_json("/v1/models")
+        if data is None:
+            return {"health": BackendHealth.healthy.value,
+                    "readiness": BackendReadiness.not_ready.value,
+                    "reason": "not_ready", "served_models": []}
+        served = sorted({
+            item.get("id") for item in data.get("data", [])
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        })
+        if self._model_name not in served:
+            return {"health": BackendHealth.healthy.value,
+                    "readiness": BackendReadiness.not_ready.value,
+                    "reason": "model_mismatch", "served_models": served}
+        return {"health": BackendHealth.healthy.value,
+                "readiness": BackendReadiness.ready.value,
+                "reason": "ready", "served_models": served}
 
     def complete(
         self,

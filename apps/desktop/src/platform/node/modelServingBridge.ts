@@ -13,6 +13,7 @@ export interface ModelServingEndpoint {
   target_id: string;
   health: string;
   readiness: string;
+  reason: string;
 }
 
 export interface ModelServingStatus {
@@ -38,6 +39,7 @@ export function validateModelServingStatus(value: unknown): ModelServingStatus {
         target_id: optionalString(endpoint.target_id),
         health: optionalString(endpoint.health),
         readiness: optionalString(endpoint.readiness),
+        reason: optionalString(endpoint.reason),
       }))
     : [];
   return {

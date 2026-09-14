@@ -13,9 +13,12 @@ param(
     [string]$Subject = "demo.operator",
     [string]$DomainPackRef = "refinery-psu-v0",
     [string]$CorpusZip = "",
+    [ValidateSet("Fresh", "Resume")]
+    [string]$Mode = "Resume",   # Fresh: delete local demo state so old tasks/stores cannot leak into a new demo
     [switch]$PrepareCorpus,
     [switch]$Retrieval,   # off by default: loading BGE adds ~1 min and several GB RAM
-    [switch]$NoExecution  # debugging only: disable Node-owned execution + deliverables
+    [switch]$NoExecution, # debugging only: disable Node-owned execution + deliverables
+    [switch]$AllowDegradedLane  # debugging only: start the Node even when a model lane is down
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,11 +26,55 @@ $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 $py = if (Test-Path "$repo\.venv-deep\Scripts\python.exe") { "$repo\.venv-deep\Scripts\python.exe" } else { "python" }
 
+# Phase 0: one Node per port. Refuse to compete with a live listener and print
+# the owning process so the operator can stop it deliberately.
+$listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($listener) {
+    $owner = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+    $ownerName = if ($owner) { $owner.ProcessName } else { "unknown" }
+    Write-Error "Port $Port is already owned by PID $($listener.OwningProcess) ($ownerName). Stop it first (Stop-Process -Id $($listener.OwningProcess)) or choose another port."
+}
+
+# Phase 0: FreshDemo deletes local demo state so a new demo cannot see old
+# tasks, intakes, artifacts, or projections. ResumeDemo keeps everything.
+if ($Mode -eq "Fresh") {
+    $statePaths = @(
+        "$repo\.airbench-node-ledger.sqlite", "$repo\.airbench-node-ledger.sqlite-wal", "$repo\.airbench-node-ledger.sqlite-shm",
+        "$repo\.airbench-intake", "$repo\.airbench-artifacts", "$repo\.airbench-chroma",
+        "$repo\.airbench-world-model.db", "$repo\.airbench-decisions.db",
+        "$repo\.airbench-corpus\01_knowledge_base_ingestion", "$repo\retrieval-index.json",
+        "$repo\.airbench-workspaces"
+    )
+    foreach ($path in $statePaths) {
+        if (Test-Path $path) {
+            Remove-Item -Recurse -Force $path
+            Write-Host "FreshDemo removed: $path" -ForegroundColor DarkGray
+        }
+    }
+    Write-Host "FreshDemo: local demo state cleared." -ForegroundColor Cyan
+} else {
+    Write-Host "ResumeDemo: existing ledger and stores are kept." -ForegroundColor Cyan
+}
+
 if (-not (Test-Path "$repo\models\roster\demo\two_endpoint_roster.yaml")) {
     Write-Error "Signed demo roster missing. Run: python scripts\airbench_demo_roster.py"
 }
 if (-not (Test-Path "$repo\.airbench_signing_key")) {
     Write-Error "Signing key missing at $repo\.airbench_signing_key"
+}
+
+# Phase 1 model endpoint preflight: prove both tunnelled lanes are healthy and
+# serve the exact roster model names before the Node starts. A degraded lane
+# must be an explicit operator decision (-AllowDegradedLane), never a surprise
+# discovered deep inside task execution.
+if (-not $AllowDegradedLane) {
+    Write-Host "Running model endpoint preflight (tunnel + served model IDs)..." -ForegroundColor Cyan
+    & $py "$repo\scripts\model_endpoint_preflight.py" --roster "$repo\models\roster\demo\two_endpoint_roster.yaml" --signing-key "$repo\.airbench_signing_key"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Model endpoint preflight failed. Start the remote vLLM containers and the SSH tunnel (see docs/operations/STARTUP_GUIDE.md), or pass -AllowDegradedLane to start degraded."
+    }
+} else {
+    Write-Host "Model endpoint preflight skipped (-AllowDegradedLane): the Node will start with possibly degraded lanes." -ForegroundColor Yellow
 }
 
 $env:PYTHONPATH                  = "src"

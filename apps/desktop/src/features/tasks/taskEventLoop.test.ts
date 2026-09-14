@@ -39,6 +39,20 @@ describe("TaskEventLoop", () => {
     loop.stop();
   });
 
+  it("stops polling once the task reaches the needs-review state", async () => {
+    vi.useFakeTimers();
+    const synchronize = vi.fn().mockResolvedValueOnce(result("current", "needs_review"));
+    const onResult = vi.fn();
+    const loop = new TaskEventLoop(synchronize, onResult, { intervalMs: 1_000 });
+
+    loop.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onResult).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(synchronize).toHaveBeenCalledTimes(1);
+    loop.stop();
+  });
+
   it("uses a slower reconnect interval and stops after a terminal Node result", async () => {
     vi.useFakeTimers();
     const synchronize = vi.fn()
