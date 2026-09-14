@@ -12,6 +12,8 @@ param(
     [string]$Port = "8765",
     [string]$Subject = "demo.operator",
     [string]$DomainPackRef = "refinery-psu-v0",
+    [string]$CorpusZip = "",
+    [switch]$PrepareCorpus,
     [switch]$Retrieval,   # off by default: loading BGE adds ~1 min and several GB RAM
     [switch]$NoExecution  # debugging only: disable Node-owned execution + deliverables
 )
@@ -73,12 +75,23 @@ $env:AIRBENCH_DECISION_STORE_PATH    = "$repo\.airbench-decisions.db"
 $env:AIRBENCH_QUALIFICATION_MATRIX   = "$repo\qualifications\model_qualification_matrix.yaml"
 
 # Bulk knowledge ingestion + durable vector store (Chroma).
-$env:AIRBENCH_KNOWLEDGE_INGEST_ROOT  = "$repo\.airbench-corpus"
+$corpusRoot = "$repo\.airbench-corpus"
+$env:AIRBENCH_KNOWLEDGE_INGEST_ROOT  = "$corpusRoot\01_knowledge_base_ingestion"
 $env:AIRBENCH_VECTOR_STORE           = "chroma"
 $env:AIRBENCH_VECTOR_STORE_PATH      = "$repo\.airbench-chroma"
+if (-not (Test-Path $corpusRoot)) {
+    New-Item -ItemType Directory -Path $corpusRoot | Out-Null
+}
 if (-not (Test-Path $env:AIRBENCH_KNOWLEDGE_INGEST_ROOT)) {
     New-Item -ItemType Directory -Path $env:AIRBENCH_KNOWLEDGE_INGEST_ROOT | Out-Null
-    Write-Host "Created knowledge corpus directory: $env:AIRBENCH_KNOWLEDGE_INGEST_ROOT (drop documents here to ingest)." -ForegroundColor Yellow
+    Write-Host "Created knowledge corpus directory: $env:AIRBENCH_KNOWLEDGE_INGEST_ROOT (drop approved documents here to ingest)." -ForegroundColor Yellow
+}
+if ($PrepareCorpus) {
+    if (-not $CorpusZip) {
+        throw "-PrepareCorpus requires -CorpusZip pointing to the approved local corpus ZIP."
+    }
+    & $py "$repo\scripts\prepare_refinery_demo_corpus.py" $CorpusZip --destination $corpusRoot --force
+    if ($LASTEXITCODE -ne 0) { throw "Corpus preparation failed." }
 }
 
 $env:USE_TF                 = "0"
