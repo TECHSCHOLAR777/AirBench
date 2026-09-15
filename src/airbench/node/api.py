@@ -17,6 +17,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from email import policy
 from email.parser import BytesParser
 from threading import RLock
@@ -315,7 +316,7 @@ class NodeApiService:
                     )
                     content = page_bytes
                     media_type = intake_page.media_type
-                    content_hash = intake_page.content_hash
+                    content_hash = intake_page.content_hash if intake_page.rendered_page_ref else sha256(content).hexdigest()
                     revision_id = intake_manifest.revision_id
                     source_ref = intake_manifest.source_ref
                 except NodeIntakeError as exc:
@@ -927,13 +928,62 @@ class NodeApiService:
                 raise NodeApiError(503, "task_commit_unreadable", "The committed task could not be read back from the ledger.")
             # Text-only requests use the same File Intake Layer as files. The
             # request is untrusted evidence and is committed before planning.
-            if arguments.get("input_kind") == "text" and not input_manifest_refs and self.intake_gateway is not None:
-                try:
-                    self.intake_gateway.query_upload(
-                        subject=subject, task_id=task.task_id, file_name="task-input.txt", content=request.encode("utf-8")
-                    )
-                except NodeIntakeError as exc:
-                    raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+            if arguments.get("input_kind") == "text" and not input_manifest_refs:
+                if self.intake_gateway is not None:
+                    try:
+                        self.intake_gateway.query_upload(
+                            subject=subject, task_id=task.task_id, file_name="task-input.txt", content=request.encode("utf-8")
+                        )
+                    except NodeIntakeError as exc:
+                        raise NodeApiError(exc.status_code, exc.code, exc.message) from exc
+                else:
+                    # Create a minimal evidence.created event directly in the ledger
+                    # so that execution.prepare() can find it when File Intake is not configured.
+                    from contracts import Taint, build_event, idempotency_key
+                    import hashlib
+                    source_hash = f"sha256:{hashlib.sha256(request.encode('utf-8')).hexdigest()}"
+                    intake_id = stable_id("intake", task.task_id, source_hash, "text")
+                    revision_id = stable_id("revision", task.task_id, source_hash)
+                    ingested_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                    key = idempotency_key("intake.evidence.created", task.task_id, intake_id)
+                    existing = next((e for e in self._ledger.events if e.idempotency_key == key), None)
+                    if existing is None:
+                        event = build_event(
+                            event_type="evidence.created",
+                            task_id=task.task_id,
+                            actor_id="intake.layer",
+                            actor_type="service",
+                            payload_contract="IntakeManifest",
+                            payload_version="1.0",
+                            payload={
+                                "intake_id": intake_id,
+                                "revision_id": revision_id,
+                                "manifest_hash": hashlib.sha256(f"{intake_id}:{revision_id}:{source_hash}".encode()).hexdigest(),
+                                "source_hash": source_hash,
+                                "page_ids": [f"page-{intake_id}-1"],
+                                "source_artifact_ref": None,
+                                "manifest_artifact_ref": None,
+                                "rendered_page_refs": [],
+                                "destination": "query-upload",
+                                "trust_profile": "standard",
+                                "latency_profile": "interactive",
+                                "provenance": {
+                                    "source_ref": f"query-upload:{task.task_id}:task-input.txt",
+                                    "confidence": 1.0,
+                                    "clearance": task.clearance.value,
+                                    "taint": Taint.untrusted.value,
+                                },
+                            },
+                            clearance=task.clearance,
+                            idempotency=key,
+                            sequence=len(self._ledger.events),
+                            previous_event_hash=self._ledger.head_hash,
+                            occurred_at=ingested_at,
+                        )
+                        try:
+                            self._ledger.append(event)
+                        except Exception as exc:
+                            raise NodeApiError(503, "intake_evidence_failed", "Text intake evidence could not be committed.") from exc
             snapshot = self.snapshot(task.task_id)
             return {
                 "task": task.to_dict(),
