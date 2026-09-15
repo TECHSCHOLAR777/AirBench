@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import io
 import re
+import textwrap
 import zipfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -28,11 +29,12 @@ MAX_TITLE_LENGTH = 255
 MAX_SECTION_LENGTH = 200_000
 MAX_VALUE_LENGTH = 4_096
 MAX_ARTIFACT_BYTES = 100_000_000
-_FORMAT_EXTENSION = {"docx": "docx", "xlsx": "xlsx", "pptx": "pptx"}
+_FORMAT_EXTENSION = {"docx": "docx", "xlsx": "xlsx", "pptx": "pptx", "pdf": "pdf"}
 _MEDIA_TYPE = {
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "pdf": "application/pdf",
 }
 _SUPPORTED_FORMATS = frozenset(_MEDIA_TYPE)
 _NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,127}$")
@@ -424,7 +426,7 @@ class DeliverableEngine:
             if not isinstance(version, str) or not version.strip():
                 raise DeliverableError("domain-pack deliverable template version is invalid")
             if file_format not in _SUPPORTED_FORMATS or not isinstance(sections, list) or not sections:
-                raise DeliverableError("the deliverable template must declare a supported format (docx, xlsx, pptx) with sections")
+                raise DeliverableError("the deliverable template must declare a supported format (docx, xlsx, pptx, pdf) with sections")
             names = tuple(section for section in sections if isinstance(section, str) and _NAME_RE.fullmatch(section))
             if len(names) != len(sections) or len(set(names)) != len(names):
                 raise DeliverableError("domain-pack deliverable sections are invalid")
@@ -516,6 +518,8 @@ class DeliverableEngine:
             return DeliverableEngine._render_xlsx(title, sections, values, template)
         if file_format == "pptx":
             return DeliverableEngine._render_pptx(title, sections, values, template)
+        if file_format == "pdf":
+            return DeliverableEngine._render_pdf(title, sections, values, template)
         raise DeliverableError("unsupported deliverable format")
 
     @staticmethod
@@ -621,6 +625,90 @@ class DeliverableEngine:
         presentation.save(output)
         return output.getvalue()
 
+    @staticmethod
+    def _render_pdf(
+        title: str,
+        sections: Mapping[str, str],
+        values: tuple[DeterministicValue, ...],
+        template: TemplateDefinition,
+    ) -> bytes:
+        """Render a small deterministic, dependency-free PDF report.
+
+        The renderer intentionally uses only the PDF standard's built-in
+        Helvetica font.  This keeps the artifact reproducible and avoids
+        embedding fonts or metadata supplied by an untrusted model response.
+        Non-Latin-1 characters are replaced during PDF encoding; the source
+        text remains governed by the request and is still present in the
+        other deliverable formats.
+        """
+        lines: list[tuple[str, int]] = [(title, 18)]
+        for section in template.required_sections:
+            lines.append((_section_label(section), 14))
+            for paragraph in sections[section].splitlines() or [""]:
+                wrapped = textwrap.wrap(
+                    paragraph,
+                    width=96,
+                    break_long_words=True,
+                    break_on_hyphens=False,
+                ) or [""]
+                lines.extend((line, 10) for line in wrapped)
+            if template.values_section == section and values:
+                lines.append(("Name | Value | Unit", 10))
+                lines.extend((f"{value.name} | {value.value_text} | {value.unit or ''}", 10) for value in values)
+
+        page_lines: list[list[tuple[str, int]]] = []
+        current: list[tuple[str, int]] = []
+        remaining = 42
+        for line in lines:
+            cost = 2 if line[1] >= 14 else 1
+            if current and remaining < cost:
+                page_lines.append(current)
+                current = []
+                remaining = 42
+            current.append(line)
+            remaining -= cost
+        if current:
+            page_lines.append(current)
+
+        objects: list[bytes] = [b"", b""]
+        page_object_ids: list[int] = []
+        content_object_ids: list[int] = []
+        for page in page_lines:
+            page_object_ids.append(len(objects) + 1)
+            objects.append(b"")
+            content_object_ids.append(len(objects) + 1)
+            objects.append(b"")
+        font_object_id = len(objects) + 1
+        objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+        objects[0] = f"<< /Type /Catalog /Pages 2 0 R >>".encode("ascii")
+        kids = " ".join(f"{object_id} 0 R" for object_id in page_object_ids)
+        objects[1] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_object_ids)} >>".encode("ascii")
+        for index, page in enumerate(page_lines):
+            content = _pdf_page_content(page, index + 1, len(page_lines))
+            objects[page_object_ids[index] - 1] = (
+                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                f"/Resources << /Font << /F1 {font_object_id} 0 R >> >> "
+                f"/Contents {content_object_ids[index]} 0 R >>"
+            ).encode("ascii")
+            objects[content_object_ids[index] - 1] = (
+                f"<< /Length {len(content)} >>\nstream\n".encode("ascii") + content + b"\nendstream"
+            )
+
+        output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+        offsets = [0]
+        for object_id, body in enumerate(objects, start=1):
+            offsets.append(len(output))
+            output.extend(f"{object_id} 0 obj\n".encode("ascii"))
+            output.extend(body)
+            output.extend(b"\nendobj\n")
+        xref_offset = len(output)
+        output.extend(f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode("ascii"))
+        output.extend(b"".join(f"{offset:010d} 00000 n \n".encode("ascii") for offset in offsets[1:]))
+        output.extend(
+            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
+        )
+        return bytes(output)
+
     def _append(
         self,
         *,
@@ -713,7 +801,55 @@ def _structural_check(
             content, required_parts={"ppt/presentation.xml", "ppt/slides/slide1.xml"},
             text_prefixes=("ppt/",), sections=sections, values=values,
         )
+    if template.file_format == "pdf":
+        return _pdf_structural_check(content, sections=sections, values=values)
     return "failed", "the deliverable format cannot be structurally checked"
+
+
+def _pdf_page_content(lines: list[tuple[str, int]], page_number: int, page_count: int) -> bytes:
+    commands = ["BT", "/F1 18 Tf", "54 742 Td"]
+    first = True
+    for text, size in lines:
+        if not first:
+            commands.append("0 -15 Td")
+        commands.append(f"/F1 {size} Tf")
+        commands.append(f"({_pdf_escape(text)}) Tj")
+        first = False
+    commands.extend(["/F1 8 Tf", "1 0 0 1 54 36 Tm", f"(Page {page_number} of {page_count}) Tj", "ET"])
+    return "\n".join(commands).encode("latin-1", "replace")
+
+
+def _pdf_escape(value: str) -> str:
+    safe = value.encode("latin-1", "replace").decode("latin-1")
+    return safe.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").replace("\r", " ").replace("\n", " ")
+
+
+def _pdf_structural_check(
+    content: bytes,
+    *,
+    sections: Mapping[str, str],
+    values: tuple[DeterministicValue, ...],
+) -> tuple[str, str]:
+    if not content.startswith(b"%PDF-") or not content.rstrip().endswith(b"%%EOF"):
+        return "failed", "the PDF header or end marker is invalid"
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(content), strict=True)
+        if not reader.pages:
+            return "failed", "the PDF contains no pages"
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    except Exception:
+        return "failed", "the PDF could not be safely parsed"
+    if "{{" in text or "}}" in text:
+        return "failed", "an unresolved named value placeholder remains in the artifact"
+    for section in sections:
+        if _section_label(section) not in text:
+            return "failed", f"required section {section!r} was not found in the artifact"
+    for value in values:
+        if value.value_text not in text:
+            return "failed", f"deterministic value {value.name!r} was not found in the artifact"
+    return "passed", ""
 
 
 def _ooxml_structural_check(

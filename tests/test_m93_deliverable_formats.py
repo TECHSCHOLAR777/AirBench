@@ -23,6 +23,9 @@ TEMPLATES = {
         {"id": "fmt_pptx", "version": "1.0", "format": "pptx", "required_sections": SECTIONS,
          "value_bindings": [{"name": "page_count", "required": True}],
          "values_section": "deterministic_calculations", "structural_check": "required", "visual_check": "not_required"},
+        {"id": "fmt_pdf", "version": "1.0", "format": "pdf", "required_sections": SECTIONS,
+         "value_bindings": [{"name": "page_count", "required": True}],
+         "values_section": "deterministic_calculations", "structural_check": "required", "visual_check": "not_required"},
     ]
 }
 
@@ -76,6 +79,7 @@ def engine(tmp_path) -> DeliverableEngine:
     ("fmt_docx", "docx", {"word/document.xml"}),
     ("fmt_xlsx", "xlsx", {"xl/workbook.xml", "xl/worksheets/sheet1.xml"}),
     ("fmt_pptx", "pptx", {"ppt/presentation.xml", "ppt/slides/slide1.xml"}),
+    ("fmt_pdf", "pdf", set()),
 ])
 def test_render_each_format_end_to_end(engine, template_id, fmt, required_parts):
     artifact = engine.render(_request(template_id))
@@ -84,9 +88,16 @@ def test_render_each_format_end_to_end(engine, template_id, fmt, required_parts)
     assert artifact.status == "verified_draft"
     assert artifact.content_hash and artifact.byte_size > 0
     content = engine.artifact_store.read(artifact.artifact_id, fmt)
-    with zipfile.ZipFile(io.BytesIO(content)) as package:
-        assert required_parts.issubset(set(package.namelist()))
-        assert not any(name.endswith("vbaProject.bin") for name in package.namelist())
+    if fmt == "pdf":
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(content))
+        assert len(reader.pages) >= 1
+        assert "Inspection review" in "\n".join(page.extract_text() or "" for page in reader.pages)
+    else:
+        with zipfile.ZipFile(io.BytesIO(content)) as package:
+            assert required_parts.issubset(set(package.namelist()))
+            assert not any(name.endswith("vbaProject.bin") for name in package.namelist())
 
 
 def test_xlsx_carries_the_deterministic_value(engine):
@@ -95,18 +106,13 @@ def test_xlsx_carries_the_deterministic_value(engine):
     assert "page_count" in text and "3" in text
 
 
-def test_unsupported_format_is_rejected(tmp_path):
+def test_supported_pdf_format_is_accepted(tmp_path):
     template_path = tmp_path / "templates.yaml"
     template_path.write_text(
-        yaml.safe_dump({"templates": [{"id": "bad", "version": "1.0", "format": "pdf", "required_sections": SECTIONS}]}),
+        yaml.safe_dump({"templates": [{"id": "pdf", "version": "1.0", "format": "pdf", "required_sections": SECTIONS}]}),
         encoding="utf-8",
     )
-    with pytest.raises(Exception):
-        DeliverableEngine(
-            template_path=template_path,
-            artifact_store=LocalArtifactStore(tmp_path / "artifacts"),
-            ledger=EventLedger(),
-        )
+    DeliverableEngine(template_path=template_path, artifact_store=LocalArtifactStore(tmp_path / "artifacts"), ledger=EventLedger())
 
 
 def _archive_text(engine, artifact, fmt, prefix) -> str:

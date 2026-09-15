@@ -589,14 +589,32 @@ function App() {
     return applied;
   };
 
-  const refreshTask = async () => {
+  const refreshTask = async (): Promise<TaskProjection | null> => {
     const synchronizer = synchronizerRef.current;
-    if (!synchronizer) return;
+    if (!synchronizer) return null;
     const taskId = taskProjection?.taskId;
     const result = await synchronize(synchronizer);
-    applyTaskSyncResult(result);
+    const applied = applyTaskSyncResult(result);
     const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
     if (profile && taskId) await refreshTaskRouteTrace(profile, taskId);
+    return applied.projection;
+  };
+
+  const refreshPlanReview = async () => {
+    const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
+    const taskId = taskProjection?.taskId;
+    if (!profile || !taskId) return;
+    setPlanLoading(true);
+    try {
+      const refreshedProjection = await refreshTask();
+      const plan = await fetchTaskPlan(profile, refreshedProjection?.taskId ?? taskId);
+      setPlanReview(plan);
+      setNotice("Plan refreshed from the current Node sequence. Review it before approving.");
+    } catch (error) {
+      setNotice(boundaryErrorMessage(error));
+    } finally {
+      setPlanLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -784,23 +802,31 @@ function App() {
       setNotice("Connect a verified Node and wait for an approvable plan before continuing.");
       return;
     }
-    if (planReview.plan_state !== "ready" || planReview.required_authority !== "operator_approval") {
-      setNotice("This plan is not ready for operator approval. The Node must resolve its policy or hardware state first.");
-      return;
-    }
-    if (planReview.task_sequence !== taskProjection.lastAppliedSequence) {
-      setNotice("This plan is based on an older Node sequence. Refresh the task projection before approving it.");
-      return;
-    }
     setApprovingPlan(true);
     setPlanApprovalResult(null);
     setNotice(null);
     try {
+      // Always reconcile immediately before constructing the command.  The
+      // event loop can receive a plan-related event between render and click;
+      // approving from the rendered sequence would otherwise create a client
+      // side race and strand the task in planning.
+      const refreshedProjection = await refreshTask();
+      const latestPlan = await fetchTaskPlan(profile, refreshedProjection?.taskId ?? taskResult.task.task_id);
+      setPlanReview(latestPlan);
+      const currentProjection = refreshedProjection ?? taskProjection;
+      if (!currentProjection || latestPlan.plan_state !== "ready" || latestPlan.required_authority !== "operator_approval") {
+        setNotice("This plan is not ready for operator approval. The Node must resolve its policy or hardware state first.");
+        return;
+      }
+      if (latestPlan.task_sequence !== currentProjection.lastAppliedSequence) {
+        setNotice("This plan is based on an older Node sequence. Refresh the task projection before approving it.");
+        return;
+      }
       const commandId = `command.approve.${crypto.randomUUID()}`;
       const command = buildApprovePlanCommand(
         connection.authenticatedSubject,
         taskResult.task.task_id,
-        planReview.task_sequence,
+        latestPlan.task_sequence,
         "operator.confirmed.plan-review",
         commandId,
         `idempotency.${commandId}`,
@@ -896,7 +922,7 @@ function App() {
           {state.screen === "home" && <HomeView outcomeInputRef={outcomeInputRef} currentTask={taskProjection} taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} intakeStatus={intakeStatus} safePreview={safePreview} checkingIntake={checkingIntake} taskResult={taskResult} notice={notice} canStart={canStart} creatingTask={creatingTask} launchPhase={launchPhase} nodeConnected={nodeConnected} nodeLabel={nodeLabel} onAttach={attachFile} onUpload={uploadSelectedFile} onRecheckIntake={recheckIntake} onStart={startTask} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setIntakeStatus(null); setSafePreview(null); setCheckingIntake(false); }} onHelp={openConnectionHelp} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} onDismissCurrent={dismissCurrentTask} onNewQuery={openNewTask} />}
           {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesReloadToken((token) => token + 1); }} onHome={() => selectScreen("home")} operationalProjection={nodeOperationalProjection} />}
           {state.screen === "knowledge" && <KnowledgeView profile={connectedProfile} nodeConnected={nodeConnected} subject={connection.authenticatedSubject} domainPackRef={connection.domainPackRef} />}
-          {state.screen === "tasks" && (taskProjection ? <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} routeTrace={taskRouteTrace} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactReview={taskArtifactReview} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onAuthorizeTask={authorizeTask} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={openNewTask} onOpenNode={() => selectScreen("node")} onApproveArtifact={approveTaskArtifact} onReturnArtifact={returnTaskArtifact} isArtifactCommandPending={artifactCommandPending} profile={profiles.find((p) => p.profileId === connection.profileId) ?? null} operatorId={connection.authenticatedSubject} /> : <TaskEmptyView nodeConnected={nodeConnected} onNewTask={openNewTask} onOpenNode={() => selectScreen("node")} />)}
+          {state.screen === "tasks" && (taskProjection ? <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} planLoading={planLoading} routeTrace={taskRouteTrace} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactReview={taskArtifactReview} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={async () => { await refreshTask(); }} onApprovePlan={approvePlan} onRefreshPlan={refreshPlanReview} onAuthorizeTask={authorizeTask} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={openNewTask} onOpenNode={() => selectScreen("node")} onApproveArtifact={approveTaskArtifact} onReturnArtifact={returnTaskArtifact} isArtifactCommandPending={artifactCommandPending} profile={profiles.find((p) => p.profileId === connection.profileId) ?? null} operatorId={connection.authenticatedSubject} /> : <TaskEmptyView nodeConnected={nodeConnected} onNewTask={openNewTask} onOpenNode={() => selectScreen("node")} />)}
           {isRecordGatewayDestination(state.screen) && <RecordGatewayView destination={state.screen} nodeConnected={nodeConnected} currentTask={taskProjection} onHome={() => selectScreen("home")} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} onNewTask={openNewTask} />}
         </div>
       </main>
@@ -1057,7 +1083,7 @@ function PlanRecoveryBlock({ guidance }: { guidance: RecoveryGuidance }) {
   </dl>;
 }
 
-function PlanReviewCard({ plan, loading, approval, approving, synchronized, currentTaskSequence, taskStatus, onApprove, onCancel }: { plan: TaskPlanReview | null; loading: boolean; approval: NodeCommandResult | null; approving: boolean; synchronized: boolean; currentTaskSequence: number | null; taskStatus: TaskStatus; onApprove: () => void; onCancel: () => Promise<void> }) {
+function PlanReviewCard({ plan, loading, approval, approving, synchronized, currentTaskSequence, taskStatus, onApprove, onRefreshPlan, onCancel }: { plan: TaskPlanReview | null; loading: boolean; approval: NodeCommandResult | null; approving: boolean; synchronized: boolean; currentTaskSequence: number | null; taskStatus: TaskStatus; onApprove: () => void; onRefreshPlan: () => Promise<void>; onCancel: () => Promise<void> }) {
   if (loading) {
     return <section className="plan-review-card" data-testid="plan-review-loading" aria-label="Task plan review"><p className="eyebrow">PLAN REVIEW</p><h2>AirBench is preparing the plan</h2><p className="plan-muted">The Node is validating the work against policy and available hardware. No execution has started.</p></section>;
   }
@@ -1077,7 +1103,7 @@ function PlanReviewCard({ plan, loading, approval, approving, synchronized, curr
     <div className="plan-reason"><span>Why this mode</span><p>{plan.hardware_reason}</p></div>
     <div className="plan-workers"><span>Capability lanes</span><div>{Object.entries(plan.worker_capabilities).map(([worker, capability]) => <span className="plan-worker" key={worker}>{worker}: {capability}</span>)}</div></div>
     <div className="plan-stages"><span>Stage dependencies</span>{Object.entries(plan.dependency_graph).map(([stage, dependencies]) => <div className="plan-stage" key={stage}><strong>{stage}</strong><small>{dependencies.length ? `After ${dependencies.join(", ")}` : "Can begin first"}</small></div>)}</div>
-    <div className={`plan-review-footer${approval ? " plan-review-footer-outcome" : ""}`}><small>Plan {plan.plan_version_hash ?? "pending"} / ledger {plan.ledger_event_ref ?? "pending"} / sequence {plan.task_sequence}</small>{approval ? <CommandOutcomeBlock action="Plan approval" result={approval} /> : <div className="plan-review-actions"><button type="button" className="primary-button" data-testid="approve-plan" onClick={onApprove} disabled={!canApprove} aria-describedby="plan-approval-hint" title={canApprove ? "Approve this Node-validated plan" : approvalHint}>{approving ? "Sending..." : "Approve and run"}</button><button type="button" className="secondary-button bordered-button" data-testid="cancel-task" onClick={() => { void onCancel(); }} disabled={!canCancel} title={canCancel ? "Send a Node-authorized cancel command" : "Cancel is disabled until the Node is current"}>Cancel task</button></div>}{!approval && <span id="plan-approval-hint" className="plan-action-note">{approvalHint}</span>}</div>
+    <div className={`plan-review-footer${approval ? " plan-review-footer-outcome" : ""}`}><small>Plan {plan.plan_version_hash ?? "pending"} / ledger {plan.ledger_event_ref ?? "pending"} / sequence {plan.task_sequence}</small>{approval ? <CommandOutcomeBlock action="Plan approval" result={approval} /> : <div className="plan-review-actions"><button type="button" className="primary-button" data-testid="approve-plan" onClick={onApprove} disabled={!canApprove} aria-describedby="plan-approval-hint" title={canApprove ? "Approve this Node-validated plan" : approvalHint}>{approving ? "Sending..." : "Approve and run"}</button><button type="button" className="secondary-button bordered-button" data-testid="refresh-plan" onClick={() => { void onRefreshPlan(); }} disabled={approving || loading}>{loading ? "Refreshing..." : "Refresh plan"}</button><button type="button" className="secondary-button bordered-button" data-testid="cancel-task" onClick={() => { void onCancel(); }} disabled={!canCancel} title={canCancel ? "Send a Node-authorized cancel command" : "Cancel is disabled until the Node is current"}>Cancel task</button></div>}{!approval && <span id="plan-approval-hint" className="plan-action-note">{approvalHint}</span>}</div>
   </section>;
 }
 
@@ -1126,7 +1152,7 @@ function ProfileCard({ profile, busy, onConnect }: { profile: ApprovedNodeProfil
   return <article className="profile-card"><div><div className="profile-name">{profile.displayName}</div><div className="profile-meta">{profile.transport === "loopback" ? "Local workstation" : "Internal network"} <span aria-hidden="true">•</span> {profile.clearanceContext} clearance</div><div className="profile-trust">Pinned identity: {profile.nodeIdentity}</div></div><button type="button" className="primary-button" onClick={onConnect} disabled={busy}>{busy ? "Checking..." : "Connect"}</button></article>;
 }
 
-function TaskWorkspaceView({ projection, syncState, plan, routeTrace, approval, approving, controlResult, controlling, sourcePreview, artifactReview, artifactPreview, artifactPreviewState, artifactPreviewError, artifactDownloadState, artifactDownloadReceipt, onStop, onRefresh, onApprovePlan, onAuthorizeTask, onInspectArtifact, onDownloadArtifact, onHome, onOpenNode, onApproveArtifact, onReturnArtifact, isArtifactCommandPending, profile, operatorId }: { projection: TaskProjection; syncState: EventSyncState | null; plan: TaskPlanReview | null; routeTrace: NodeRouteTrace | null; approval: NodeCommandResult | null; approving: boolean; controlResult: NodeCommandResult | null; controlling: boolean; sourcePreview: SafePreview | null; artifactReview: NodeArtifactReview | null; artifactPreview: ArtifactPreview | null; artifactPreviewState: ArtifactPreviewState; artifactPreviewError: string | null; artifactDownloadState: "idle" | "downloading" | "downloaded" | "failed"; artifactDownloadReceipt: DownloadReceipt | null; onStop: () => Promise<void>; onRefresh: () => Promise<void>; onApprovePlan: () => Promise<void>; onAuthorizeTask: () => Promise<void>; onInspectArtifact: (artifactId: string) => Promise<void>; onDownloadArtifact: (artifactId: string) => Promise<void>; onHome: () => void; onOpenNode: () => void; onApproveArtifact: (artifactId: string, reason: string) => void; onReturnArtifact: (artifactId: string, reason: string) => void; isArtifactCommandPending: boolean; profile: ApprovedNodeProfileReference | null; operatorId: string | null; }) {
+function TaskWorkspaceView({ projection, syncState, plan, planLoading, routeTrace, approval, approving, controlResult, controlling, sourcePreview, artifactReview, artifactPreview, artifactPreviewState, artifactPreviewError, artifactDownloadState, artifactDownloadReceipt, onStop, onRefresh, onApprovePlan, onRefreshPlan, onAuthorizeTask, onInspectArtifact, onDownloadArtifact, onHome, onOpenNode, onApproveArtifact, onReturnArtifact, isArtifactCommandPending, profile, operatorId }: { projection: TaskProjection; syncState: EventSyncState | null; plan: TaskPlanReview | null; planLoading: boolean; routeTrace: NodeRouteTrace | null; approval: NodeCommandResult | null; approving: boolean; controlResult: NodeCommandResult | null; controlling: boolean; sourcePreview: SafePreview | null; artifactReview: NodeArtifactReview | null; artifactPreview: ArtifactPreview | null; artifactPreviewState: ArtifactPreviewState; artifactPreviewError: string | null; artifactDownloadState: "idle" | "downloading" | "downloaded" | "failed"; artifactDownloadReceipt: DownloadReceipt | null; onStop: () => Promise<void>; onRefresh: () => Promise<void>; onApprovePlan: () => Promise<void>; onRefreshPlan: () => Promise<void>; onAuthorizeTask: () => Promise<void>; onInspectArtifact: (artifactId: string) => Promise<void>; onDownloadArtifact: (artifactId: string) => Promise<void>; onHome: () => void; onOpenNode: () => void; onApproveArtifact: (artifactId: string, reason: string) => void; onReturnArtifact: (artifactId: string, reason: string) => void; isArtifactCommandPending: boolean; profile: ApprovedNodeProfileReference | null; operatorId: string | null; }) {
    const syncLabel: Record<string, string> = { idle: "Not synchronized", syncing: "Checking Node", connected: "Connected and current", reconnecting: "Reconnecting", replaying: "Replaying events", blocked: "Blocked by protocol or policy" };
    const statusLabel: Record<string, string> = { accepted: "Accepted", planning: "Planning", running: "Running", needs_review: "Needs review", completed: "Completed", blocked: "Blocked", failed: "Failed", stopped: "Stopped" };
    const phaseLabel = projection.phase.replace(/_/g, " ");
@@ -1176,7 +1202,7 @@ function TaskWorkspaceView({ projection, syncState, plan, routeTrace, approval, 
       <ProofInspectorPanel selection={proofSelection} artifactReview={artifactReview} artifactPreview={artifactPreview} artifactPreviewState={artifactPreviewState} artifactPreviewError={artifactPreviewError} artifactLifecycleState={selectedArtifactLifecycleState} downloadState={artifactDownloadState} downloadReceipt={artifactDownloadReceipt} onDownloadArtifact={(artifactId: string) => { void onDownloadArtifact(artifactId); }} onApproveArtifact={onApproveArtifact} onReturnArtifact={onReturnArtifact} isArtifactCommandPending={isArtifactCommandPending} />
     </div>
     {plan && <div>
-      <PlanReviewCard plan={plan} loading={false} approval={approval} approving={approving} synchronized={maySendConsequentialCommand(projection, syncStatus)} currentTaskSequence={projection.lastAppliedSequence} taskStatus={projection.status} onApprove={onApprovePlan} onCancel={onStop} />
+      <PlanReviewCard plan={plan} loading={planLoading} approval={approval} approving={approving} synchronized={maySendConsequentialCommand(projection, syncStatus)} currentTaskSequence={projection.lastAppliedSequence} taskStatus={projection.status} onApprove={onApprovePlan} onRefreshPlan={onRefreshPlan} onCancel={onStop} />
       {profile && operatorId && <ConsistencyPanel profile={profile} taskId={projection.taskId} operatorId={operatorId} />}
     </div>}
     {controlResult && <CommandOutcomeBlock action="Stop request" result={controlResult} />}

@@ -1869,6 +1869,45 @@ pub async fn query_knowledge_graph(
     Ok(result)
 }
 
+/// Fetch the Node-owned P&ID candidate review queue.
+#[tauri::command]
+pub async fn fetch_graph_review_queue(
+    app: tauri::AppHandle,
+    profile_id: String,
+) -> Result<Value, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::GET, "/api/v1/knowledge/graph/review-queue", None)
+        .await.map_err(|e| e.to_string())?;
+    if result.get("count").and_then(Value::as_u64).is_none()
+        || result.get("items").and_then(Value::as_array).is_none()
+    {
+        return Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid graph review queue.".to_string(),
+        ).to_string());
+    }
+    Ok(result)
+}
+
+/// Resolve one candidate through the authenticated Node boundary.
+#[tauri::command]
+pub async fn resolve_graph_review(
+    app: tauri::AppHandle,
+    profile_id: String,
+    body: Value,
+) -> Result<Value, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::POST, "/api/v1/knowledge/graph/review/resolve", Some(&body))
+        .await.map_err(|e| e.to_string())?;
+    if result.get("candidate_id").and_then(Value::as_str).is_none()
+        || result.get("decision").and_then(Value::as_str).is_none()
+    {
+        return Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid graph review decision.".to_string(),
+        ).to_string());
+    }
+    Ok(result)
+}
+
 /// Select a local, operator-approved corpus directory through the native
 /// picker and ask the Node to ingest it. The Node still enforces its
 /// configured ingestion root and all parser/provenance policy.

@@ -31,6 +31,7 @@ from contracts import (
     ModelRouter,
     ModelTarget,
     Orchestrator,
+    build_event,
 )
 from contracts.adapters.vllm_adapter import VllmAdapter
 
@@ -220,6 +221,42 @@ class CoordinatorPreflightTests(unittest.TestCase):
             model_router=None,
         )
         coordinator.preflight("task.preflight.lane")  # must not raise
+
+    def test_manifest_recovers_from_committed_evidence_after_store_restart(self) -> None:
+        ledger = EventLedger()
+        orchestrator = Orchestrator(ledger)
+        task = self._task(orchestrator)
+        source_hash = "a" * 64
+        ledger.append(build_event(
+            event_type="evidence.created", task_id=task.task_id, actor_id="node.intake",
+            actor_type="service", payload_contract="EvidenceManifest", payload_version="1.0",
+            payload={
+                "intake_id": "intake.recovered", "revision_id": "revision.recovered",
+                "source_hash": source_hash, "page_ids": ["page.recovered"],
+                "provenance": {
+                    "source_ref": "upload:query.txt", "confidence": 0.91,
+                    "clearance": "internal", "taint": "untrusted",
+                }, "destination": "task_scratch", "trust_profile": "query_untrusted",
+                "latency_profile": "interactive",
+            }, clearance=Clearance.internal, idempotency="evidence.recovered", sequence=len(ledger),
+            previous_event_hash=ledger.head_hash,
+        ))
+
+        class MissingManifestStore:
+            def load(self, _intake_id: str):
+                return None
+
+        coordinator = _coordinator(orchestrator, ledger, ModelRouter(
+            ModelRegistry("registry.preflight", "1.0", (_target(),), "e" * 64, "2030-01-01T00:00:00Z"),
+            {}, policy_version_hash="policy.preflight", resource_admission=lambda _target, _request: "admitted",
+            endpoint_bindings={"airbench-gemma-4-12b": FakeBackend()},
+        ))
+        coordinator._intake_store = MissingManifestStore()
+        recovered = coordinator._manifest(task.task_id)
+        self.assertEqual(recovered.intake_id, "intake.recovered")
+        self.assertEqual(recovered.source_ref, "upload:query.txt")
+        self.assertEqual(recovered.pages[0].extraction_method, "ledger_recovery")
+        self.assertEqual(recovered.pages[0].text, "")
 
 
 # ---------------------------------------------------------------------------

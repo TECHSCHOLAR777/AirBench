@@ -125,7 +125,10 @@ class NodeApiConfig:
     bearer_token: str = field(repr=False)
     handshake_ledger_event_ref: str
     sovereignty_evidence_ref: str
-    require_orchestrator_authorization: bool = True
+    # Task creation is local intake/planning.  The consequential authority
+    # check happens at plan approval; requiring an optional adapter here would
+    # strand every task in planning when the adapter is not composed.
+    require_orchestrator_authorization: bool = False
     authenticated_roles: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -506,7 +509,7 @@ class NodeApiService:
             ],
         }
 
-    def graph_resolve_review(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def graph_resolve_review(self, subject: str, payload: dict[str, Any]) -> dict[str, Any]:
         world = self._require_world_model()
         candidate_id = _text(payload, "candidate_id", 256)
         accept = payload.get("accept")
@@ -516,7 +519,7 @@ class NodeApiService:
         if item is None:
             raise NodeApiError(404, "review_not_found", "The review item does not exist.")
         self._check_clearance(item.candidate.fact.clearance)
-        fact = world.resolve_review(candidate_id, accept=accept)
+        fact = world.resolve_review(candidate_id, accept=accept, actor_id=subject)
         return {"candidate_id": candidate_id, "decision": "accept" if accept else "reject", "fact_id": fact.fact_id if fact else None}
 
     def _require_world_model(self) -> Any:
@@ -2063,9 +2066,9 @@ def create_app(service: NodeApiService) -> FastAPI:
 
     @app.post("/api/v1/knowledge/graph/review/resolve", status_code=200)
     async def graph_resolve_review(request: Request) -> dict[str, Any]:
-        auth(request)
+        subject = auth(request)
         body = await json_body(request)
-        return await run_in_threadpool(service.graph_resolve_review, body)
+        return await run_in_threadpool(service.graph_resolve_review, subject, body)
 
     @app.get("/api/v1/tasks/{task_id}/consistency")
     async def consistency_report(task_id: str, request: Request) -> dict[str, Any]:

@@ -110,6 +110,10 @@ class NodeServerConfig:
                 raise ValueError(f"NodeServerConfig.{name} is required and must be a non-empty string")
         if not isinstance(self.port, int) or not (1 <= self.port <= 65535):
             raise ValueError("NodeServerConfig.port must be an integer in 1-65535")
+        # Do not let an empty inherited/programmatic role setting silently
+        # remove the default human review authority required by the pack.
+        roles = tuple(role.strip() for role in self.operator_roles if isinstance(role, str) and role.strip())
+        object.__setattr__(self, "operator_roles", roles or ("human_reviewer",))
 
     # ------------------------------------------------------------------
     # Factory helpers
