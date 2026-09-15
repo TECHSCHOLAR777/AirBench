@@ -1007,6 +1007,35 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
   .node-identity-grid, .safe-preview-meta { grid-template-columns: 1fr; }
 }
 
+@font-face {
+  font-family: "Poppins";
+  src: url("../assets/fonts/poppins/Poppins-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Poppins";
+  src: url("../assets/fonts/poppins/Poppins-Medium.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Poppins";
+  src: url("../assets/fonts/poppins/Poppins-SemiBold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Poppins";
+  src: url("../assets/fonts/poppins/Poppins-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
 /* Readability pass: human-facing copy stays comfortable, while technical
    identifiers remain compact and monospace by design. */
 .app-shell { font-size: 13px; }
@@ -1032,6 +1061,13 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
 .worktrace-activity-group li, .worktrace-evidence-list li, .worktrace-question-list li, .worktrace-artifact-list li { font-size: 11px; }
 .worktrace-activity-group strong, .worktrace-evidence-list strong { font-size: 12px; }
 .worktrace-activity-group small, .worktrace-question-list li, .worktrace-artifact-list li { line-height: 1.55; }
+.worktrace-activity-group em, .activity-row > div > small { display: block; margin-top: 7px; color: var(--muted); font-size: 10px; font-style: normal; }
+.worktrace-evidence-list .proof-record-button small, .worktrace-facts .proof-record-button small { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.workspace-technical { margin-top: 22px; }
+.workspace-technical > summary { font-size: 0; font-weight: 650; }
+.workspace-technical > summary::before { content: "Show technical details"; font-size: 12px; }
+.workspace-technical > summary::after { content: "Full IDs, hashes, timestamps, and routing evidence"; margin-left: 8px; color: var(--faint); font-size: 10px; font-weight: 400; }
+.technical-event-list dd, .technical-trace-grid dd { overflow-wrap: anywhere; line-height: 1.45; }
 .worktrace-verification p, .worktrace-contract-note { font-size: 11px; line-height: 1.55; }
 .node-readiness-explainer p:not(.eyebrow), .node-routing-boundary p:not(.eyebrow), .settings-note p, .settings-action-note { font-size: 12px; line-height: 1.55; }
 .profile-meta { font-size: 12px; }
