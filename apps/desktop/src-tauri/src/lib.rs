@@ -36,13 +36,17 @@ pub fn run() {
             node_transport::fetch_knowledge_status,
             node_transport::search_knowledge,
             node_transport::query_knowledge_graph,
+            node_transport::fetch_graph_review_queue,
+            node_transport::resolve_graph_review,
             node_transport::ingest_knowledge_folder,
             intake::pick_query_file,
             intake::upload_selected_query_file,
+            intake::upload_selected_pid_file,
             intake::fetch_safe_preview,
             intake::fetch_intake_status,
             intake::fetch_artifact_preview,
-            intake::download_artifact
+            intake::download_artifact,
+            intake::upload_selected_pid_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running AirBench desktop application");

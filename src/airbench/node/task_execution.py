@@ -50,10 +50,11 @@ from contracts import (
 )
 
 from ..delivery import DeliverableEngine, DeliverableRequest, DeterministicValue, LocalArtifactStore
-from ..intake import IntakeManifest, LocalIntakeStore
+from ..intake import IntakeManifest, IntakeMode, LocalIntakeStore, PageRecord
 from ..orchestration.team_runtime import TeamExecutionFailure, TeamRuntime
 from ..orchestration.worker_context import EvidenceProvider, ScopedEvidence
 from ..verification.runner import VerificationRequest, VerificationRule, VerificationRunner
+from .hardware_gateway import HardwareProfileError, load_hardware_profile
 
 _ENABLED_VALUES = {"1", "true", "yes", "on"}
 logger = logging.getLogger(__name__)
@@ -600,7 +601,7 @@ class NodeTaskExecutionCoordinator:
             if not isinstance(templates, list) or not templates:
                 raise NodeTaskExecutionError("the deliverable template declaration has no templates",
                                              failure_code="deliverable_template_invalid")
-            wanted = {"spreadsheet": "xlsx", "presentation": "pptx", "slides": "pptx", "workbook": "xlsx"}.get(
+            wanted = {"spreadsheet": "xlsx", "presentation": "pptx", "slides": "pptx", "workbook": "xlsx", "pdf": "pdf", "pdf_report": "pdf"}.get(
                 (output_contract or "").strip().lower(), "docx"
             )
             for template in templates:
@@ -618,8 +619,19 @@ class NodeTaskExecutionCoordinator:
                                      failure_code="deliverable_template_invalid")
 
     def _load_hardware_profile(self, task_id: str) -> HardwareProfile:
-        if self._hardware_profile_path and self._hardware_profile_path.exists():
-            return HardwareProfile.from_dict(json.loads(self._hardware_profile_path.read_text(encoding="utf-8")))
+        if self._hardware_profile_path:
+            if not self._hardware_profile_path.exists():
+                raise NodeTaskExecutionError(
+                    "the configured hardware profile is missing",
+                    failure_code="hardware_profile_invalid",
+                )
+            try:
+                return load_hardware_profile(self._hardware_profile_path)
+            except HardwareProfileError as exc:
+                raise NodeTaskExecutionError(
+                    "the configured hardware profile is invalid",
+                    failure_code="hardware_profile_invalid",
+                ) from exc
         return HardwareProfile.from_dict({
             "profile_id": "node-execution-local",
             "gpu_model": "local-execution",
@@ -656,10 +668,81 @@ class NodeTaskExecutionCoordinator:
             raise NodeTaskExecutionError("task-bound File Intake must be committed before authorization",
                                          failure_code="intake_manifest_missing")
         manifest = self._intake_store.load(event.payload["intake_id"])
-        if manifest is None or manifest.task_id != task_id:
+        if manifest is not None and manifest.task_id == task_id:
+            return manifest
+
+        # The evidence event is the durable authority for admission.  A
+        # restart or a short-lived store read race must not strand an already
+        # committed text/query task in planning.  Reconstruct only the
+        # metadata needed by the bounded execution path; do not invent source
+        # content, permissions, or provenance when the event is incomplete.
+        provenance = event.payload.get("provenance")
+        page_ids = event.payload.get("page_ids")
+        if not isinstance(provenance, dict) or not isinstance(page_ids, list) or not page_ids:
             raise NodeTaskExecutionError("the committed intake manifest is unavailable for this task",
                                          failure_code="intake_manifest_missing")
-        return manifest
+        source_ref = provenance.get("source_ref")
+        clearance_raw = provenance.get("clearance")
+        confidence = provenance.get("confidence")
+        taint_raw = provenance.get("taint")
+        if (
+            not isinstance(source_ref, str) or not source_ref.strip()
+            or not isinstance(clearance_raw, str) or not isinstance(confidence, (int, float))
+            or not 0 <= confidence <= 1 or not isinstance(taint_raw, str)
+        ):
+            raise NodeTaskExecutionError("the committed intake provenance is incomplete",
+                                         failure_code="intake_manifest_missing")
+        try:
+            clearance = Clearance(clearance_raw)
+            taint = Taint(taint_raw)
+        except ValueError as exc:
+            raise NodeTaskExecutionError("the committed intake provenance is invalid",
+                                         failure_code="intake_manifest_missing") from exc
+        task = self._task(task_id)
+        if clearance != task.clearance or taint == Taint.clean:
+            raise NodeTaskExecutionError("the committed intake provenance does not match the task",
+                                         failure_code="intake_manifest_missing")
+        normalized_page_ids = tuple(item for item in page_ids if isinstance(item, str) and item.strip())
+        if not normalized_page_ids:
+            raise NodeTaskExecutionError("the committed intake page identity is invalid",
+                                         failure_code="intake_manifest_missing")
+        source_hash = str(event.payload.get("source_hash", ""))
+        if source_hash.startswith("sha256:"):
+            source_hash = source_hash.removeprefix("sha256:")
+        if len(source_hash) != 64 or any(char not in "0123456789abcdefABCDEF" for char in source_hash):
+            raise NodeTaskExecutionError("the committed intake source hash is invalid",
+                                         failure_code="intake_manifest_missing")
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        pages = tuple(
+            PageRecord(
+                page_id=page_id,
+                page_number=index,
+                source_region=f"page:{page_id}",
+                content_hash=source_hash,
+                media_type="text/plain",
+                text="",
+                extraction_method="ledger_recovery",
+                confidence=float(confidence),
+                clearance=clearance,
+                taint=taint,
+                evidence_ref=event.event_id,
+            )
+            for index, page_id in enumerate(normalized_page_ids, start=1)
+        )
+        return IntakeManifest(
+            intake_id=event.payload["intake_id"], task_id=task_id, source_ref=source_ref,
+            revision_id=str(event.payload.get("revision_id", "ledger-recovery")), source_hash=source_hash,
+            file_name="ledger-recovered-input", media_type="text/plain", byte_size=0,
+            page_count=len(pages), parser_name="ledger-recovery", parser_version="1.0",
+            extraction_settings={"recovered_from": event.event_id}, pages=pages,
+            mode=IntakeMode.query_upload, clearance=clearance, taint=taint,
+            confidence=float(confidence), ledger_event_ref=event.event_id,
+            ingested_at=event.occurred_at or now, destination=str(event.payload.get("destination", "task_scratch")),
+            trust_profile=str(event.payload.get("trust_profile", "query_untrusted")),
+            latency_profile=str(event.payload.get("latency_profile", "interactive")),
+            source_artifact_ref=event.payload.get("source_artifact_ref") if isinstance(event.payload.get("source_artifact_ref"), str) else None,
+            manifest_artifact_ref=event.payload.get("manifest_artifact_ref") if isinstance(event.payload.get("manifest_artifact_ref"), str) else None,
+        )
 
 
 __all__ = [

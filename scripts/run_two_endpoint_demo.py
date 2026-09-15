@@ -12,7 +12,7 @@ read from AIRBENCH_BEARER_TOKEN or passed on the command line.
 Usage:
     python scripts/run_two_endpoint_demo.py
     python scripts/run_two_endpoint_demo.py --base-url http://127.0.0.1:8765 \
-        --token demo-token --subject demo.operator --hardware-profile-ref workstation-04
+        --token <operator-token> --subject demo.operator --hardware-profile-ref aimslab-titan-rtx-24gb
 """
 from __future__ import annotations
 
@@ -51,12 +51,14 @@ def _command(command_id: str, idempotency: str, command_type: str, arguments: di
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base-url", default=os.environ.get("AIRBENCH_NODE_URL", "http://127.0.0.1:8765"))
-    parser.add_argument("--token", default=os.environ.get("AIRBENCH_BEARER_TOKEN", "demo-token"))
+    parser.add_argument("--token", default=os.environ.get("AIRBENCH_BEARER_TOKEN"))
     parser.add_argument("--subject", default=os.environ.get("AIRBENCH_SUBJECT", "demo.operator"))
     parser.add_argument("--domain-pack-ref", default=os.environ.get("AIRBENCH_DOMAIN_PACK_REF", "refinery-psu-v0"))
-    parser.add_argument("--hardware-profile-ref", default="workstation-04")
+    parser.add_argument("--hardware-profile-ref", default="aimslab-titan-rtx-24gb")
     parser.add_argument("--protocol-version", default="0.1")
     args = parser.parse_args(argv)
+    if not args.token:
+        parser.error("a bearer token is required via --token or AIRBENCH_BEARER_TOKEN")
     base = args.base_url.rstrip("/")
     run_id = uuid.uuid4().hex[:12]
 

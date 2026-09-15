@@ -3,7 +3,7 @@ pack_version: '1.0'
 compatibility_id: airbench-core-contracts
 status: draft_pending_external_acceptance
 signing_status: signed
-signature: 4b1b7059b82bf1d86e3efbe21bc3b79a68a42efd815467d5a5ab180c4e468159
+signature: 458c1b6129a1976785b4502b25f849b89ec70bf1dfa9c4e305fd05f872f8b055
 engineering_drawing_pipeline: reserved_typed_adapter_only
 document_profiles: document_profiles.yaml
 world_schema: world_schema.yaml

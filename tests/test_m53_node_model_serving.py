@@ -67,7 +67,8 @@ def _target(target_id: str, routing_tier: str, *, adapter_id: str = 'airbench.vl
         'tokenizer_digest': 'b' * 64,
         'chat_template_digest': 'c' * 64,
         'runtime_version': 'vllm-0.28',
-        'backend': 'custom',
+        'backend': 'vllm',
+        'container_digest': 'sha256:' + 'd' * 64,
         'capabilities': ['reasoning'],
         'roles': ['reasoning'],
         'modalities': ['text'],
@@ -157,19 +158,14 @@ class ModelServingConfigTests(unittest.TestCase):
     def test_from_env_builds_two_endpoint_config(self) -> None:
         env = {
             'AIRBENCH_POLICY_VERSION_HASH': 'policy-v1-test',
-            'AIRBENCH_MODEL_E2B_URL': 'http://127.0.0.1:18001',
-            'AIRBENCH_MODEL_12B_URL': 'http://127.0.0.1:18002',
-            'AIRBENCH_MODEL_E2B_TARGET_ID': 'airbench-gemma-4-e2b',
-            'AIRBENCH_MODEL_12B_TARGET_ID': 'airbench-gemma-4-12b',
-            'AIRBENCH_MODEL_E2B_SERVED_NAME': 'airbench-gemma-4-e2b',
-            'AIRBENCH_MODEL_12B_SERVED_NAME': 'airbench-gemma-4-12b',
+            'AIRBENCH_MODEL_ENDPOINTS_JSON': '[{"endpoint_id":"endpoint-1","target_id":"airbench-gemma-4-e2b","base_url":"http://127.0.0.1:18001","served_model_name":"airbench-gemma-4-e2b"},{"endpoint_id":"endpoint-2","target_id":"airbench-gemma-4-12b","base_url":"http://127.0.0.1:18002","served_model_name":"airbench-gemma-4-12b"}]',
         }
         with patch.dict(os.environ, env, clear=False):
             config = ModelServingConfig.from_env()
         self.assertEqual(config.policy_version_hash, 'policy-v1-test')
         self.assertEqual(len(config.endpoints), 2)
-        self.assertEqual(config.endpoints[0].endpoint_id, 'ep.e2b.local')
-        self.assertEqual(config.endpoints[1].endpoint_id, 'ep.12b.local')
+        self.assertEqual(config.endpoints[0].endpoint_id, 'endpoint-1')
+        self.assertEqual(config.endpoints[1].endpoint_id, 'endpoint-2')
 
     def test_from_env_requires_policy_hash(self) -> None:
         with patch.dict(os.environ, {}, clear=False):
@@ -177,9 +173,17 @@ class ModelServingConfigTests(unittest.TestCase):
             with self.assertRaises(EnvironmentError):
                 ModelServingConfig.from_env()
 
+    def test_from_env_requires_explicit_endpoint_configuration(self) -> None:
+        with patch.dict(os.environ, {'AIRBENCH_POLICY_VERSION_HASH': 'policy-v1-test'}, clear=True):
+            with self.assertRaisesRegex(EnvironmentError, 'AIRBENCH_MODEL_ENDPOINTS_JSON'):
+                ModelServingConfig.from_env()
+
     def test_single_endpoint_factory(self) -> None:
         config = ModelServingConfig.single_endpoint(
             policy_version_hash='policy-single',
+            base_url='http://127.0.0.1:18001',
+            target_id='airbench-gemma-4-e2b',
+            served_model_name='airbench-gemma-4-e2b',
             require_no_egress_env=False,
         )
         self.assertEqual(len(config.endpoints), 1)

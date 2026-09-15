@@ -42,7 +42,8 @@ class ModelRouter:
 
     def __init__(self, registry: ModelRegistry, adapters: Mapping[str, BackendAdapter], *,
                  policy_version_hash: str, resource_admission: ResourceAdmission | None = None,
-                 endpoint_bindings: Mapping[str, BackendAdapter] | None = None) -> None:
+                 endpoint_bindings: Mapping[str, BackendAdapter] | None = None,
+                 allow_candidate_qualification: bool = False) -> None:
         if not policy_version_hash.strip():
             raise ValueError("policy_version_hash is required")
         self.registry = registry
@@ -52,6 +53,9 @@ class ModelRouter:
         self.endpoint_bindings = dict(endpoint_bindings or {})
         self.policy_version_hash = policy_version_hash
         self.resource_admission = resource_admission
+        # Candidate records are explicitly demo-only.  They never become
+        # routable merely because a signed roster exists.
+        self.allow_candidate_qualification = allow_candidate_qualification
         # Sticky escalation is scoped to a task stage.  A new explicit stage
         # gets a fresh route; later turns in the same stage retain the capable
         # target after a failed check.
@@ -61,6 +65,7 @@ class ModelRouter:
               now: datetime | None = None) -> RouteResult:
         candidates = self.registry.eligible_targets(
             request, pack_ref=pack_ref, hardware_profile_ref=hardware_profile_ref, now=now,
+            allow_candidates=self.allow_candidate_qualification,
         )
         eligible_ids = tuple(target.target_id for target in candidates)
         if not candidates:

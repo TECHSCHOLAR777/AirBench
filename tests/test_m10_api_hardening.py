@@ -494,6 +494,17 @@ class TestNodeServerConfig(unittest.TestCase):
                 else:
                     os.environ[k] = v
 
+    def test_programmatic_blank_operator_roles_use_demo_reviewer_role(self) -> None:
+        cfg = NodeServerConfig(
+            node_identity="node.roles.test",
+            bearer_token="token",
+            domain_pack_ref="pack.v0",
+            clearance=Clearance.internal,
+            subject="principal.test",
+            operator_roles=(" ", ""),
+        )
+        self.assertEqual(cfg.operator_roles, ("human_reviewer",))
+
     def test_from_env_missing_required_raises(self) -> None:
         # Remove a required variable
         original = os.environ.pop("AIRBENCH_NODE_IDENTITY", None)
@@ -577,9 +588,26 @@ class TestBuildNodeApp(unittest.TestCase):
             base_url="http://node.build.test",
         )
         resp = asyncio.run(client.get("/api/v1/health", headers={"Authorization": "Bearer build-token"}))
-        asyncio.run(client.aclose())
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "ready")
+        asyncio.run(client.aclose())
+
+    def test_built_app_creates_task_without_optional_authorization_adapter(self) -> None:
+        cfg = self._make_config()
+        app = build_node_app(cfg, skip_startup_check=True)
+        client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://node.build.test",
+        )
+        body = _task_body()
+        body["actor"] = "principal.build"
+        body["idempotency_key"] = "idem.build.create.no-auth-adapter"
+        body["command_id"] = "cmd.build.create.no-auth-adapter"
+        body["arguments"]["principal_id"] = "principal.build"
+        resp = asyncio.run(client.post("/api/v1/tasks", headers={"Authorization": "Bearer build-token"}, json=body))
+        asyncio.run(client.aclose())
+        self.assertEqual(resp.status_code, 201, resp.text)
+        self.assertEqual(resp.json()["task"]["principal_id"], "principal.build")
 
 
 if __name__ == "__main__":

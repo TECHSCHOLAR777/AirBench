@@ -562,9 +562,6 @@ fn certificate_pin(response: &reqwest::Response) -> Option<String> {
 }
 
 pub(crate) fn credential_token(profile: &NodeProfile) -> Result<String, NodeTransportError> {
-    if profile.credential_ref == "dev-token-123" {
-        return Ok("dev-token-123".to_string());
-    }
     let entry =
         keyring::Entry::new("org.airbench.desktop", &profile.credential_ref).map_err(|_| {
             NodeTransportError::CredentialUnavailable(
@@ -590,7 +587,7 @@ pub(crate) fn build_client(profile: &NodeProfile) -> Result<reqwest::Client, Nod
     let is_remote = matches!(profile.transport, NodeTransport::InternalHttps);
     let mut client_builder = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(120))
         .https_only(is_remote)
         .tls_info(true)
         .user_agent("AirBench-Desktop/0.1");
@@ -1868,6 +1865,45 @@ pub async fn query_knowledge_graph(
         .await.map_err(|e| e.to_string())?;
     if result.get("result_count").and_then(Value::as_u64).is_none() || result.get("facts").and_then(Value::as_array).is_none() {
         return Err(NodeTransportError::NonAirbenchResponse("The Node returned an invalid knowledge graph response.".to_string()).to_string());
+    }
+    Ok(result)
+}
+
+/// Fetch the Node-owned P&ID candidate review queue.
+#[tauri::command]
+pub async fn fetch_graph_review_queue(
+    app: tauri::AppHandle,
+    profile_id: String,
+) -> Result<Value, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::GET, "/api/v1/knowledge/graph/review-queue", None)
+        .await.map_err(|e| e.to_string())?;
+    if result.get("count").and_then(Value::as_u64).is_none()
+        || result.get("items").and_then(Value::as_array).is_none()
+    {
+        return Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid graph review queue.".to_string(),
+        ).to_string());
+    }
+    Ok(result)
+}
+
+/// Resolve one candidate through the authenticated Node boundary.
+#[tauri::command]
+pub async fn resolve_graph_review(
+    app: tauri::AppHandle,
+    profile_id: String,
+    body: Value,
+) -> Result<Value, String> {
+    let profile = approved_profile_by_id(&app, &profile_id)?;
+    let result: Value = request_json(&profile, Method::POST, "/api/v1/knowledge/graph/review/resolve", Some(&body))
+        .await.map_err(|e| e.to_string())?;
+    if result.get("candidate_id").and_then(Value::as_str).is_none()
+        || result.get("decision").and_then(Value::as_str).is_none()
+    {
+        return Err(NodeTransportError::NonAirbenchResponse(
+            "The Node returned an invalid graph review decision.".to_string(),
+        ).to_string());
     }
     Ok(result)
 }

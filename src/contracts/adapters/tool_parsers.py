@@ -89,6 +89,40 @@ class HermesToolParser(BaseToolParser):
     ) -> "tuple[BackendToolCall, ...]":
         from ..model.backend import BackendCallError, BackendErrorCode, BackendFailure, BackendToolCall
 
+        # vLLM's Hermes parser may return native OpenAI-compatible
+        # ``tool_calls`` objects rather than ChatML blocks.  Normalize both
+        # forms here so the provider-specific representation never crosses
+        # the backend contract boundary.
+        if raw_text.lstrip().startswith("["):
+            try:
+                native = json.loads(raw_text)
+                if not isinstance(native, list):
+                    raise TypeError("native tool calls must be an array")
+                declared_names = {tool.name for tool in declared_tools}
+                results: list[BackendToolCall] = []
+                for item in native:
+                    function = item.get("function") if isinstance(item, dict) else None
+                    if not isinstance(function, dict) or not isinstance(function.get("name"), str):
+                        raise ValueError("native tool call is missing function.name")
+                    name = function["name"]
+                    if name not in declared_names:
+                        raise ValueError(f"model emitted tool call for undeclared tool '{name}'")
+                    arguments = function.get("arguments", {})
+                    if isinstance(arguments, str):
+                        arguments = json.loads(arguments)
+                    if not isinstance(arguments, dict):
+                        raise ValueError(f"native tool call arguments for '{name}' must be an object")
+                    results.append(BackendToolCall(name=name, arguments=arguments))
+                return tuple(results)
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise BackendCallError(
+                    BackendFailure(
+                        code=BackendErrorCode.malformed_response,
+                        message=f"hermes native tool calls were malformed: {exc}",
+                        retryable=False, request_id="", target_id="",
+                    )
+                ) from exc
+
         blocks = _HERMES_BLOCK.findall(raw_text)
         if not blocks:
             return ()

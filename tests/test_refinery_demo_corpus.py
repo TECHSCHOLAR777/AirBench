@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import zipfile
 from pathlib import Path
 
@@ -9,10 +10,21 @@ import yaml
 from scripts.prepare_refinery_demo_corpus import CorpusPreparationError, prepare_corpus
 
 
-ARCHIVE = Path(r"C:\Users\ALG\Downloads\AirBench_Refinery_Demo_Corpus.zip")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+ARCHIVE = Path(
+    os.environ.get(
+        "AIRBENCH_DEMO_CORPUS_ARCHIVE",
+        str(REPO_ROOT / "tmp" / "AirBench_Refinery_Demo_Corpus.zip"),
+    )
+)
 
 
 def test_demo_corpus_archive_is_catalogued_and_excludes_presenter_assets(tmp_path: Path) -> None:
+    if not ARCHIVE.is_file():
+        pytest.skip(
+            "the generated demo corpus archive is not present, set "
+            "AIRBENCH_DEMO_CORPUS_ARCHIVE to run this archive-level check"
+        )
     report = prepare_corpus(ARCHIVE, tmp_path / "corpus")
 
     assert report["file_count"] == 21

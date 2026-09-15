@@ -168,27 +168,27 @@ class WorldModelStore:
         })
         return item
 
-    def resolve_review(self, candidate_id: str, *, accept: bool) -> FactEnvelope | None:
+    def resolve_review(self, candidate_id: str, *, accept: bool, actor_id: str = "world-model.operator") -> FactEnvelope | None:
         """Accept a queued candidate into the graph, or tombstone it by rejection."""
         item = self._review.pop(candidate_id, None)
         if item is None:
             raise WorldModelError("review_missing", "review item is not queued")
         self._emit("world_model.review_resolved", item.candidate.task_id, item.candidate.fact.clearance, {
             "candidate_id": candidate_id, "decision": "accept" if accept else "reject",
-        })
+        }, actor_id=actor_id)
         if not accept:
             return None
         self._commit(item.candidate.fact, item.candidate.relations)
         return item.candidate.fact
 
-    def _emit(self, event_type: str, task_id: str, clearance: Clearance, payload: dict[str, str]) -> None:
+    def _emit(self, event_type: str, task_id: str, clearance: Clearance, payload: dict[str, str], *, actor_id: str = "world-model") -> None:
         if self._ledger is None:
             return
         sequence = len(self._ledger)
         self._ledger.append(build_event(
             event_type=event_type,
             task_id=task_id,
-            actor_id="world-model",
+            actor_id=actor_id,
             actor_type="world_model",
             payload_contract="WorldModelOperation",
             payload_version="1.0",

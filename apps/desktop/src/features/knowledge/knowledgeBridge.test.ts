@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@airbench/tauri-invoke", () => ({ invoke: invokeMock }));
 
-import { searchKnowledge, validateKnowledgeEvidence } from "./knowledgeBridge";
+import { fetchGraphReviewQueue, resolveGraphReview, searchKnowledge, validateKnowledgeEvidence } from "./knowledgeBridge";
 import type { ApprovedNodeProfile } from "../../platform/node/nodeConnection";
 
 const profile: ApprovedNodeProfile = {
@@ -62,5 +62,19 @@ describe("knowledge response boundary", () => {
   it("blocks a response whose declared count does not match its records", async () => {
     invokeMock.mockResolvedValueOnce({ query: "valve", mode: "text", clearance: "restricted", result_count: 2, graph_result_count: 0, results: [evidence], graph_results: [] });
     await expect(searchKnowledge(profile, { query: "valve" })).rejects.toThrow(/inconsistent knowledge result counts/);
+  });
+
+  it("validates the authenticated graph review queue and resolution", async () => {
+    invokeMock.mockResolvedValueOnce({
+      count: 1,
+      items: [{ candidate_id: "candidate-1", fact_id: "fact-1", reason: "ambiguous tag", enqueued_at: "2026-01-01T00:00:00Z", confidence: 0.4, clearance: "restricted", source_ref: "upload:pid.png#page-1" }],
+    });
+    await expect(fetchGraphReviewQueue(profile)).resolves.toEqual({
+      count: 1,
+      items: [{ candidate_id: "candidate-1", fact_id: "fact-1", reason: "ambiguous tag", enqueued_at: "2026-01-01T00:00:00Z", confidence: 0.4, clearance: "restricted", source_ref: "upload:pid.png#page-1" }],
+    });
+    invokeMock.mockResolvedValueOnce({ candidate_id: "candidate-1", decision: "accept", fact_id: "fact-1" });
+    await expect(resolveGraphReview(profile, "candidate-1", true)).resolves.toEqual({ candidate_id: "candidate-1", decision: "accept", fact_id: "fact-1" });
+    expect(invokeMock).toHaveBeenLastCalledWith("resolve_graph_review", { profileId: "profile-1", body: { candidate_id: "candidate-1", accept: true } });
   });
 });

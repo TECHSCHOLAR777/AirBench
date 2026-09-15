@@ -9,7 +9,7 @@ import httpx
 from airbench.knowledge.graph_store import SqliteGraphStore
 from airbench.knowledge.world_model import CandidateFact, CandidateFactWriter, WorldModelError, WorldModelStore, candidate_id
 from airbench.node.api import NodeApiConfig, NodeApiService, create_app
-from contracts import Clearance, EventLedger, FactEnvelope, Orchestrator, Taint
+from contracts import Clearance, EventLedger, FactEnvelope, Orchestrator, Taint, build_event
 
 
 def _fact(fact_id: str, *, confidence: float = 0.9) -> FactEnvelope:
@@ -32,8 +32,19 @@ class NodeGraphApiTests(unittest.TestCase):
 
         self.directory = tempfile.TemporaryDirectory()
         self.ledger = EventLedger()
+        self.ledger.append(build_event(
+            event_type="task.created", task_id="task.graph", actor_id="principal.api", actor_type="human",
+            payload_contract="TaskEnvelope", payload_version="1.0", payload={"state": "created"},
+            clearance=Clearance.internal, idempotency="task.graph.created", sequence=0,
+        ))
+        self.ledger.append(build_event(
+            event_type="task.created", task_id="knowledge.graph", actor_id="principal.api", actor_type="service",
+            payload_contract="TaskEnvelope", payload_version="1.0", payload={"state": "created"},
+            clearance=Clearance.internal, idempotency="knowledge.graph.created", sequence=1,
+            previous_event_hash=self.ledger.head_hash,
+        ))
         self.store = SqliteGraphStore(f"{self.directory.name}/graph.sqlite")
-        self.world = WorldModelStore(backend=self.store)
+        self.world = WorldModelStore(backend=self.store, ledger=self.ledger)
         writer = CandidateFactWriter(self.world, consistency_gate=lambda _: True, verification_gate=lambda _: True)
         committed = _candidate(_fact("fact.pump.1"))
         writer.stage(committed)
@@ -94,11 +105,13 @@ class NodeGraphApiTests(unittest.TestCase):
         items = queue.json()["items"]
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["candidate_id"], self.pending_id)
+        self.assertEqual(items[0]["source_ref"], "upload:report.pdf#page-1")
 
         reject = self._request("POST", "/api/v1/knowledge/graph/review/resolve", json={"candidate_id": self.pending_id, "accept": False})
         self.assertEqual(reject.status_code, 200, reject.text)
         self.assertEqual(reject.json()["decision"], "reject")
         self.assertIsNone(reject.json()["fact_id"])
+        self.assertEqual(self.ledger.events[-1].actor_id, "principal.api")
         self.assertEqual(self._request("GET", "/api/v1/knowledge/graph/stats").json()["node_count"], 1)
 
     def test_review_accept_commits_and_missing_is_404(self):

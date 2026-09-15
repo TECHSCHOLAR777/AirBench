@@ -32,6 +32,21 @@ export interface KnowledgeIngestResponse {
   failures?: Array<Record<string, unknown>>;
 }
 
+export interface GraphReviewItem {
+  candidate_id: string;
+  fact_id: string;
+  reason: string;
+  enqueued_at: string;
+  confidence: number;
+  clearance: KnowledgeClearance;
+  source_ref: string;
+}
+
+export interface GraphReviewQueueResponse {
+  count: number;
+  items: GraphReviewItem[];
+}
+
 type KnowledgeClearance = "public" | "internal" | "restricted" | "secret";
 type KnowledgeTaint = "clean" | "untrusted" | "contaminated";
 
@@ -116,7 +131,8 @@ function approved(profile: ApprovedNodeProfileReference) {
 }
 
 export async function fetchKnowledgeStatus(profile: ApprovedNodeProfileReference): Promise<KnowledgeStatus> {
-  const value = await invoke<unknown>("fetch_knowledge_status", { ...approved(profile) });
+  const approvedProfile = approved(profile);
+  const value = await invoke<unknown>("fetch_knowledge_status", { profileId: approvedProfile.profile_id });
   if (!isRecord(value) || typeof value.configured !== "boolean" || typeof value.status !== "string" || !value.status.trim()) {
     throw new Error("The Node returned an invalid knowledge status.");
   }
@@ -175,4 +191,38 @@ export async function ingestKnowledgeFolder(profile: ApprovedNodeProfileReferenc
   if (value.files !== undefined && !Array.isArray(value.files)) throw new Error("The Node returned invalid ingested file records.");
   if (value.failures !== undefined && !Array.isArray(value.failures)) throw new Error("The Node returned invalid knowledge failure records.");
   return value as unknown as KnowledgeIngestResponse;
+}
+
+export async function fetchGraphReviewQueue(profile: ApprovedNodeProfileReference): Promise<GraphReviewQueueResponse> {
+  const approvedProfile = approved(profile);
+  const value = await invoke<unknown>("fetch_graph_review_queue", { profileId: approvedProfile.profile_id });
+  if (!isRecord(value) || !Number.isSafeInteger(value.count) || (value.count as number) < 0 || !Array.isArray(value.items) || value.count !== value.items.length || value.items.length > 200) {
+    throw new Error("The Node returned an invalid graph review queue.");
+  }
+  const items = value.items.map((item, index) => {
+    if (!isRecord(item)) throw new Error(`The Node returned an invalid graph review item ${index + 1}.`);
+    const candidateId = requireReference(item.candidate_id, `graph review candidate ${index + 1}`);
+    const factId = requireReference(item.fact_id, `graph review fact ${index + 1}`);
+    const reason = requireOptionalText(item.reason, `graph review reason ${index + 1}`, 4096);
+    const enqueuedAt = requireOptionalText(item.enqueued_at, `graph review time ${index + 1}`, 128);
+    const sourceRef = requireReference(item.source_ref, `graph review source ${index + 1}`);
+    const confidence = requireConfidence(item.confidence, `graph review ${index + 1}`);
+    const clearance = requireKnowledgeClearance(item.clearance, profile.clearanceContext, `graph review ${index + 1}`);
+    if (!reason || !enqueuedAt) throw new Error(`The Node returned incomplete graph review item ${index + 1}.`);
+    return { candidate_id: candidateId, fact_id: factId, reason, enqueued_at: enqueuedAt, confidence, clearance, source_ref: sourceRef };
+  });
+  return { count: items.length, items };
+}
+
+export async function resolveGraphReview(profile: ApprovedNodeProfileReference, candidateId: string, accept: boolean): Promise<{ candidate_id: string; decision: "accept" | "reject"; fact_id: string | null }> {
+  const normalizedCandidateId = requireReference(candidateId, "graph review candidate");
+  const approvedProfile = approved(profile);
+  const value = await invoke<unknown>("resolve_graph_review", {
+    profileId: approvedProfile.profile_id,
+    body: { candidate_id: normalizedCandidateId, accept },
+  });
+  if (!isRecord(value) || value.candidate_id !== normalizedCandidateId || (value.decision !== "accept" && value.decision !== "reject") || (value.fact_id !== null && typeof value.fact_id !== "string")) {
+    throw new Error("The Node returned an invalid graph review decision.");
+  }
+  return value as { candidate_id: string; decision: "accept" | "reject"; fact_id: string | null };
 }

@@ -71,8 +71,8 @@ Color never carries meaning alone. Status text, an icon, shape, or layout positi
 ### Typography
 
 - Never import a font, icon, image, stylesheet, or script from a network URL.
-- The initial Windows shell uses the local system stack: Segoe UI Variable or Segoe UI for UI text, Georgia for high-value document-style headings, and Cascadia Mono or Consolas for technical values. These are local operating-system assets, not product evidence or network dependencies.
-- If AirBench later bundles a font, the font must be legally distributable, included in the installer, version-pinned, hashed in the resource manifest, and covered by the offline installation test.
+- The desktop shell uses the locally bundled Poppins family for UI text, Georgia for high-value document-style headings, and Cascadia Mono or Consolas for technical values. Poppins is distributed under the SIL Open Font License and is shipped with the app, so typography does not depend on network access or a particular Windows installation.
+- Bundled fonts must remain legally distributable, version-pinned, included in the resource manifest, and covered by the offline installation test. The current Poppins files and license live under `apps/desktop/src/assets/fonts/poppins/`.
 - Use readable body sizes for source and artifact review.
 - Use medium weight for labels, semibold for actions, and bold only for important status or headings.
 - Use monospace for event IDs, hashes, code, model versions, and technical addresses.
