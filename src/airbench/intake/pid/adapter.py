@@ -159,7 +159,7 @@ class PidIntakeAdapter:
                 relation=str(edge.get("edge_label", "solid")),
                 confidence=1.0,
             )
-            for index, edge in enumerate(topology.get("edges", []))
+            for index, edge in enumerate(self._resolve_symbol_relations(topology))
         )
         texts = tuple(
             {"text": str(item.get("text", "")), "bbox": list(_bbox(item.get("bbox")))}
@@ -176,6 +176,85 @@ class PidIntakeAdapter:
             graphml_ref=(str(graphml) if graphml.is_file() else None),
             json_ref=(str(json_ref) if json_ref.is_file() else None),
         )
+
+    @staticmethod
+    def _resolve_symbol_relations(topology: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
+        """Collapse connector and crossing paths into symbol relations.
+
+        The vision topology is intentionally richer than the World Model. It
+        contains terminal ports and line crossings because those are useful for
+        visual review, but they are not engineering entities that should become
+        graph facts. This resolver follows only connector/crossing paths and
+        emits a relation when both endpoints resolve to detected symbols.
+        Unresolved paths are omitted and remain available in the exported P&ID
+        evidence for review.
+        """
+        symbols = {
+            str(item.get("id")) for item in topology.get("symbols", [])
+            if isinstance(item, Mapping) and item.get("id")
+        }
+        connector_parent = {
+            str(item.get("id")): str(item.get("parent_sym"))
+            for item in topology.get("connectors", [])
+            if isinstance(item, Mapping)
+            and item.get("id")
+            and item.get("parent_sym") in symbols
+        }
+        auxiliary = {
+            str(item.get("id"))
+            for key in ("connectors", "crossings")
+            for item in topology.get(key, [])
+            if isinstance(item, Mapping) and item.get("id")
+        }
+        adjacency: dict[str, list[tuple[str, str]]] = {node: [] for node in auxiliary}
+        direct: list[Mapping[str, Any]] = []
+        for edge in topology.get("edges", []):
+            if not isinstance(edge, Mapping):
+                continue
+            source = str(edge.get("source", ""))
+            target = str(edge.get("target", ""))
+            if source in symbols and target in symbols and source != target:
+                direct.append(edge)
+            elif source in auxiliary and target in auxiliary and source != target:
+                label = str(edge.get("edge_label", "solid"))
+                adjacency[source].append((target, label))
+                adjacency[target].append((source, label))
+
+        resolved: dict[tuple[str, str], dict[str, Any]] = {}
+        for edge in direct:
+            source = str(edge["source"])
+            target = str(edge["target"])
+            resolved[(min(source, target), max(source, target))] = {
+                **edge, "source": min(source, target), "target": max(source, target),
+            }
+
+        for start, source_symbol in connector_parent.items():
+            queue = [start]
+            visited = {start}
+            labels: dict[str, list[str]] = {start: []}
+            while queue:
+                current = queue.pop(0)
+                for next_node, label in adjacency.get(current, []):
+                    if next_node in visited:
+                        continue
+                    visited.add(next_node)
+                    labels[next_node] = [*labels[current], label]
+                    queue.append(next_node)
+            for end, target_symbol in connector_parent.items():
+                if end == start or end not in visited or source_symbol == target_symbol:
+                    continue
+                pair = (min(source_symbol, target_symbol), max(source_symbol, target_symbol))
+                if pair in resolved:
+                    continue
+                path_labels = labels.get(end, [])
+                resolved[pair] = {
+                    "id": f"resolved_{len(resolved) + 1}",
+                    "source": pair[0],
+                    "target": pair[1],
+                    "edge_label": "non-solid" if "non-solid" in path_labels else "solid",
+                }
+
+        return tuple(resolved.values())
 
 
 def _bbox(value: Any) -> tuple[float, float, float, float]:
