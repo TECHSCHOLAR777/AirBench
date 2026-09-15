@@ -1,5 +1,5 @@
 :root {
-  font-family: "Segoe UI Variable", "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: "Poppins", "Segoe UI Variable", "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   color: #e7edf7;
   background: #070b12;
   font-synthesis: none;
@@ -16,7 +16,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 .app-shell {
-  --font-ui: "Segoe UI Variable", "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-ui: "Poppins", "Segoe UI Variable", "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-display: Georgia, Cambria, "Times New Roman", serif;
   --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "Liberation Mono", monospace;
   --control-height: 44px;
@@ -1006,6 +1006,37 @@ h2 { color: var(--ink); font-size: 17px; letter-spacing: -.018em; }
   .technical-trace-grid, .technical-event-list dl, .proof-detail-list { grid-template-columns: 1fr; }
   .node-identity-grid, .safe-preview-meta { grid-template-columns: 1fr; }
 }
+
+/* Readability pass: human-facing copy stays comfortable, while technical
+   identifiers remain compact and monospace by design. */
+.app-shell { font-size: 13px; }
+.launchpad-prompt > p { font-size: 11px; }
+.launchpad-context-trigger strong { font-size: 11px; }
+.launchpad-context-trigger small { font-size: 10px; }
+.launchpad-source-empty strong, .selected-file strong { font-size: 12px; }
+.launchpad-source-empty p, .launchpad-policy-note, .launchpad-panel-footnote { font-size: 11px; }
+.output-intent-choice strong { font-size: 12px; }
+.output-intent-choice small { font-size: 11px; line-height: 1.45; }
+.route-state p, .route-facts span, .review-policy-card p { font-size: 11px; line-height: 1.55; }
+.intake-status, .safe-preview-card, .source-summary, .task-confirmation { font-size: 11px; }
+.intake-status > span, .safe-preview-meta dd, .source-summary span { font-size: 11px; }
+.current-work-card p, .readiness-card p, .workspace-sync > span:not(.status-dot), .workspace-command-note { font-size: 11px; line-height: 1.55; }
+.current-work-card h3 { font-size: 15px; }
+.plan-muted, .plan-reason p, .plan-stage small, .plan-worker { font-size: 11px; line-height: 1.5; }
+.plan-review-card .plan-meta-grid span, .plan-review-card .plan-workers > span, .plan-review-card .plan-stages > span { font-size: 10px; }
+.plan-review-card .plan-meta-grid strong { font-size: 11px; }
+.operator-question-state, .operator-question-list li { font-size: 11px; line-height: 1.55; }
+.operator-question-context dd, .operator-question-action { font-size: 10px; line-height: 1.5; }
+.workspace-now p, .worktrace-board-head p, .worktrace-stage p, .worktrace-detail-head p, .worktrace-activity-group > p, .worktrace-empty { font-size: 12px; line-height: 1.55; }
+.worktrace-stage strong, .worktrace-detail-head h2 { font-size: 14px; }
+.worktrace-activity-group li, .worktrace-evidence-list li, .worktrace-question-list li, .worktrace-artifact-list li { font-size: 11px; }
+.worktrace-activity-group strong, .worktrace-evidence-list strong { font-size: 12px; }
+.worktrace-activity-group small, .worktrace-question-list li, .worktrace-artifact-list li { line-height: 1.55; }
+.worktrace-verification p, .worktrace-contract-note { font-size: 11px; line-height: 1.55; }
+.node-readiness-explainer p:not(.eyebrow), .node-routing-boundary p:not(.eyebrow), .settings-note p, .settings-action-note { font-size: 12px; line-height: 1.55; }
+.profile-meta { font-size: 12px; }
+.profile-card .secondary-button { font-size: 11px; }
+.proof-preview-safe pre, .proof-preview-state, .proof-artifact-review, .proof-artifact-actions { font-size: 11px; line-height: 1.55; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
 @media (forced-colors: active) { .app-shell { forced-color-adjust: auto; } .status-dot { border: 1px solid CanvasText; } .composer-card, .appearance-menu, .modal-card, .sidebar { border: 1px solid CanvasText; } }
 .intake-badge.intake-confidence-green { color: #0f5132; background: #d1e7dd; border-color: #a3cfbb; }
