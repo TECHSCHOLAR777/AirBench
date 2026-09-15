@@ -74,14 +74,37 @@ class PodmanProviderTests(unittest.TestCase):
         self.assertIn("cpu=2", command)
         self.assertIn("--memory", command)
         self.assertIn(str(16 * 1024 * 1024), command)
-        self.assertNotIn("--storage-opt", command)
         self.assertIn("--tmpfs", command)
-        self.assertIn(str(root_path) + ":rw,size=" + str(32 * 1024 * 1024), command)
+        self.assertTrue(any(f"size={32 * 1024 * 1024}" in item for item in command))
+        self.assertNotIn("--storage-opt", command)
         self.assertIn("--pids-limit", command)
         self.assertIn("8", command)
         self.assertEqual(limits["max_cpu_seconds"], 2.0)
         self.assertTrue(name.startswith("airbench-sbx-"))
         self.assertEqual(command[-5:], (IMAGE, "/usr/local/bin/python", "-I", "-c", "worker"))
+
+    def test_xfs_provider_uses_storage_quota_for_writable_layer(self):
+        provider = PodmanProvider(IMAGE)
+        provider._filesystem_quota_supported = True
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            request = SandboxExecutionRequest(
+                command=("/usr/bin/python", "-I", "-c", "worker"),
+                cwd=root_path,
+                environment={},
+                stdin="{}",
+                timeout_seconds=3,
+                max_output_bytes=4096,
+                root_dir=root_path,
+                read_paths=(),
+                write_paths=(),
+                resource_limits={"max_disk_bytes": 32 * 1024 * 1024},
+            )
+            with patch("airbench.tools.podman_provider.os.name", "posix"):
+                command, _, _ = provider.build_command(request)
+        self.assertIn("--storage-opt", command)
+        self.assertIn("size=" + str(32 * 1024 * 1024), command)
+        self.assertNotIn("--tmpfs", command)
 
     def test_windows_host_fails_closed_instead_of_mis_mapping_paths(self):
         provider = PodmanProvider(IMAGE)
