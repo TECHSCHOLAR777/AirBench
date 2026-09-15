@@ -319,7 +319,11 @@ class NodeApiService:
                     )
                     content = page_bytes
                     media_type = intake_page.media_type
-                    content_hash = intake_page.content_hash if intake_page.rendered_page_ref else sha256(content).hexdigest()
+                    # ``PageRecord.content_hash`` is the semantic evidence hash
+                    # for the extracted page.  The visual adapter validates the
+                    # exact governed bytes it receives, so its contract must use
+                    # the byte hash of the selected rendered/source page.
+                    content_hash = sha256(content).hexdigest()
                     revision_id = intake_manifest.revision_id
                     source_ref = intake_manifest.source_ref
                 except NodeIntakeError as exc:
@@ -480,7 +484,10 @@ class NodeApiService:
         if not isinstance(max_depth, int) or isinstance(max_depth, bool) or not 0 <= max_depth <= 5:
             raise NodeApiError(422, "invalid_limit", "max_depth must be between 0 and 5.")
         facts = world.query(WorldModelQuery(
-            task_id="knowledge.graph",
+            # Graph reads are consequential because they create a provenance
+            # event. Reuse the Node-owned search task lifecycle so the event
+            # has a valid task.created predecessor in the append-only ledger.
+            task_id=self._ensure_knowledge_search_task(),
             key=str(payload.get("key", ""))[:256],
             clearance=clearance,
             limit=limit,

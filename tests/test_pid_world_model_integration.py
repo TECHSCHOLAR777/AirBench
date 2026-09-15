@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import base64
+from hashlib import sha256
 
 from airbench.intake import FileIntakeLayer, LocalIntakeStore
 from airbench.intake.pid.records import PIDRecord, PidComponent, PidRelation
@@ -62,6 +63,8 @@ def test_pid_upload_uses_intake_and_commits_gated_world_model_candidates(tmp_pat
     assert result["graph"]["committed"] == 2
     assert len(world.facts) == 2
     assert len(world.relations) == 1
+    pid_event = next(event for event in ledger.events if event.event_type == "pid.extracted")
+    assert pid_event.payload["content_hash"] == sha256(valid_png).hexdigest()
     assert any(event.event_type == "evidence.created" for event in ledger.events)
     assert any(event.event_type == "fact.committed" for event in ledger.events)
     assert all(fact.taint == Taint.untrusted for fact in world.facts)
