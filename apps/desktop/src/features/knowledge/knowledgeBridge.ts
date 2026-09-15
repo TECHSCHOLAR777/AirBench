@@ -116,7 +116,8 @@ function approved(profile: ApprovedNodeProfileReference) {
 }
 
 export async function fetchKnowledgeStatus(profile: ApprovedNodeProfileReference): Promise<KnowledgeStatus> {
-  const value = await invoke<unknown>("fetch_knowledge_status", { ...approved(profile) });
+  const approvedProfile = approved(profile);
+  const value = await invoke<unknown>("fetch_knowledge_status", { profileId: approvedProfile.profile_id });
   if (!isRecord(value) || typeof value.configured !== "boolean" || typeof value.status !== "string" || !value.status.trim()) {
     throw new Error("The Node returned an invalid knowledge status.");
   }

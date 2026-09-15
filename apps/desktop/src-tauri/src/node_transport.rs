@@ -587,7 +587,7 @@ pub(crate) fn build_client(profile: &NodeProfile) -> Result<reqwest::Client, Nod
     let is_remote = matches!(profile.transport, NodeTransport::InternalHttps);
     let mut client_builder = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(120))
         .https_only(is_remote)
         .tls_info(true)
         .user_agent("AirBench-Desktop/0.1");
