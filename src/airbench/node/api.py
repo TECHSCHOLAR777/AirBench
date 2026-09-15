@@ -76,6 +76,8 @@ MAX_EVENT_BATCH = 128
 MAX_EVIDENCE_ITEMS = 1_000
 MAX_ROUTE_ITEMS = 1_000
 BODY_READ_TIMEOUT_S = 120.0
+KNOWLEDGE_SEARCH_TASK_ID = "task.knowledge.search"
+KNOWLEDGE_SEARCH_TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
 logger = logging.getLogger(__name__)
 TASK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 NODE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -97,6 +99,8 @@ class LedgerView(Protocol):
     def __len__(self) -> int: ...
 
     def find_by_idempotency(self, key: str) -> LedgerEventEnvelope | None: ...
+
+    def replay(self, task_id: str) -> Any: ...
 
 
 class NodeApiError(RuntimeError):
@@ -206,6 +210,7 @@ class NodeApiService:
         self.pid_workspace = pid_workspace
         self._ledger: LedgerView = orchestrator.store
         self._lock = RLock()
+        self._knowledge_search_task_id = KNOWLEDGE_SEARCH_TASK_ID
 
     def authenticate(self, authorization: str | None) -> str:
         if not isinstance(authorization, str) or not authorization.startswith("Bearer "):
@@ -674,6 +679,7 @@ class NodeApiService:
             raise NodeApiError(503, "retrieval_unavailable", "The local retrieval service is not configured.")
         if mode in {"graph", "hybrid"} and self.world_model is None:
             raise NodeApiError(503, "world_model_unavailable", "The world model graph is not configured.")
+        search_task_id = self._ensure_knowledge_search_task()
         query = _text(payload, "query", 4096)
         clearance = _clearance(payload.get("clearance")) if payload.get("clearance") is not None else self.config.clearance_context
         self._check_clearance(clearance)
@@ -689,7 +695,7 @@ class NodeApiService:
             citations = run_iterative_retrieval(
                 runtime.service,
                 RetrievalLoopRequest(
-                    task_id="knowledge.search", query=query, clearance=clearance, top_k=top_k, max_rounds=max_rounds,
+                    task_id=search_task_id, query=query, clearance=clearance, top_k=top_k, max_rounds=max_rounds,
                 ),
             )
         else:
@@ -697,7 +703,7 @@ class NodeApiService:
             if raw_min is not None and (isinstance(raw_min, bool) or not isinstance(raw_min, (int, float))):
                 raise NodeApiError(422, "invalid_limit", "min_score must be a number.")
             citations = runtime.service.search(RetrievalRequest(
-                task_id="knowledge.search", query=query, clearance=clearance, top_k=top_k,
+                task_id=search_task_id, query=query, clearance=clearance, top_k=top_k,
                 min_score=float(raw_min) if raw_min is not None else None,
             ))
         graph_results: tuple[Any, ...] = ()
@@ -707,7 +713,7 @@ class NodeApiService:
             if not isinstance(max_depth, int) or isinstance(max_depth, bool) or not 0 <= max_depth <= 5:
                 raise NodeApiError(422, "invalid_limit", "max_depth must be between 0 and 5.")
             graph_results = self.world_model.query(WorldModelQuery(
-                task_id="knowledge.search",
+                task_id=search_task_id,
                 key=str(payload.get("key", query))[:256],
                 clearance=clearance,
                 limit=graph_limit,
@@ -745,6 +751,53 @@ class NodeApiService:
             "graph_result_count": len(graph_results),
             "graph_results": [_fact_wire(fact) for fact in graph_results],
         }
+
+    def _ensure_knowledge_search_task(self) -> str:
+        """Return a resting Node-owned ledger subject for search events.
+
+        Knowledge search is a synchronous projection rather than a resumable
+        user task. A subject that was interrupted and explicitly failed by a
+        previous startup is never reused, while a subject with committed
+        search events remains reusable across ordinary Node restarts.
+        """
+        with self._lock:
+            task_ids = list(dict.fromkeys(
+                event.task_id for event in self._ledger.events
+                if event.task_id == KNOWLEDGE_SEARCH_TASK_ID
+                or event.task_id.startswith(f"{KNOWLEDGE_SEARCH_TASK_ID}.")
+            ))
+            for task_id in reversed(task_ids):
+                if self.orchestrator.state(task_id) not in KNOWLEDGE_SEARCH_TERMINAL_STATES:
+                    self._knowledge_search_task_id = task_id
+                    return task_id
+
+            if task_ids:
+                suffixes = [
+                    int(task_id.rsplit(".", 1)[1])
+                    for task_id in task_ids
+                    if task_id.rsplit(".", 1)[-1].isdigit()
+                ]
+                next_suffix = max(suffixes, default=0) + 1
+                task_id = f"{KNOWLEDGE_SEARCH_TASK_ID}.{next_suffix}"
+            else:
+                task_id = KNOWLEDGE_SEARCH_TASK_ID
+            try:
+                self.orchestrator.create_task(
+                    principal_id=self.config.authenticated_subject,
+                    clearance=self.config.clearance_context,
+                    request="Node-owned knowledge search",
+                    domain_pack_ref=self.config.domain_pack_ref,
+                    risk_class="low",
+                    autonomy_ceiling="system",
+                    allowed_evidence_scope=("knowledge-search",),
+                    output_contract="cited-evidence",
+                    task_id=task_id,
+                )
+            except (StorageFailure, LedgerError) as exc:
+                if self._ledger.replay(task_id).state == "absent":
+                    raise NodeApiError(503, "knowledge_search_not_committed", "The knowledge-search ledger subject could not be committed.") from exc
+            self._knowledge_search_task_id = task_id
+            return task_id
 
     def knowledge_ingest(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self.knowledge is None:

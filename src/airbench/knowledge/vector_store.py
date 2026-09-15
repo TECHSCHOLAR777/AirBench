@@ -208,6 +208,11 @@ class ChromaVectorStore:
         result = self._collection.get(include=["embeddings", "metadatas", "documents"])
         return _chroma_to_chunks(result)
 
+    @property
+    def chunk_count(self) -> int:
+        """Return the durable collection count without loading embeddings."""
+        return int(self._collection.count())
+
     def upsert(self, chunks: Iterable[IndexChunk]) -> None:
         incoming = tuple(chunks)
         if not incoming:

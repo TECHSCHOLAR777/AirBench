@@ -464,13 +464,10 @@ class RetrievalService:
         self._ledger = ledger
 
     def search(self, request: RetrievalRequest) -> tuple[CitedExcerpt, ...]:
-        try:
-            self._event("retrieval.requested", request, {"query_hash": hashlib.sha256(request.query.encode("utf-8")).hexdigest()})
-        except Exception:
-            # Ledger transition guard rejects the synthetic task_id "knowledge.search"
-            # when a durable ledger is configured; proceed without recording the event
-            # to avoid a permanent 500 on knowledge search.
-            pass
+        # The Node provisions a durable task subject before this service is
+        # called, so retrieval provenance is fail-closed when its event cannot
+        # be committed instead of returning an unledgered result.
+        self._event("retrieval.requested", request, {"query_hash": hashlib.sha256(request.query.encode("utf-8")).hexdigest()})
         try:
             query_embedding = self._embeddings.embed(request.query)
             candidates = self._index.search(query_embedding, request.clearance, min(request.top_k * 3, 100))
