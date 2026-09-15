@@ -569,12 +569,32 @@ pub(crate) fn credential_token(profile: &NodeProfile) -> Result<String, NodeTran
                     .to_string(),
             )
         })?;
-    let token = entry.get_password().map_err(|_| {
-        NodeTransportError::CredentialUnavailable(
-            "The approved Node credential could not be read from the OS credential store."
-                .to_string(),
-        )
-    })?;
+    let token = match entry.get_password() {
+        Ok(token) => token,
+        Err(_) => {
+            // The disposable native validation runner stores credentials with
+            // the session persistence modifier. Read that same approved OS
+            // target as a fallback so validation and the desktop use one
+            // credential contract without exposing a token to the webview.
+            let session_entry = keyring_core::Entry::new_with_modifiers(
+                "org.airbench.desktop",
+                &profile.credential_ref,
+                &HashMap::from([("persistence", "Session")]),
+            )
+            .map_err(|_| {
+                NodeTransportError::CredentialUnavailable(
+                    "The approved Node credential could not be read from the OS credential store."
+                        .to_string(),
+                )
+            })?;
+            session_entry.get_password().map_err(|_| {
+                NodeTransportError::CredentialUnavailable(
+                    "The approved Node credential could not be read from the OS credential store."
+                        .to_string(),
+                )
+            })?
+        }
+    };
     if token.trim().is_empty() {
         return Err(NodeTransportError::CredentialUnavailable(
             "The approved Node credential is empty.".to_string(),
