@@ -71,13 +71,21 @@ events:
   - index.requested
   - index.completed
   - index.failed
+  - knowledge.ingest.started
+  - knowledge.ingest.file_completed
+  - knowledge.ingest.file_failed
+  - knowledge.ingest.completed
   - retrieval.requested
   - retrieval.completed
   - retrieval.failed
   - vision.requested
   - vision.completed
   - vision.failed
+  - pid.extracted
   - world_model.requested
+  - world_model.conflict
+  - world_model.review_required
+  - world_model.review_resolved
   - verification.requested
   - projection.rebuilt
   - projection.exported
@@ -94,7 +102,9 @@ events:
   - verification.evaluator.requested
   - verification.evaluator.completed
   - consistency.checked
+  - consistency.justified
   - authority.decided
+  - authority.authorized
 
   # ── M5.1: Model registry, artifact integrity, qualification ───────────────
   - model.registry.loaded
@@ -166,3 +176,7 @@ events:
   - resource.admission.degraded
   - resource.queue.updated
   - join_barrier.resolved
+
+  # Domain-pack loading
+  - pack.loaded
+  - pack.load_rejected
