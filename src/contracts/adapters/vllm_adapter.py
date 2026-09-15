@@ -55,6 +55,7 @@ from ..model.backend import (
 from ..ids import idempotency_key
 from ..provenance.ledger import LedgerStore, build_event
 from ..models import Clearance, ContractStatus, Taint
+from ..security.model_safety import evaluate_model_messages
 from .tool_parsers import BaseToolParser, ToolCallParserRegistry
 
 
@@ -213,6 +214,7 @@ class VllmAdapter:
         cancellation: CancellationToken | None = None,
     ) -> BackendResponse:
         self._check_no_egress(request)
+        self._check_model_safety(request)
         self._check_health_and_readiness(request)
         self._check_cancellation(request, cancellation)
         self._check_capabilities(request)
@@ -248,6 +250,7 @@ class VllmAdapter:
         cancellation: CancellationToken | None = None,
     ) -> Iterator[BackendChunk]:
         self._check_no_egress(request)
+        self._check_model_safety(request)
         self._check_health_and_readiness(request)
         self._check_cancellation(request, cancellation)
         self._check_capabilities(request)
@@ -347,6 +350,23 @@ class VllmAdapter:
             raise self._failure(request, BackendErrorCode.resource_exhausted,
                                 f"requested context ({requested}) exceeds limit ({limit})",
                                 retryable=True)
+
+    def _check_model_safety(self, request: BackendRequest) -> None:
+        """Fail closed before a provider sees an explicit unsafe procedure."""
+        decision = evaluate_model_messages(request.messages)
+        if decision.allowed:
+            return
+        error = self._failure(request, BackendErrorCode.authorization_failed,
+                              "model request blocked by the local safety policy",
+                              retryable=False)
+        self._append_event("model.call.failed", request, {
+            "request_hash": request.digest(),
+            "error_code": BackendErrorCode.authorization_failed.value,
+            "retryable": False,
+            "target_id": request.target_id,
+            "policy_reason": decision.reason,
+        })
+        raise error
 
     # ------------------------------------------------------------------
     # Internal helpers: payload construction
