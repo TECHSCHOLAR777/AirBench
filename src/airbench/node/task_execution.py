@@ -54,6 +54,7 @@ from ..intake import IntakeManifest, LocalIntakeStore
 from ..orchestration.team_runtime import TeamExecutionFailure, TeamRuntime
 from ..orchestration.worker_context import EvidenceProvider, ScopedEvidence
 from ..verification.runner import VerificationRequest, VerificationRule, VerificationRunner
+from .hardware_gateway import HardwareProfileError, load_hardware_profile
 
 _ENABLED_VALUES = {"1", "true", "yes", "on"}
 logger = logging.getLogger(__name__)
@@ -618,8 +619,19 @@ class NodeTaskExecutionCoordinator:
                                      failure_code="deliverable_template_invalid")
 
     def _load_hardware_profile(self, task_id: str) -> HardwareProfile:
-        if self._hardware_profile_path and self._hardware_profile_path.exists():
-            return HardwareProfile.from_dict(json.loads(self._hardware_profile_path.read_text(encoding="utf-8")))
+        if self._hardware_profile_path:
+            if not self._hardware_profile_path.exists():
+                raise NodeTaskExecutionError(
+                    "the configured hardware profile is missing",
+                    failure_code="hardware_profile_invalid",
+                )
+            try:
+                return load_hardware_profile(self._hardware_profile_path)
+            except HardwareProfileError as exc:
+                raise NodeTaskExecutionError(
+                    "the configured hardware profile is invalid",
+                    failure_code="hardware_profile_invalid",
+                ) from exc
         return HardwareProfile.from_dict({
             "profile_id": "node-execution-local",
             "gpu_model": "local-execution",

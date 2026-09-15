@@ -119,8 +119,8 @@ $env:HF_HUB_OFFLINE                  = "1"
 $env:TRANSFORMERS_OFFLINE            = "1"
 
 $env:AIRBENCH_TASK_PLANNER_ENABLED   = "1"
-$env:AIRBENCH_HARDWARE_PROFILE_PATH  = "$repo\profiles\hardware\aimslab_titan_rtx_24gb.yaml"
-$env:AIRBENCH_HARDWARE_PROFILE       = "$repo\profiles\hardware\aimslab_titan_rtx_24gb.yaml"
+$env:AIRBENCH_HARDWARE_PROFILE_PATH  = "$repo\profiles\hardware\aimslab_titan_rtx_24gb_runtime.json"
+$env:AIRBENCH_HARDWARE_PROFILE       = "$repo\profiles\hardware\aimslab_titan_rtx_24gb_runtime.json"
 
 # Domain pack (signed), world model, decision history, intake, and qualification.
 $env:AIRBENCH_INTAKE_ROOT            = "$repo\.airbench-intake"

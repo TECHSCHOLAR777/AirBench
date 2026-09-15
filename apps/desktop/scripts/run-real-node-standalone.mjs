@@ -1,25 +1,45 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanupWdioSession, startWdioSession } from "@wdio/tauri-service";
+import { startWdioSession } from "@wdio/tauri-service";
 
 const here = fileURLToPath(new URL("..", import.meta.url));
-const appBinaryPath = join(here, "src-tauri", "target", "debug", "airbench-desktop.exe");
+const tauriRoot = join(here, "src-tauri");
+const cargoTargetDir = process.env.CARGO_TARGET_DIR ?? join(tauriRoot, "target");
+const appBinaryPath = join(cargoTargetDir, "debug", "airbench-desktop.exe");
 const driverProvider = process.env.AIRBENCH_WDIO_DRIVER === "embedded" ? "embedded" : "external";
 const tauriDriverPath = process.env.TAURI_DRIVER_PATH;
 const allowDriverDownloads = process.env.AIRBENCH_ALLOW_DRIVER_DOWNLOAD === "1";
+let exitCode = 0;
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
 async function displayed(browser, selector) {
-  assert(await browser.$(selector).isDisplayed(), `Expected ${selector} to be displayed.`);
+  const element = await browser.$(selector);
+  await element.waitForDisplayed({ timeout: 30000 });
+  assert(await element.isDisplayed(), `Expected ${selector} to be displayed.`);
 }
 
 async function contains(browser, selector, expected) {
-  const text = await browser.$(selector).getText();
+  const element = await browser.$(selector);
+  await element.waitUntil(async () => (await element.getText()).includes(expected), {
+    timeout: 30000,
+    interval: 250,
+    timeoutMsg: `Expected ${selector} to contain ${JSON.stringify(expected)} within 30 seconds.`,
+  });
+  const text = await element.getText();
   assert(text.includes(expected), `Expected ${selector} to contain ${JSON.stringify(expected)}, got ${JSON.stringify(text)}.`);
+}
+
+async function closeBrowserSession(browser) {
+  if (!browser) return;
+  try {
+    await browser.deleteSession();
+  } catch (error) {
+    console.warn("WebDriver session deletion did not complete; the parent runner will reap its test processes.", error);
+  }
 }
 
 let browser;
@@ -47,7 +67,11 @@ try {
     },
   };
 
-  browser = await startWdioSession(capabilities, { rootDir: here });
+  browser = await startWdioSession(capabilities, {
+    rootDir: here,
+    autoInstallTauriDriver: allowDriverDownloads,
+    autoDownloadEdgeDriver: allowDriverDownloads,
+  });
   await displayed(browser, '[data-testid="task-composer"]');
   await browser.tauri.execute(() => console.info("[AIRBENCH_WDIO] frontend log capture marker"));
 
@@ -84,6 +108,13 @@ try {
     provider: driverProvider,
     evidence: ["real-handshake", "real-task-create", "real-query-upload", "real-plan-approval", "real-artifact-preview"],
   }));
+} catch (error) {
+  console.error(error instanceof Error ? error.stack : error);
+  exitCode = 1;
 } finally {
-  if (browser) await cleanupWdioSession(browser);
+  await closeBrowserSession(browser);
+  // @wdio/tauri-service's standalone lifecycle teardown can remain pending on
+  // Windows after deleteSession has completed. The parent runner owns the
+  // driver processes and reaps them after this child exits.
+  process.exit(exitCode);
 }
