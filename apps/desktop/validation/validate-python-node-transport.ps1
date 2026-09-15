@@ -14,7 +14,8 @@ $null = New-Item -ItemType Directory -Path $runRoot -Force
 # generated Tauri permissions or absolute dependency paths from the old
 # frontend/src-tauri location after the repository refactor.
 $env:CARGO_TARGET_DIR = Join-Path $runRoot "cargo-target"
-$python = (Get-Command python).Source
+$python = if ($env:AIRBENCH_PYTHON) { $env:AIRBENCH_PYTHON } else { (Get-Command python).Source }
+if (-not (Test-Path -LiteralPath $python)) { throw "AIRBENCH_PYTHON does not point to an executable: $python" }
 $cargo = Join-Path $env:USERPROFILE ".cargo\bin\cargo.exe"
 if (-not (Test-Path -LiteralPath $cargo)) { throw "Rust cargo was not found at the expected installation path." }
 
