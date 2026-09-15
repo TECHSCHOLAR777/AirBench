@@ -1,0 +1,93 @@
+{
+  "cancellation_and_timeout": 1.0,
+  "cancellation_result": "pass",
+  "concurrency": {
+    "failure_threshold_concurrency": null,
+    "max_tested_concurrency": 2,
+    "note": "no failure observed up to max_tested_concurrency",
+    "requests_sent": 3,
+    "stable_max_concurrency": 2
+  },
+  "endpoint": "http://127.0.0.1:18002",
+  "environment": {
+    "container_digest": null,
+    "errors": [
+      "docker inspect over ssh failed"
+    ],
+    "gpu": [
+      {
+        "compute_cap": "7.5",
+        "driver_version": "580.173.02",
+        "model": "NVIDIA TITAN RTX",
+        "uuid": "GPU-7c05b593-dd18-bd0f-3a7f-2d8c6b3f600c",
+        "vram_free_mib": "7254 MiB",
+        "vram_total_mib": "24576 MiB"
+      }
+    ]
+  },
+  "identity": {
+    "health_ok": true,
+    "served_model_verified": true,
+    "served_models": [
+      "airbench-qwen3-8b"
+    ]
+  },
+  "measured_at": "2026-09-15T12:53:04.526490Z",
+  "no_egress_startup": "pass",
+  "no_egress_startup_result": "pass",
+  "performance": {
+    "end_to_end_latency_ms": {
+      "median": 1078.487
+    },
+    "error_count": 0,
+    "error_rate": 0.0,
+    "first_token_latency_ms": {
+      "median": 1078.367,
+      "p95": 1078.367
+    },
+    "generation_tokens_per_s": 133667.524,
+    "latency_cv": 0.6291,
+    "repetitions": 3,
+    "samples": [
+      {
+        "completion_tokens": 16,
+        "e2e_ms": 3645.3350000083447,
+        "prompt_tokens": 15,
+        "ttfb_ms": 3645.236800017301
+      },
+      {
+        "completion_tokens": 16,
+        "e2e_ms": 1063.6382999946363,
+        "prompt_tokens": 15,
+        "ttfb_ms": 1063.4970999672078
+      },
+      {
+        "completion_tokens": 16,
+        "e2e_ms": 1078.4868999617174,
+        "prompt_tokens": 15,
+        "ttfb_ms": 1078.3671999815851
+      }
+    ]
+  },
+  "probes": {
+    "cancellation": {
+      "detail": "endpoint served a follow-up request after an aborted stream",
+      "result": "pass"
+    },
+    "no_egress": {
+      "detail": {
+        "loopback_endpoint": true,
+        "missing_env": []
+      },
+      "result": "pass"
+    },
+    "timeout": {
+      "detail": "clean client-side timeout",
+      "result": "pass"
+    }
+  },
+  "served_model": "airbench-qwen3-8b",
+  "target_id": "airbench-qwen3-8b",
+  "timeout_result": "pass",
+  "tool_version": "airbench-measure-0.1"
+}

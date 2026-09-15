@@ -50,10 +50,14 @@ def _fixture_vision() -> LocalVisionAdapter:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pack-key", required=True, help="deployment-provided pack verification key")
+    parser.add_argument(
+        "--pack-root", type=Path, default=ROOT / "packs" / "refinery_psu_v0",
+        help="signed domain-pack directory (defaults to the repository pack)",
+    )
     parser.add_argument("--output-dir", type=Path, default=ROOT / "acceptance" / "traces" / "m9-demo")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    pack_root = ROOT / "packs" / "refinery_psu_v0"
+    pack_root = args.pack_root.resolve()
     pack_key = args.pack_key.encode("utf-8")
     signature = RefineryPack.sign(pack_root, pack_key)
     pack = RefineryPack.load(pack_root, pack_key, signature)
