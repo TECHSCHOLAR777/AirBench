@@ -28,8 +28,6 @@ _ALLOWED = {
     "tool_call_parser", "structured_output_modes", "license_id", "local_storage_hash",
     "qualification_certificate", "qualification_expires_at", "qualification_signature",
     "model_family", "display_name", "revision", "container_digest",
-    "artifact_digest_scheme", "qualification_status", "enable_thinking",
-    "max_images", "max_videos", "processor_min_pixels", "processor_max_pixels",
     "tokenizer_path", "chat_template_path", "processor_digest", "processor_path",
     "chat_template_id", "chat_template_required", "tokenizer_required",
     "adapter_id", "adapter_version", "max_output_tokens", "max_concurrency",
@@ -39,8 +37,6 @@ _ALLOWED = {
 }
 _OPTIONAL = {
     "artifact_files", "model_family", "display_name", "revision", "container_digest",
-    "artifact_digest_scheme", "qualification_status", "enable_thinking",
-    "max_images", "max_videos", "processor_min_pixels", "processor_max_pixels",
     "tokenizer_path", "chat_template_path", "processor_digest", "processor_path",
     "chat_template_id", "chat_template_required", "tokenizer_required",
     "adapter_id", "adapter_version", "max_output_tokens", "max_concurrency",
@@ -75,22 +71,6 @@ def _sha256_descriptor(*parts: str) -> str:
     """
     payload = json.dumps({"component": parts[0], "source": parts[1:]}, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
-
-
-def _component_hash(component: str, value: Any, artifact_hash: Any) -> str:
-    """Normalize an embedded component without pretending it is a local file.
-
-    Remote deployments may attest that a tokenizer, template, or processor is
-    bundled in the pinned model revision without copying it to the Node.  The
-    descriptor is signed as part of the target and remains distinct from a
-    byte hash.
-    """
-    if not isinstance(value, Mapping):
-        return ""
-    digest = value.get("hash", "")
-    if digest in {"bundled", "none"}:
-        return _sha256_descriptor(component, str(value.get("id", value.get("template_id", digest))), str(artifact_hash))
-    return digest
 
 
 def _normalize_quantization(value: Any) -> str:
@@ -174,13 +154,6 @@ class ModelTarget:
     display_name: str = ""
     revision: str = ""
     container_digest: str = ""
-    artifact_digest_scheme: str = "sha256:bytes-v1"
-    qualification_status: str = "qualified"
-    enable_thinking: bool | None = None
-    max_images: int = 0
-    max_videos: int = 0
-    processor_min_pixels: int = 0
-    processor_max_pixels: int = 0
     tokenizer_path: str = ""
     chat_template_path: str = ""
     processor_digest: str = ""
@@ -238,8 +211,6 @@ class ModelTarget:
         defaults = {
             "artifact_files": (), "model_family": "", "display_name": "", "revision": "", "container_digest": "",
             "tokenizer_path": "", "chat_template_path": "", "processor_digest": "", "processor_path": "",
-            "artifact_digest_scheme": "sha256:bytes-v1", "qualification_status": "qualified", "enable_thinking": None,
-            "max_images": 0, "max_videos": 0, "processor_min_pixels": 0, "processor_max_pixels": 0,
             "chat_template_id": "", "chat_template_required": True, "tokenizer_required": True,
             "adapter_id": "", "adapter_version": "", "max_output_tokens": 0, "max_concurrency": 1,
             "max_batch_size": 1, "streaming": False, "cancellation": False, "source_evidence": "",
@@ -274,8 +245,8 @@ class ModelTarget:
                 raise RegistryError(f"{name} must be a lowercase SHA-256 digest")
         if self.backend not in {"vllm", "nim", "custom"}:
             raise RegistryError("backend must be vllm, nim, or custom")
-        if self.revision and not (re.fullmatch(r"[0-9a-f]{40,64}", self.revision) or _SHA256_PREFIXED.fullmatch(self.revision)):
-            raise RegistryError("revision must be an immutable hexadecimal revision or sha256 digest")
+        if self.revision and not (re.fullmatch(r"[0-9a-f]{40}", self.revision) or _SHA256_PREFIXED.fullmatch(self.revision)):
+            raise RegistryError("revision must be an immutable commit SHA or sha256 digest")
         if self.container_digest and not _SHA256_PREFIXED.fullmatch(self.container_digest):
             raise RegistryError("container_digest must be a sha256 digest")
         if self.backend in {"vllm", "nim"} and not self.container_digest:
@@ -293,18 +264,6 @@ class ModelTarget:
         for name in ("chat_template_required", "tokenizer_required", "streaming", "cancellation"):
             if type(getattr(self, name)) is not bool:
                 raise RegistryError(f"{name} must be boolean")
-        if self.enable_thinking is not None and type(self.enable_thinking) is not bool:
-            raise RegistryError("enable_thinking must be boolean when declared")
-        if self.artifact_digest_scheme not in {"sha256:bytes-v1", "sha256:file-manifest-v1"}:
-            raise RegistryError("unsupported artifact_digest_scheme")
-        if self.qualification_status not in {"qualified", "candidate"}:
-            raise RegistryError("qualification_status must be qualified or candidate")
-        for name in ("max_images", "max_videos", "processor_min_pixels", "processor_max_pixels"):
-            value = getattr(self, name)
-            if type(value) is not int or value < 0:
-                raise RegistryError(f"{name} must be a non-negative integer")
-        if self.processor_max_pixels and self.processor_min_pixels > self.processor_max_pixels:
-            raise RegistryError("processor_min_pixels cannot exceed processor_max_pixels")
         if self.routing_tier not in {"capable", "efficient"}:
             raise RegistryError("routing_tier must be capable or efficient")
         for name in ("max_output_tokens", "max_concurrency", "max_batch_size"):
@@ -441,13 +400,8 @@ class ModelRegistry:
                 if not hmac.compare_digest(hashlib.sha256(component_path.read_bytes()).hexdigest(), digest_value):
                     raise RegistryError(f"{field} digest mismatch: {target.target_id}")
 
-    def eligible_targets(self, request: ModelCallRequest, *, pack_ref: str, hardware_profile_ref: str,
-                        now: datetime | None = None, allow_candidates: bool = False) -> tuple[ModelTarget, ...]:
-        return tuple(
-            target for target in self.targets
-            if (allow_candidates or target.qualification_status == "qualified")
-            and target.matches(request, pack_ref=pack_ref, hardware_profile_ref=hardware_profile_ref, now=now)
-        )
+    def eligible_targets(self, request: ModelCallRequest, *, pack_ref: str, hardware_profile_ref: str, now: datetime | None = None) -> tuple[ModelTarget, ...]:
+        return tuple(target for target in self.targets if target.matches(request, pack_ref=pack_ref, hardware_profile_ref=hardware_profile_ref, now=now))
 
     @classmethod
     def load_roster_file(cls, path: Path, *, signing_key: bytes, artifact_root: Path, now: datetime | None = None, verify_artifacts: bool = True) -> "ModelRegistry":
@@ -570,22 +524,11 @@ def _target_from_roster(item: Mapping[str, Any]) -> ModelTarget:
             (role_name, str(role.get("qualification_hash", ""))) for role_name, role in zip(role_names, roles)
         ),
         "display_name": item.get("display_name", ""), "revision": item.get("revision", ""), "container_digest": serving.get("container_digest", ""),
-        "artifact_digest_scheme": item.get("artifact_digest_scheme", "sha256:bytes-v1"),
-        "qualification_status": item.get("qualification_status", "qualified"),
-        "enable_thinking": (
-            (item.get("request_options", {}) or {}).get("chat_template_kwargs", {}).get("enable_thinking")
-            if isinstance(item.get("request_options", {}), Mapping)
-            and isinstance((item.get("request_options", {}) or {}).get("chat_template_kwargs", {}), Mapping)
-            else None
-        ),
         "chat_template_id": template_id, "chat_template_required": template_id != "none",
         "tokenizer_required": True, "tokenizer_path": str(tokenizer.get("path", "")),
         "chat_template_path": str(template.get("path", "")),
         "processor_path": str((item.get("image_processor", {}) or {}).get("path", "")) if isinstance(item.get("image_processor", {}), Mapping) else "",
-        "processor_digest": _component_hash("image_processor", item.get("image_processor", {}), artifact_hash),
-        "max_images": limits.get("max_images", 0), "max_videos": limits.get("max_videos", 0),
-        "processor_min_pixels": (item.get("image_processor", {}) or {}).get("min_pixels", 0) if isinstance(item.get("image_processor", {}), Mapping) else 0,
-        "processor_max_pixels": (item.get("image_processor", {}) or {}).get("max_pixels", 0) if isinstance(item.get("image_processor", {}), Mapping) else 0,
+        "processor_digest": (item.get("image_processor", {}) or {}).get("hash", "") if isinstance(item.get("image_processor", {}), Mapping) else "",
         "adapter_id": serving.get("adapter_id", ""), "adapter_version": serving.get("adapter_version", ""),
         "max_output_tokens": limits.get("max_output_tokens", 0), "max_concurrency": limits.get("max_concurrency", 1),
         "max_batch_size": limits.get("max_batch_size", 1), "streaming": bool(item.get("streaming", False)),

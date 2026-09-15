@@ -477,7 +477,7 @@ Use the exact test file present on the branch. The earlier expected path is now:
 ~~~
 export AIRBENCH_PODMAN_INTEGRATION=1
 export AIRBENCH_PODMAN_IMAGE='docker.io/library/python@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254'
-export AIRBENCH_PODMAN_VERSION='4.9.3'
+export AIRBENCH_PODMAN_VERSION='5.7.0'
 python -m pytest -q tests/test_m61_podman_integration.py
 ~~~
 
@@ -603,3 +603,4 @@ Do not write working, done, or production ready without the evidence that makes 
 The valuable part of AirBench is not that it can produce a fluent answer. The valuable part is that a user can see what the system accepted, what it planned, what it was authorized to do, what evidence it used, what remains uncertain, which artifact was produced, and who or what approved it, while the sensitive work stays inside the organization's boundary.
 
 Your job in the next phase is to make that claim survive a real person, a real target host, a real connection failure, and a real network monitor.
+

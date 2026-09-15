@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@airbench/tauri-invoke", () => ({ invoke: invokeMock }));
 
-import { downloadArtifact, downloadVerifiedArtifact, fetchArtifactPreview, fetchIntakeStatus, fetchSafePreview, uploadSelectedPidFile, uploadSelectedQueryFile, validateArtifactPreview, validateDownloadReceipt, validateIntakeManifest, validateIntakeStatus, validatePidExtractionResponse, validateSafePreview } from "./intakeBridge";
+import { downloadArtifact, downloadVerifiedArtifact, fetchArtifactPreview, fetchIntakeStatus, fetchSafePreview, uploadSelectedQueryFile, validateArtifactPreview, validateDownloadReceipt, validateIntakeManifest, validateIntakeStatus, validateSafePreview } from "./intakeBridge";
 import type { ApprovedNodeProfile } from "../../platform/node/nodeConnection";
 import type { ArtifactPreview, DownloadReceipt, IntakeManifest, IntakeStatus, SafePreview } from "./intakeBridge";
 
@@ -68,19 +68,6 @@ const artifactPreview: ArtifactPreview = {
   ledger_event_ref: "ledger-artifact-preview-1",
 };
 
-const pidResponse = {
-  task_id: "task-1",
-  intake_id: "intake-pid-1",
-  revision_id: "revision-pid-1",
-  source_ref: "query-upload:task-1:sample-pid.png",
-  content_hash: "b".repeat(64),
-  media_type: "image/png",
-  clearance: "restricted",
-  taint: "untrusted",
-  ledger_event_ref: "ledger-pid-1",
-  graph: { status: "committed", committed: 2, review_required: 0, failed: [], candidates: ["candidate-1", "candidate-2"] },
-};
-
 describe("File Intake frontend bridge", () => {
   beforeEach(() => {
     invokeMock.mockReset();
@@ -94,18 +81,6 @@ describe("File Intake frontend bridge", () => {
     expect(invokeMock).toHaveBeenCalledWith("upload_selected_query_file", {
       profileId: "profile-1",
       selectionId: "selection-1",
-      taskId: "task-1",
-    });
-  });
-
-  it("submits a P&ID selection through the registered Rust command", async () => {
-    invokeMock.mockResolvedValueOnce(pidResponse);
-
-    await uploadSelectedPidFile(profile, "selection-pid-1", "task-1");
-
-    expect(invokeMock).toHaveBeenCalledWith("upload_selected_pid_file", {
-      profileId: "profile-1",
-      selectionId: "selection-pid-1",
       taskId: "task-1",
     });
   });
@@ -152,11 +127,6 @@ describe("webview intake response boundary", () => {
     expect(() => validateSafePreview({ ...safePreview, taint: "unknown" }, "preview-1", manifest.source_hash, "restricted")).toThrow("taint");
     expect(() => validateArtifactPreview({ ...artifactPreview, blocks: [{ kind: "paragraph", text: "" + "x".repeat(10 * 1024 * 1024 + 1) }] }, "artifact-1", "restricted")).toThrow("artifact preview block text");
     expect(() => validateArtifactPreview({ ...artifactPreview, artifact_id: "artifact-2" }, "artifact-1", "restricted")).toThrow("does not match");
-  });
-
-  it("rejects a P&ID receipt with mismatched task or malformed graph state", () => {
-    expect(() => validatePidExtractionResponse(pidResponse, "task-2", "restricted")).toThrow("does not match");
-    expect(() => validatePidExtractionResponse({ ...pidResponse, graph: { ...pidResponse.graph, committed: -1 } }, "task-1", "restricted")).toThrow("committed P&ID graph count");
   });
 });
 

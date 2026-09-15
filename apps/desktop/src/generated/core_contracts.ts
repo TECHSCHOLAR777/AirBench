@@ -60,10 +60,6 @@ export const LEDGER_EVENT_TYPES = [
   "join_barrier.completed",
   "join_barrier.resolved",
   "join_barrier.waiting",
-  "knowledge.ingest.completed",
-  "knowledge.ingest.file_completed",
-  "knowledge.ingest.file_failed",
-  "knowledge.ingest.started",
   "lifecycle.blocked",
   "lifecycle.intercepted",
   "model.artifact.integrity.verified",
@@ -422,7 +418,6 @@ export interface StageSignals extends ContractEnvelope {
   recent_production?: boolean;
   test_result?: string;
   context_pressure?: string;
-  capable_route_requested?: boolean;
 }
 
 export interface ModelCallRequest extends ContractEnvelope {

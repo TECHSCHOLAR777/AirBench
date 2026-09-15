@@ -10,9 +10,9 @@ DEFAULT_WEIGHTS_DIR = REPO_ROOT / "models" / "weights" / "pid"
 SYMBOL_WEIGHTS_PATH = Path(
     os.environ.get("PID_WEIGHTS_PATH", DEFAULT_WEIGHTS_DIR / "best.pt")
 )
-# The intake layer is offline-only.  Operators may provide an already
-# verified local artifact; it must never download model weights during intake.
-SYMBOL_WEIGHTS_URL = os.environ.get("PID_WEIGHTS_URL", "").strip() or None
+SYMBOL_WEIGHTS_URL = (
+    "https://raw.githubusercontent.com/mgupta70/PID_Symbol_Detection/main/models/stage1/class_aware/best.pt"
+)
 
 # Symbol Detector Hyperparameters
 SYMBOL_CONFIG = {

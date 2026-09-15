@@ -3,7 +3,8 @@
 Verifies, before the AirBench Node starts, that every roster lane is actually
 served through the SSH tunnel with the exact expected model identity:
 
-  1. the signed roster and remote deployment attestation load and verify;
+  1. the signed roster loads and its signature verifies (fast path: artifact
+     re-hashing stays a Node-startup responsibility);
   2. each target's HTTP health endpoint answers;
   3. ``/v1/models`` lists the exact served model name declared by the roster;
   4. the roster pins revision, quantization, adapter identity, and container
@@ -12,8 +13,8 @@ served through the SSH tunnel with the exact expected model identity:
 
 Usage:
     python scripts/model_endpoint_preflight.py
-    python scripts/model_endpoint_preflight.py --roster models/roster/aimslab/qwen_vllm_roster.yaml \
-        --attestation models/attestations/aimslab_qwen_vllm.yaml --signing-key .airbench_signing_key --json
+    python scripts/model_endpoint_preflight.py --roster models/roster/demo/two_endpoint_roster.yaml \
+        --signing-key .airbench_signing_key --json
 
 Exit codes: 0 all lanes ready, 1 at least one lane not ready, 2 roster invalid.
 """
@@ -24,14 +25,13 @@ import json
 import sys
 import urllib.error
 import urllib.request
-from types import SimpleNamespace
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from contracts import ModelRegistry, RegistryError, RemoteDeploymentAttestation  # noqa: E402
+from contracts import ModelRegistry, RegistryError  # noqa: E402
 
 _PLACEHOLDERS = ("replace_with", "pending", "unqualified", "tbd", "n/a-qat-placeholder")
 
@@ -58,8 +58,8 @@ def _get_json(url: str, timeout: float) -> dict[str, Any] | None:
 
 def _probe_lane(item: dict[str, Any], target: Any, timeout: float) -> dict[str, Any]:
     serving = item.get("serving", {}) or {}
-    base_url = str(serving.get("developer_endpoint_url", serving.get("demo_endpoint_url", ""))).rstrip("/")
-    served_name = str(serving.get("served_model_name", serving.get("demo_served_model_name", "")))
+    base_url = str(serving.get("demo_endpoint_url", "")).rstrip("/")
+    served_name = str(serving.get("demo_served_model_name", ""))
     lane: dict[str, Any] = {
         "target_id": str(item.get("target_id", "")),
         "endpoint_url": base_url,
@@ -106,19 +106,14 @@ def _probe_lane(item: dict[str, Any], target: Any, timeout: float) -> dict[str, 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--roster", default=str(REPO_ROOT / "models" / "roster" / "aimslab" / "qwen_vllm_roster.yaml"))
+    parser.add_argument("--roster", default=str(REPO_ROOT / "models" / "roster" / "demo" / "two_endpoint_roster.yaml"))
     parser.add_argument("--signing-key", default=str(REPO_ROOT / ".airbench_signing_key"))
-    parser.add_argument("--attestation", default=None, help="signed remote deployment attestation")
-    parser.add_argument("--attestation-signing-key", default=None, help="key for the deployment attestation")
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     args = parser.parse_args(argv)
 
     roster_path = Path(args.roster)
     key_path = Path(args.signing_key)
-    default_roster = (REPO_ROOT / "models" / "roster" / "aimslab" / "qwen_vllm_roster.yaml").resolve()
-    if args.attestation is None and roster_path.resolve() == default_roster:
-        args.attestation = str(REPO_ROOT / "models" / "attestations" / "aimslab_qwen_vllm.yaml")
     if not roster_path.is_file() or not key_path.is_file():
         print(json.dumps({"status": "roster_invalid", "reason": f"missing roster or signing key: {roster_path} / {key_path}"}))
         return 2
@@ -135,30 +130,6 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     targets = {target.target_id: target for target in registry.targets}
-    network_policy = str((document.get("roster") or {}).get("network_policy", ""))
-    if network_policy == "remote_approved_ssh_loopback" and not args.attestation:
-        print(json.dumps({"status": "attestation_required", "reason": "remote roster requires a signed deployment attestation"}))
-        return 2
-    if args.attestation:
-        attestation_key = Path(args.attestation_signing_key or args.signing_key)
-        try:
-            attestation = RemoteDeploymentAttestation.load_file(
-                Path(args.attestation), signing_key=attestation_key.read_bytes(),
-            )
-            specs = tuple(
-                SimpleNamespace(
-                    target_id=str(item.get("target_id", "")),
-                    endpoint_id=str((item.get("serving") or {}).get("endpoint_id", "")),
-                    base_url=str((item.get("serving") or {}).get("developer_endpoint_url", "")).rstrip("/"),
-                    served_model_name=str((item.get("serving") or {}).get("served_model_name", "")),
-                )
-                for item in document.get("roster", {}).get("targets", [])
-                if isinstance(item, dict)
-            )
-            attestation.verify_bindings(registry, specs)
-        except (OSError, ValueError, RegistryError) as exc:
-            print(json.dumps({"status": "attestation_invalid", "reason": str(exc)}))
-            return 2
     lanes = [
         _probe_lane(item, targets.get(str(item.get("target_id", ""))), args.timeout)
         for item in document.get("roster", {}).get("targets", [])

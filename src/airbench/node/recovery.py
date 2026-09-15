@@ -25,7 +25,6 @@ from typing import Any
 
 INTERRUPTED_STATES = frozenset({"executing", "awaiting_check", "rendering"})
 RECOVERABLE_REVIEW_STATES = frozenset({"deliverable_verified"})
-NON_RESUMABLE_TASK_PREFIXES = ("task.knowledge.search",)
 
 
 def _last_event(ledger: Any, task_id: str) -> Any:
@@ -43,11 +42,6 @@ def reconcile_stale_tasks(orchestrator: Any, ledger: Any) -> dict[str, Any]:
     interrupted: list[str] = []
     recovered_to_review: list[str] = []
     for task_id in task_ids:
-        if task_id.startswith(NON_RESUMABLE_TASK_PREFIXES):
-            # Knowledge search subjects record synchronous projection events.
-            # They are not resumable coordinator tasks, so a process restart
-            # must not convert a completed search subject into task.failed.
-            continue
         state = orchestrator.state(task_id)
         last = _last_event(ledger, task_id)
         if state in INTERRUPTED_STATES:
@@ -72,9 +66,4 @@ def reconcile_stale_tasks(orchestrator: Any, ledger: Any) -> dict[str, Any]:
     }
 
 
-__all__ = [
-    "INTERRUPTED_STATES",
-    "NON_RESUMABLE_TASK_PREFIXES",
-    "RECOVERABLE_REVIEW_STATES",
-    "reconcile_stale_tasks",
-]
+__all__ = ["INTERRUPTED_STATES", "RECOVERABLE_REVIEW_STATES", "reconcile_stale_tasks"]

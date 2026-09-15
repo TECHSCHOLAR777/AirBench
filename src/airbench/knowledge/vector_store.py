@@ -17,7 +17,6 @@ import json
 import math
 import os
 import sqlite3
-from threading import RLock
 from dataclasses import replace
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -90,9 +89,8 @@ class SqliteVectorStore:
     def __init__(self, path: str | Path) -> None:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = RLock()
         try:
-            self._connection = sqlite3.connect(str(self._path), check_same_thread=False, timeout=30.0)
+            self._connection = sqlite3.connect(str(self._path))
         except sqlite3.Error as exc:
             raise VectorStoreError("store_open_failed", "the vector store could not be opened") from exc
         self._connection.execute(
@@ -103,67 +101,62 @@ class SqliteVectorStore:
         self._connection.commit()
 
     def close(self) -> None:
-        with self._lock:
-            try:
-                self._connection.close()
-            except sqlite3.Error:
-                pass
+        try:
+            self._connection.close()
+        except sqlite3.Error:
+            pass
 
     @property
     def chunks(self) -> tuple[IndexChunk, ...]:
-        with self._lock:
-            return tuple(_decode(row[0]) for row in self._connection.execute("SELECT payload FROM chunks"))
+        return tuple(_decode(row[0]) for row in self._connection.execute("SELECT payload FROM chunks"))
 
     @property
     def chunk_count(self) -> int:
-        with self._lock:
-            row = self._connection.execute("SELECT COUNT(*) FROM chunks").fetchone()
-            return int(row[0]) if row else 0
+        row = self._connection.execute("SELECT COUNT(*) FROM chunks").fetchone()
+        return int(row[0]) if row else 0
 
     def upsert(self, chunks: Iterable[IndexChunk]) -> None:
         incoming = tuple(chunks)
-        with self._lock:
-            try:
-                cursor = self._connection.cursor()
-                for chunk in incoming:
-                    rows = cursor.execute(
-                        "SELECT chunk_id, payload FROM chunks WHERE source_ref = ? AND revision_state = 'current' AND revision_id != ?",
-                        (chunk.source_ref, chunk.revision_id),
-                    ).fetchall()
-                    for chunk_id, payload in rows:
-                        superseded = _decode(payload)
-                        cursor.execute(
-                            "UPDATE chunks SET revision_state = 'superseded', payload = ? WHERE chunk_id = ?",
-                            (_encode(replace(superseded, revision_state="superseded")), chunk_id),
-                        )
+        try:
+            cursor = self._connection.cursor()
+            for chunk in incoming:
+                rows = cursor.execute(
+                    "SELECT chunk_id, payload FROM chunks WHERE source_ref = ? AND revision_state = 'current' AND revision_id != ?",
+                    (chunk.source_ref, chunk.revision_id),
+                ).fetchall()
+                for chunk_id, payload in rows:
+                    superseded = _decode(payload)
                     cursor.execute(
-                        "INSERT OR REPLACE INTO chunks (chunk_id, source_ref, revision_id, revision_state, clearance_rank, embedding, payload) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (
-                            chunk.chunk_id, chunk.source_ref, chunk.revision_id, chunk.revision_state,
-                            _rank(chunk.clearance), json.dumps(list(chunk.embedding)), _encode(chunk),
-                        ),
+                        "UPDATE chunks SET revision_state = 'superseded', payload = ? WHERE chunk_id = ?",
+                        (_encode(replace(superseded, revision_state="superseded")), chunk_id),
                     )
-                self._connection.commit()
-            except sqlite3.Error as exc:
-                self._connection.rollback()
-                raise VectorStoreError("store_write_failed", "the vector store could not be written") from exc
+                cursor.execute(
+                    "INSERT OR REPLACE INTO chunks (chunk_id, source_ref, revision_id, revision_state, clearance_rank, embedding, payload) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        chunk.chunk_id, chunk.source_ref, chunk.revision_id, chunk.revision_state,
+                        _rank(chunk.clearance), json.dumps(list(chunk.embedding)), _encode(chunk),
+                    ),
+                )
+            self._connection.commit()
+        except sqlite3.Error as exc:
+            self._connection.rollback()
+            raise VectorStoreError("store_write_failed", "the vector store could not be written") from exc
 
     def search(self, embedding: tuple[float, ...], clearance: Clearance, limit: int) -> tuple[IndexChunk, ...]:
         if limit < 1:
             raise RetrievalError("invalid_limit", "search limit must be positive")
         max_rank = _rank(clearance)
-        with self._lock:
-            candidates: list[tuple[float, IndexChunk]] = []
-            for weight, payload in self._connection.execute(
-                "SELECT clearance_rank, payload FROM chunks WHERE revision_state = 'current' AND clearance_rank <= ?",
-                (max_rank,),
-            ):
-                del weight  # already filtered by the query
-                chunk = _decode(payload)
-                candidates.append((_cosine(embedding, chunk.embedding), chunk))
-            candidates.sort(key=lambda item: (-item[0], item[1].chunk_id))
-            return tuple(chunk for _, chunk in candidates[:limit])
+        candidates: list[tuple[float, IndexChunk]] = []
+        for weight, payload in self._connection.execute(
+            "SELECT clearance_rank, payload FROM chunks WHERE revision_state = 'current' AND clearance_rank <= ?",
+            (max_rank,),
+        ):
+            del weight  # already filtered by the query
+            chunk = _decode(payload)
+            candidates.append((_cosine(embedding, chunk.embedding), chunk))
+        candidates.sort(key=lambda item: (-item[0], item[1].chunk_id))
+        return tuple(chunk for _, chunk in candidates[:limit])
 
 
 class ChromaVectorStore:
@@ -207,11 +200,6 @@ class ChromaVectorStore:
     def chunks(self) -> tuple[IndexChunk, ...]:
         result = self._collection.get(include=["embeddings", "metadatas", "documents"])
         return _chroma_to_chunks(result)
-
-    @property
-    def chunk_count(self) -> int:
-        """Return the durable collection count without loading embeddings."""
-        return int(self._collection.count())
 
     def upsert(self, chunks: Iterable[IndexChunk]) -> None:
         incoming = tuple(chunks)

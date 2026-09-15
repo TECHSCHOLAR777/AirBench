@@ -1,12 +1,8 @@
 import { useEffect, useState } from "react";
 import { fetchKnowledgeStatus, ingestKnowledgeFolder, searchKnowledge, type KnowledgeIngestResponse, type KnowledgeSearchResponse, type KnowledgeStatus } from "./knowledgeBridge";
-import { uploadSelectedPidFile, type PidExtractionResponse } from "../intake/intakeBridge";
-import { invoke } from "@airbench/tauri-invoke";
-import { buildCreateTaskCommand } from "../tasks/taskComposer";
-import { createTask } from "../../platform/node/nodeCommands";
 import type { ApprovedNodeProfileReference } from "../../platform/node/nodeConnection";
 
-export function KnowledgeView({ profile, nodeConnected, subject, domainPackRef }: { profile: ApprovedNodeProfileReference | null; nodeConnected: boolean; subject: string | null; domainPackRef: string | null; }) {
+export function KnowledgeView({ profile, nodeConnected }: { profile: ApprovedNodeProfileReference | null; nodeConnected: boolean }) {
   const [status, setStatus] = useState<KnowledgeStatus | null>(null);
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"text" | "graph" | "hybrid">("hybrid");
@@ -16,8 +12,6 @@ export function KnowledgeView({ profile, nodeConnected, subject, domainPackRef }
   const [statusBusy, setStatusBusy] = useState(false);
   const [ingestBusy, setIngestBusy] = useState(false);
   const [ingestResult, setIngestResult] = useState<KnowledgeIngestResponse | null>(null);
-  const [pidBusy, setPidBusy] = useState(false);
-  const [pidResult, setPidResult] = useState<PidExtractionResponse | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -70,56 +64,14 @@ export function KnowledgeView({ profile, nodeConnected, subject, domainPackRef }
     }
   }
 
-  async function extractPid() {
-    if (!profile || !subject || !domainPackRef) {
-      setMessage("Cannot extract P&ID: Node identity or domain pack is missing.");
-      return;
-    }
-    setPidBusy(true);
-    setMessage(null);
-    setPidResult(null);
-    try {
-      const selection = await invoke<{ selection_id: string } | null>("pick_query_file");
-      if (!selection) return;
-
-      const commandId = `command.create.${crypto.randomUUID()}`;
-      const command = buildCreateTaskCommand({
-        actor: subject,
-        clearance: profile.clearanceContext,
-        domainPackRef: domainPackRef,
-        request: "Digitize P&ID into knowledge base",
-        title: "P&ID Extraction",
-        projectRef: null,
-        outputContract: "knowledge_graph",
-        priority: "normal",
-        deadline: null,
-        inputManifestRefs: [],
-        inputKind: "file",
-      }, commandId, `idempotency.${commandId}`);
-
-      const taskResult = await createTask(profile, command);
-      const taskId = taskResult.task.task_id;
-
-      const response = await uploadSelectedPidFile(profile, selection.selection_id, taskId);
-      setPidResult(response);
-      setStatus(await fetchKnowledgeStatus(profile));
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPidBusy(false);
-    }
-  }
-
   return <section className="record-gateway" aria-label="Knowledge base explorer">
     <header><p className="eyebrow">KNOWLEDGE BASE</p><h1>Search governed knowledge</h1><p className="lead">Text and image-derived evidence stays in the vector store, while P&amp;ID entities and relations stay in the world-model graph. Hybrid search shows both.</p></header>
     {!nodeConnected || !profile ? <section className="record-gateway-state record-gateway-state-node_unavailable" role="status"><strong>Connect an approved Node</strong><p>The desktop does not read or parse knowledge files locally.</p></section> : <>
       <section className="workspace-metrics" aria-label="Knowledge status" aria-busy={statusBusy || ingestBusy}><div><span>Node knowledge</span><strong>{statusBusy ? "Checking..." : humanizeToken(status?.status ?? "Unavailable")}</strong></div><div><span>Indexed chunks</span><strong>{status?.indexed_chunks ?? "Not supplied"}</strong></div><div><span>Graph</span><strong>{status?.graph ? "Available" : status ? "Not configured" : "Unavailable"}</strong></div></section>
       <section className="knowledge-ingest-card"><div><p className="eyebrow">CORPUS INGESTION</p><strong>Add an approved Node-visible corpus</strong><p>{profile.transport === "loopback" ? "Choose a folder on this workstation. The local Node will apply its intake, clearance, and provenance rules." : "Bulk ingestion is disabled for this remote profile because a laptop folder is not automatically visible to the Node. Provision the corpus on the Node or use the approved transfer workflow."}</p></div><button className="secondary-button" type="button" onClick={() => void ingestFolder()} disabled={ingestBusy || profile.transport !== "loopback"} title={profile.transport === "loopback" ? "Choose a local folder for the local Node" : "A remote Node cannot read a laptop path"}>{ingestBusy ? "Ingesting..." : profile.transport === "loopback" ? "Choose folder" : "Node folder required"}</button></section>
-      <section className="knowledge-ingest-card"><div><p className="eyebrow">P&amp;ID EXTRACTION</p><strong>Digitize a P&amp;ID to the graph</strong><p>Upload a P&amp;ID image to extract its symbols and topological graph into the world model.</p></div><button className="secondary-button" type="button" onClick={() => void extractPid()} disabled={pidBusy}>{pidBusy ? "Extracting..." : "Upload P&ID"}</button></section>
       <form className="composer" onSubmit={(event) => { event.preventDefault(); void submit(); }}><label htmlFor="knowledge-query">Question or entity</label><input type="search" id="knowledge-query" name="knowledge-query" aria-label="Question or entity" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="e.g. seal leakage or P-101" maxLength={4096} /><select value={mode} onChange={(event) => setMode(event.target.value as typeof mode)} aria-label="Knowledge search mode"><option value="hybrid">Hybrid: text + graph</option><option value="text">Text and images</option><option value="graph">P&amp;ID graph</option></select><button className="primary-button" type="submit" disabled={busy || !query.trim()}>{busy ? "Searching..." : "Search knowledge"}</button></form>
       {message && <p role="alert" className="notice notice-error">{message}</p>}
       {ingestResult && <p className="notice">Indexed {ingestResult.file_count} file{ingestResult.file_count === 1 ? "" : "s"} and {ingestResult.chunk_count} chunk{ingestResult.chunk_count === 1 ? "" : "s"}. {ingestResult.failure_count ? `${ingestResult.failure_count} file${ingestResult.failure_count === 1 ? "" : "s"} need attention.` : "No file failures."}</p>}
-      {pidResult && <p className="notice">Extracted P&amp;ID. {pidResult.graph?.committed ?? 0} graph components committed.</p>}
       {result && <section className="worktrace-detail-card" aria-live="polite"><div className="worktrace-detail-head"><div><h2>Evidence returned</h2><p>{result.result_count} text/image results, {result.graph_result_count} graph facts</p></div><span>{humanizeToken(result.mode)} search</span></div>{result.result_count === 0 && result.graph_result_count === 0 ? <p className="record-gateway-empty">No governed evidence matched this question.</p> : <div className="workspace-activity">{result.results.map((item, index) => <article key={String(item.citation_id ?? item.chunk_id ?? `evidence-${index}`)}><strong>{String(item.excerpt ?? "Document evidence")}</strong><small>{readableSource(item)}, confidence {readableConfidence(item.confidence)}, {String(item.clearance)} clearance, {String(item.taint)} data</small></article>)}{result.graph_results.map((item, index) => <article key={String(item.fact_id ?? `graph-${index}`)}><strong>{readableGraphValue(item)}</strong><small>{readableSource(item)}, confidence {readableConfidence(item.confidence)}, {String(item.clearance)} clearance, {String(item.taint)} data, P&amp;ID graph</small></article>)}</div>}</section>}
     </>}
   </section>;

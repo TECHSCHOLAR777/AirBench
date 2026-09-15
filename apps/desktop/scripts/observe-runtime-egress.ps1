@@ -47,37 +47,6 @@ $externalConnections = [Collections.Generic.List[object]]::new()
 $startedAt = Get-Date
 $sampleIndex = 0
 
-function Write-ObservationReport {
-  $status = if ($externalConnections.Count -eq 0) {
-    "no_external_connections_observed"
-  } else {
-    "external_connections_observed"
-  }
-
-  $report = [ordered]@{
-    status                    = $status
-    started_at                = $startedAt.ToString("o")
-    ended_at                  = (Get-Date -Format "o")
-    total_samples             = $sampleIndex
-    monitored_root_pids       = $MonitorPids
-    external_connections      = @($externalConnections)
-    external_connection_count = $externalConnections.Count
-    observations              = @($observations)
-    limitation                = (
-      "Observer watches established TCP connections for the monitored process tree. " +
-      "UDP, ICMP, and connections completed before the observer started are not captured. " +
-      "A clean host firewall or independent network monitor is required for full no-egress acceptance."
-    )
-  }
-
-  $encoded = $report | ConvertTo-Json -Depth 8 -Compress:$false
-  [IO.File]::WriteAllText(
-    $ReportPath,
-    $encoded,
-    [Text.UTF8Encoding]::new($false)
-  )
-}
-
 try {
   while ($true) {
     $elapsed = (Get-Date) - $startedAt
@@ -118,9 +87,6 @@ try {
     })
 
     $sampleIndex++
-    # Persist a heartbeat report so a parent that terminates this observer can
-    # still read the samples collected before process teardown.
-    Write-ObservationReport
     Start-Sleep -Milliseconds $IntervalMs
   }
 } catch {
@@ -130,5 +96,32 @@ try {
     observer_error = $_.Exception.Message
   })
 } finally {
-  Write-ObservationReport
+  $status = if ($externalConnections.Count -eq 0) {
+    "no_external_connections_observed"
+  } else {
+    "external_connections_observed"
+  }
+
+  $report = [ordered]@{
+    status                    = $status
+    started_at                = $startedAt.ToString("o")
+    ended_at                  = (Get-Date -Format "o")
+    total_samples             = $sampleIndex
+    monitored_root_pids       = $MonitorPids
+    external_connections      = @($externalConnections)
+    external_connection_count = $externalConnections.Count
+    observations              = @($observations)
+    limitation                = (
+      "Observer watches established TCP connections for the monitored process tree. " +
+      "UDP, ICMP, and connections completed before the observer started are not captured. " +
+      "A clean host firewall or independent network monitor is required for full no-egress acceptance."
+    )
+  }
+
+  $encoded = $report | ConvertTo-Json -Depth 8 -Compress:$false
+  [IO.File]::WriteAllText(
+    $ReportPath,
+    $encoded,
+    [Text.UTF8Encoding]::new($false)
+  )
 }

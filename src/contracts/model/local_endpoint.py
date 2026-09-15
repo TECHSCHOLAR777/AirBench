@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
-from ..errors import ContractValidationError, ValidationIssue
+from ..errors import ValidationIssue
 from ..models import Contract
 
 
@@ -26,15 +26,6 @@ class LocalEndpointBinding(Contract):
     adapter_id: str
     adapter_version: str
     execution_location: str = "local"
-
-    def __post_init__(self) -> None:
-        # This contract is also constructed directly by the Node wiring.  Do
-        # not rely on callers remembering to use ``from_dict`` for a security
-        # boundary: credential-bearing or remote endpoints must fail closed at
-        # construction time as well.
-        issues = self._validate({})
-        if issues:
-            raise ContractValidationError(type(self).__name__, issues)
 
     def _validate(self, hints: dict[str, Any]) -> list[ValidationIssue]:
         issues = super()._validate(hints)

@@ -87,18 +87,9 @@ function stopStartedWebDriverProcesses() {
       try { process.kill(pid, "SIGTERM"); } catch { /* process already exited */ }
     }
   }
-  // Windows may keep a process visible briefly after taskkill returns. Give
-  // the OS a bounded grace period before treating normal teardown as a leak.
-  const deadline = Date.now() + 10000;
-  const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
-  let remainingPids = listWebDriverPids().filter((pid) => !webdriverBaselinePids.has(pid));
-  while (remainingPids.length > 0 && Date.now() < deadline) {
-    Atomics.wait(waitBuffer, 0, 0, 100);
-    remainingPids = listWebDriverPids().filter((pid) => !webdriverBaselinePids.has(pid));
-  }
-  if (remainingPids.length > 0) {
+  if (listWebDriverPids().some((pid) => !webdriverBaselinePids.has(pid))) {
     if (exitCode === 0) exitCode = 1;
-    console.error("The real-node WebDriver cleanup could not stop every process it started:", remainingPids.join(", "));
+    console.error("The real-node WebDriver cleanup could not stop every process it started.");
   }
 }
 
@@ -207,13 +198,6 @@ function startEgressObserver(monitorPids) {
 function stopEgressObserver() {
   if (!egressObserver || egressObserver.exitCode !== null) return;
   egressObserver.kill();
-  // The observer writes a heartbeat report during sampling, but allow a
-  // bounded flush window before the parent reads the evidence.
-  const deadline = Date.now() + 3000;
-  const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
-  while (!existsSync(egressReportPath) && Date.now() < deadline) {
-    Atomics.wait(waitBuffer, 0, 0, 100);
-  }
 }
 
 function cleanup() {
@@ -330,18 +314,6 @@ try {
     console.warn("[AIRBENCH_EGRESS] Observer report not found — observer may not have started or had time to write.");
   }
 
-  const evidence = [
-    "real-handshake",
-    "real-task-create",
-    "real-query-upload",
-    "real-preview",
-    "real-event-replay",
-    "real-plan-approval",
-    "real-artifact-preview",
-    "real-hash-verified-download",
-  ];
-  if (egressReport) evidence.push("runtime-egress-observed");
-
   const evidenceManifest = {
     issue: "#123",
     branch,
@@ -357,7 +329,17 @@ try {
       report_path: existsSync(egressReportPath) ? egressReportPath : null,
       limitation: egressReport?.limitation ?? "Observer was not available for this run.",
     },
-    evidence,
+    evidence: [
+      "real-handshake",
+      "real-task-create",
+      "real-query-upload",
+      "real-preview",
+      "real-event-replay",
+      "real-plan-approval",
+      "real-artifact-preview",
+      "real-hash-verified-download",
+      "runtime-egress-observed",
+    ],
     limitations: [
       "Synthetic PDF fixture — proves File Intake plumbing, not scanned-document OCR or vision",
       "Synthetic worker — not OCR, handwriting, engineering-drawing understanding, or GPU model inference",

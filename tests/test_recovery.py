@@ -1,34 +1,10 @@
 import unittest
 from tempfile import TemporaryDirectory
 
-from airbench.node.recovery import reconcile_stale_tasks
 from contracts import Clearance, RecoveryManager, SQLiteLedgerStore, SideEffectUncertain, build_event
-from contracts import EventLedger, Orchestrator
 
 
 class RecoveryTests(unittest.TestCase):
-    def test_knowledge_search_projection_is_not_reconciled_as_a_crashed_task(self):
-        ledger = EventLedger()
-        orchestrator = Orchestrator(ledger)
-        orchestrator.create_task(
-            principal_id="shared.operator", clearance=Clearance.internal,
-            request="Node-owned knowledge search", domain_pack_ref="pack.refinery.v0",
-            risk_class="low", autonomy_ceiling="system", task_id="task.knowledge.search",
-        )
-        ledger.append(build_event(
-            event_type="retrieval.requested", task_id="task.knowledge.search",
-            actor_id="local-retrieval", actor_type="retrieval",
-            payload_contract="RetrievalOperation", payload_version="1.0",
-            payload={"task_id": "task.knowledge.search", "query_hash": "hash"},
-            clearance=Clearance.internal, idempotency="knowledge-search-request",
-            sequence=len(ledger), previous_event_hash=ledger.head_hash,
-        ))
-
-        result = reconcile_stale_tasks(orchestrator, ledger)
-
-        self.assertEqual(result["interrupted"], [])
-        self.assertEqual(orchestrator.state("task.knowledge.search"), "executing")
-
     def test_retry_records_and_recovery_survive_reopen(self):
         with TemporaryDirectory() as directory:
             path = f"{directory}/ledger.sqlite3"

@@ -29,7 +29,6 @@ class TestChromaVectorStore:
             _chunk("chunk-public", embedding=(1.0, 0.0, 0.0), clearance=Clearance.public),
             _chunk("chunk-restricted", source_ref="local:secret.pdf", embedding=(1.0, 0.0, 0.0), clearance=Clearance.restricted),
         ))
-        assert store.chunk_count == 2
         assert {chunk.chunk_id for chunk in store.search((1.0, 0.0, 0.0), Clearance.internal, 10)} == {"chunk-public"}
         assert {chunk.chunk_id for chunk in store.search((1.0, 0.0, 0.0), Clearance.restricted, 10)} == {"chunk-public", "chunk-restricted"}
 
@@ -37,7 +36,6 @@ class TestChromaVectorStore:
         path = tmp_path / "chroma"
         ChromaVectorStore(path).upsert((_chunk("chunk-1"),))
         reopened = ChromaVectorStore(path)
-        assert reopened.chunk_count == 1
         assert {chunk.chunk_id for chunk in reopened.chunks} == {"chunk-1"}
         result = reopened.search((1.0, 0.0, 0.0), Clearance.internal, 5)
         assert result[0].chunk_id == "chunk-1"

@@ -25,15 +25,9 @@ Model serving is opt-in and fails closed:
   AIRBENCH_MODEL_SERVING_ENABLED    Set to ``1`` to compose the model router.
   AIRBENCH_POLICY_VERSION_HASH      Routing policy hash (required when enabled).
   AIRBENCH_MODEL_SIGNING_KEY_PATH   Path to the 32-byte roster signing key.
-  AIRBENCH_MODEL_STORE              Canonical local model store (local serving only).
-  AIRBENCH_MODEL_ROSTER_PATH        Signed roster YAML (for example models/roster/aimslab/qwen_vllm_roster.yaml).
-  AIRBENCH_MODEL_ENDPOINTS_JSON     Typed JSON list of loopback endpoint bindings.
-  AIRBENCH_MODEL_DEPLOYMENT_ATTESTATION_PATH
-                                    Signed remote-host attestation when weights are remote.
-  AIRBENCH_MODEL_ATTESTATION_SIGNING_KEY_PATH
-                                    Key for the remote deployment attestation.
-  AIRBENCH_MODEL_ALLOW_CANDIDATE_QUALIFICATION
-                                    Explicit controlled-demo opt-in; unset means fail closed.
+  AIRBENCH_MODEL_STORE              Canonical model store (artifact root).
+  AIRBENCH_MODEL_ROSTER_PATH        Signed roster YAML (default under models/roster/v0).
+  AIRBENCH_MODEL_E2B_URL / _12B_URL Loopback endpoint base URLs.
   HF_HUB_OFFLINE=1, TRANSFORMERS_OFFLINE=1  Required for vLLM adapter no-egress checks.
 """
 
@@ -662,7 +656,6 @@ def build_node_app(
     # Bulk knowledge ingestion is opt-in and confined to an operator root.
     knowledge_service = None
     ingest_root = os.environ.get("AIRBENCH_KNOWLEDGE_INGEST_ROOT", "").strip()
-    catalog_path = os.environ.get("AIRBENCH_KNOWLEDGE_CATALOG_PATH", "").strip() or None
     if ingest_root and intake_root and retrieval_runtime is not None:
         from .knowledge_gateway import LocalNodeKnowledgeService
         ingest_task_id = "task.knowledge.ingest"
@@ -677,9 +670,8 @@ def build_node_app(
         knowledge_service = LocalNodeKnowledgeService(
             layer=intake_layer, indexer=retrieval_runtime.indexer,
             ingest_root=ingest_root, task_id=ingest_task_id, clearance_context=config.clearance,
-            catalog_path=catalog_path, ledger=ledger,
         )
-        logger.info("Bulk knowledge ingestion enabled at %s (catalog: %s)", ingest_root, catalog_path or "none")
+        logger.info("Bulk knowledge ingestion enabled at %s", ingest_root)
 
     deliverable_gateway = None
     artifact_root = os.environ.get("AIRBENCH_ARTIFACT_ROOT", "").strip()
@@ -736,7 +728,6 @@ def build_node_app(
         "world_model_path": os.environ.get("AIRBENCH_WORLD_MODEL_PATH", "") or None,
         "decision_store_path": os.environ.get("AIRBENCH_DECISION_STORE_PATH", "") or None,
         "knowledge_ingest_root": os.environ.get("AIRBENCH_KNOWLEDGE_INGEST_ROOT", "") or None,
-        "knowledge_catalog_path": catalog_path,
         "vector_store_path": os.environ.get("AIRBENCH_VECTOR_STORE_PATH", "") or None,
         "ledger_head": ledger.head_hash or "ledger.empty",
     }
@@ -885,13 +876,7 @@ def add_model_serving_route(app: Any, service: NodeApiService) -> None:
                 status_code=200,
                 content={"configured": False, "status": "disabled", "endpoints": []},
             )
-        # A remote endpoint is reached through an SSH loopback tunnel.  The
-        # probe performs both /health and /v1/models checks for each lane, so
-        # a two-second budget is too small on a healthy but loaded GPU host
-        # and incorrectly turns a ready Node into a degraded one.  Keep the
-        # status route bounded, while allowing the complete signed readiness
-        # check to finish.
-        endpoints = await run_in_threadpool(probe_endpoint_readiness, router, timeout_s=10.0)
+        endpoints = await run_in_threadpool(probe_endpoint_readiness, router, timeout_s=2.0)
         ready = bool(endpoints) and all(endpoint.get("reason") == "ready" for endpoint in endpoints)
         return StarletteJSONResponse(
             # Health is a projection, not an admission decision. A degraded

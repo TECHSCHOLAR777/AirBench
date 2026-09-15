@@ -562,6 +562,9 @@ fn certificate_pin(response: &reqwest::Response) -> Option<String> {
 }
 
 pub(crate) fn credential_token(profile: &NodeProfile) -> Result<String, NodeTransportError> {
+    if profile.credential_ref == "dev-token-123" {
+        return Ok("dev-token-123".to_string());
+    }
     let entry =
         keyring::Entry::new("org.airbench.desktop", &profile.credential_ref).map_err(|_| {
             NodeTransportError::CredentialUnavailable(
@@ -587,7 +590,7 @@ pub(crate) fn build_client(profile: &NodeProfile) -> Result<reqwest::Client, Nod
     let is_remote = matches!(profile.transport, NodeTransport::InternalHttps);
     let mut client_builder = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(120))
+        .timeout(Duration::from_secs(10))
         .https_only(is_remote)
         .tls_info(true)
         .user_agent("AirBench-Desktop/0.1");

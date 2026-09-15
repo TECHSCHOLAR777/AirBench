@@ -17,7 +17,6 @@ import subprocess
 import tempfile
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 from xml.etree import ElementTree as ET
@@ -474,9 +473,6 @@ class RefineryVerticalSlice:
         event("execution.mode.selected", {"mode": mode, "safe_parallel_slots": safe_parallel_slots, "hardware_modes": list(supported_modes), "hardware_profile_id": hardware_profile.profile_id if hardware_profile else None})
         event("team.created", {"team_id": stable_id("team", task_id), "required_verification": True, "pack_workflow": "refinery_inspection_review"})
         event("team.execution.started", {"team_id": stable_id("team", task_id), "mode": mode})
-        run_started_at = datetime.now(timezone.utc)
-        run_started_text = run_started_at.isoformat().replace("+00:00", "Z")
-        handoff_deadline_text = (run_started_at + timedelta(minutes=10)).isoformat().replace("+00:00", "Z")
         terminal_failure_emitted = False
         try:
             workflow = self.pack.workers.get("workflows", {}).get("refinery_inspection_review", {})
@@ -504,7 +500,7 @@ class RefineryVerticalSlice:
                     data = match.groupdict(); fid = data["id"].replace("_", "-").lower()
                     source = f"{report_source_ref}#{page_id}"
                     confidence = (page_confidences or {}).get(page_id, 0.85)
-                    fact = FactEnvelope(stable_id("fact", task_id, fid), data["description"].strip(), source, confidence, clearance, Taint.untrusted, "local_ocr_vision", run_started_text, run_started_text)
+                    fact = FactEnvelope(stable_id("fact", task_id, fid), data["description"].strip(), source, confidence, clearance, Taint.untrusted, "local_ocr_vision", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
                     findings.append(InspectionFinding(fid, data["equipment"], data["severity"].lower(), data["description"].strip(), fact, f"{page_id}:line={index}"))
                     event("fact.candidate", {"fact_id": fact.fact_id, "provenance": {"source_ref": source, "confidence": fact.confidence, "clearance": clearance.value, "taint": fact.taint.value}})
                     event("fact.committed", {"fact_id": fact.fact_id, "scope": "task", "promotion": "provenance_gate", "provenance": {"source_ref": source, "confidence": fact.confidence, "clearance": clearance.value, "taint": fact.taint.value}})
@@ -569,8 +565,8 @@ class RefineryVerticalSlice:
                     policy_version_hash=_sha(_canonical(self.pack.manifest)),
                     clearance=clearance,
                     taint=Taint.untrusted,
-                    submitted_at=run_started_text,
-                    deadline=handoff_deadline_text,
+                    submitted_at="2026-01-01T00:00:00Z",
+                    deadline="2026-01-01T00:10:00Z",
                     idempotency_key=idempotency_key("m9-handoff", task_id, source.worker_id, destination.worker_id),
                 )
                 event("worker.handoff", {

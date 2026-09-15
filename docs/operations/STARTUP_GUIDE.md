@@ -1,103 +1,90 @@
-# AirBench Operator Startup Guide — aimslab Qwen vLLM
+# AirBench Operator Startup Guide (Two-Endpoint Demo)
 
-This is the controlled remote-GPU path described in
-`AIMSLAB_VLLM_ENDPOINT_HANDOFF.md`. The inference host remains an inference
-server only; the AirBench Node runs locally and reaches it through loopback
-SSH forwards.
+This guide documents how to start the AirBench Node with the controlled two-endpoint demonstration roster (E2B and 12B). It walks through generating the local signing key, opening the SSH tunnel, running the preflight checks, and verifying that the Node admits both lanes.
 
-## 1. Prepare signed deployment records
+## 1. Generate the local signing key
 
-The Qwen roster and attestation are generated from the pinned facts in the
-handoff. Regenerate them only when those facts or the deployment version
-changes:
+AirBench refuses to load unsigned model targets. To run the demo, you must have a local signing key at `.airbench_signing_key` in the repository root. This key is used to sign the demo roster so the Node trusts it.
+
+Run the idempotent setup script to create the key:
 
 ```powershell
-.venv-deep\Scripts\python.exe scripts\airbench_qwen_aimslab_records.py
+powershell -ExecutionPolicy Bypass -File scripts\setup_demo_signing_key.ps1
 ```
 
-The roster is candidate-only until role evaluation is completed. A candidate
-cannot route by default; the controlled demo requires the explicit
-`-AllowCandidateQualification` switch.
+> [!CAUTION]
+> This key is 32 cryptographically random bytes and is excluded by `.gitignore`. **Never commit it.**
 
-## 2. Open the tunnel
+## 2. Generate actual hashes for the model targets
 
-Configure the `aimslab` SSH alias using the handoff’s separately distributed
-credentials, then keep this window open:
+The handoff model roster initially contains `PENDING:` placeholders for the artifact, tokenizer, and chat template hashes. You must hash the downloaded model files in your store.
+
+Run the hashing script:
+
+```powershell
+# E.g., if models are in C:\airbench-models
+$env:AIRBENCH_MODEL_STORE = "C:\airbench-models"
+python scripts\airbench_hash.py --target airbench-gemma-4-e2b --target airbench-gemma-4-12b
+```
+
+## 3. Build the signed demo roster
+
+Once the hashes are measured and written to the `models/roster/v0/model_roster.yaml` file (replacing the `PENDING` placeholders), generate the demo-specific roster. This script extracts the two demo targets, promotes them to candidate status, and signs the manifest.
+
+```powershell
+python scripts\airbench_demo_roster.py
+```
+
+This creates the signed file at `models/roster/demo/two_endpoint_roster.yaml`.
+
+## 4. Open the SSH tunnel
+
+The Node connects to the remote GPU workstation using loopback HTTP endpoints on ports `18001` and `18002`.
+
+Open a **dedicated PowerShell window** and run the tunnel wrapper script:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\open_ssh_tunnel.ps1
 ```
 
-The local loopback bindings are:
+> [!IMPORTANT]
+> Keep this window open for the duration of the demo. Closing it kills the tunnel.
 
-```text
-127.0.0.1:18001 -> aimslab 127.0.0.1:8001 -> airbench-qwen25-vl-7b
-127.0.0.1:18002 -> aimslab 127.0.0.1:8002 -> airbench-qwen3-8b
-```
+## 5. Run the model preflight
 
-## 3. Prove endpoint identity
+Before starting the Node, prove that both lanes are actually up, that they match the expected model ID, and that the tunnel works. The start script does this for you automatically, but you can also run it directly:
 
 ```powershell
-.venv-deep\Scripts\python.exe scripts\model_endpoint_preflight.py `
-  --roster models\roster\aimslab\qwen_vllm_roster.yaml `
-  --attestation models\attestations\aimslab_qwen_vllm.yaml `
-  --signing-key .airbench_signing_key `
-  --attestation-signing-key .airbench_signing_key
+python scripts\model_endpoint_preflight.py `
+  --roster models\roster\demo\two_endpoint_roster.yaml `
+  --signing-key .airbench_signing_key
 ```
 
-This checks the signed roster, signed remote artifact/runtime attestation,
-`/health`, and exact `/v1/models` identity. Endpoint health alone is not
-artifact verification.
+If it fails, verify the tunnel and the status of the vLLM containers on the remote machine.
 
-## 4. Start the Node
+## 6. Start the AirBench Node
+
+In a new window, start the Node. By default, it runs in "Resume" mode to keep your existing ledger and corpus state.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\start_demo_node.ps1 `
-  -AllowCandidateQualification
+powershell -ExecutionPolicy Bypass -File scripts\start_demo_node.ps1
 ```
 
-Omit that switch for a qualification-gated startup. Use `-AllowDegradedLane`
-only for transport diagnostics; it does not bypass router qualification.
-
-The Node calls only the local loopback bindings. The desktop continues to call
-the Node API and never calls vLLM directly.
-
-## 6. Shared Node on the model host
-
-For the shared knowledge-base deployment, copy the repository application and
-the approved corpus to the model host under:
-
-```text
-/media/aims-dtu/e6f3d549-768f-4cd9-bdd7-fe600ab3bf81/airbench-serving/airbench-node/
-```
-
-Keep model artifacts under `airbench-serving/models/`. The Node's ledger,
-intake artifacts, Chroma collection, world-model database, and decision store
-belong under `airbench-node/state/`; clients must never open those files.
-
-Provision the local `bge-m3` and `bge-reranker-v2-m3` directories in the model
-store before starting retrieval. No runtime download is permitted. Start the
-shared Node with:
-
-```bash
-export AIRBENCH_BEARER_TOKEN='<operator-token>'
-bash scripts/start_shared_node.sh
-```
-
-`start_shared_node.sh` validates the catalog, corpus, local retrieval models,
-and persistent directories before binding. It is loopback-bound by default;
-shared operators must connect through the approved internal HTTPS/authenticated
-boundary, never by sharing SQLite or Chroma files.
-
-## 5. Run the governed flow
+If you want a totally fresh demo (wipes local database, ledger, intakes, and chroma), pass `-Mode Fresh`:
 
 ```powershell
-$env:AIRBENCH_BEARER_TOKEN = "<operator-token>"
-.venv-deep\Scripts\python.exe scripts\run_two_endpoint_demo.py `
-  --token $env:AIRBENCH_BEARER_TOKEN `
-  --hardware-profile-ref aimslab-titan-rtx-24gb
+powershell -ExecutionPolicy Bypass -File scripts\start_demo_node.ps1 -Mode Fresh
 ```
 
-Inspect `/api/v1/node/model-serving` and the task route trace. A successful
-direct vLLM call proves only endpoint behavior; completion requires the Node
-route decision, model response, and ledger events.
+Wait until the console outputs `Starting AirBench Node ...` (after it finishes hashing the models).
+
+## 7. Verify endpoints
+
+Open another terminal and verify the Node has successfully mounted both endpoints:
+
+```powershell
+$env:AIRBENCH_BEARER_TOKEN="dev-token-123"
+curl -H "Authorization: Bearer dev-token-123" http://127.0.0.1:8765/api/v1/node/model-serving
+```
+
+You should see `"configured": true` and `"status": "ready"` with both the E2B and 12B endpoints listed in the response payload.

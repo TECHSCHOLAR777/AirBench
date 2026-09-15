@@ -58,7 +58,6 @@ class PodmanProvider:
     control_timeout_seconds: float = 10.0
     _verified_runtime_version: str | None = None
     _verification_digest: str | None = None
-    _filesystem_quota_supported: bool = False
 
     def __post_init__(self) -> None:
         if not _IMAGE_DIGEST.fullmatch(self.image_ref):
@@ -84,13 +83,6 @@ class PodmanProvider:
             provider_id="podman.rootless",
             provider_version=self._verified_runtime_version or self.expected_runtime_version or "unverified",
             hard_network_isolation=verified,
-            # Podman only provides a hard writable-layer quota when its graph
-            # store is backed by XFS.  Ext4/extfs hosts remain safe from
-            # cross-container paths, but cannot honestly claim a hard disk
-            # byte ceiling for a writable bind mount.
-            # On extfs the writable worker directory is mounted as a bounded
-            # tmpfs, which gives the request its disk ceiling without relying
-            # on Podman's XFS-only storage quota option.
             hard_filesystem_isolation=verified,
             non_root_execution=verified,
             restricted_syscalls=verified,
@@ -124,11 +116,6 @@ class PodmanProvider:
             raise SandboxError("provider_not_rootless", "Podman provider is not running in rootless mode")
         if security.get("seccompEnabled") is not True:
             raise SandboxError("provider_seccomp_unavailable", "Podman provider does not report seccomp enforcement")
-
-        store = info_payload.get("store")
-        graph_status = store.get("graphStatus") if isinstance(store, dict) else None
-        backing_filesystem = graph_status.get("Backing Filesystem") if isinstance(graph_status, dict) else None
-        self._filesystem_quota_supported = str(backing_filesystem).lower() == "xfs"
 
         image = self._control(
             executable,
@@ -164,7 +151,6 @@ class PodmanProvider:
             "--read-only",
             "--cap-drop=ALL",
             "--security-opt=no-new-privileges",
-            "--interactive",
             "--user",
             self.user,
             "--workdir",
@@ -173,31 +159,16 @@ class PodmanProvider:
             f"cpu={max(1, math.ceil(float(effective_limits['max_cpu_seconds'])))}",
             "--memory",
             str(int(effective_limits["max_memory_bytes"])),
+            "--storage-opt",
+            f"size={int(effective_limits['max_disk_bytes'])}",
             "--pids-limit",
             str(int(effective_limits["max_processes"])),
         ]
-        if self._filesystem_quota_supported:
-            command[command.index("--pids-limit"):command.index("--pids-limit")] = [
-                "--storage-opt", f"size={int(effective_limits['max_disk_bytes'])}"
-            ]
 
-        cwd = request.cwd.resolve()
-        mounts: dict[str, str] = {}
-        if not self._filesystem_quota_supported:
-            # extfs does not support --storage-opt size.  Keep the worker's
-            # writable working directory bounded with tmpfs instead of
-            # silently running an unbounded bind mount.
-            command.extend(("--tmpfs", f"{cwd}:rw,size={int(effective_limits['max_disk_bytes'])}"))
-        else:
-            mounts[str(cwd)] = "rw"
+        mounts: dict[str, str] = {str(request.cwd.resolve()): "rw"}
         for path in request.read_paths:
             mounts[str(path.resolve())] = "ro"
         for path in request.write_paths:
-            if not self._filesystem_quota_supported and not _inside(path.resolve(), (cwd,)):
-                raise SandboxError(
-                    "disk_limit_unsupported",
-                    "an extfs-backed Podman host cannot hard-limit writable mounts outside the worker tmpfs",
-                )
             mounts[str(path.resolve())] = "rw"
         for path, mode in sorted(mounts.items()):
             command.extend(("--mount", f"type=bind,src={path},dst={path},{mode}"))

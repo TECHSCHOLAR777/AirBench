@@ -23,7 +23,6 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 
 from contracts import (
@@ -83,7 +82,7 @@ def declared_measurement(profile: HardwareProfile) -> HardwareMeasurement:
     return HardwareMeasurement(
         measurement_id=f"measurement.{profile.profile_id}.declared",
         profile_id=profile.profile_id,
-        measured_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        measured_at="2026-09-13T00:00:00Z",
         available_vram_bytes=profile.vram_bytes,
         available_ram_bytes=profile.ram_bytes,
         kv_cache_bytes=profile.kv_cache_bytes,
@@ -158,17 +157,13 @@ class NodeTaskPlanner:
         return max(1, profile.vram_bytes // 4) if profile is not None else 0
 
     def _reservation(self) -> tuple[tuple[str, int], ...]:
-        profile = self._config.hardware_profile
-        if profile is None:
-            raise TaskPlanningError("hardware reservations require a hardware profile")
-        share_count = max(1, profile.safe_parallel_slots)
         return (
             ("vram_bytes", self._worker_vram()),
-            ("ram_bytes", max(1, profile.ram_bytes // share_count)),
-            ("cpu_millicores", max(1, (profile.cpu_cores * 1000) // share_count)),
-            ("kv_cache_bytes", max(1, profile.kv_cache_bytes // share_count)),
-            ("context_tokens", max(1, profile.model_context_tokens // share_count)),
-            ("scratch_bytes", max(1, profile.scratch_bytes // share_count)),
+            ("ram_bytes", 8_000_000_000),
+            ("cpu_millicores", 1000),
+            ("kv_cache_bytes", 4_294_967_296),
+            ("context_tokens", 8192),
+            ("scratch_bytes", 1_073_741_824),
             ("slots", 1),
         )
 

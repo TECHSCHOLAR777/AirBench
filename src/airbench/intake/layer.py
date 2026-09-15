@@ -45,7 +45,6 @@ MAX_PDF_PAGE_TEXT_BYTES = 2_000_000
 MAX_PDF_TEXT_BYTES = 20_000_000
 MAX_IMAGE_PIXELS = 100_000_000
 MAX_IMAGE_DIMENSION = 32_768
-MAX_SVG_TEXT_BYTES = 2_000_000
 _PDF_MAGIC = b"%PDF-"
 _TEXT_SUFFIXES = {".txt", ".md", ".csv", ".json", ".log"}
 _DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -521,12 +520,6 @@ def _media_type(file_name: str, content: bytes) -> str:
         if not content.startswith(b"PK"):
             raise IntakeError("malformed_office", "the XLSX archive is malformed")
         return _XLSX_MEDIA_TYPE
-    if suffix == ".svg":
-        try:
-            content.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise IntakeError("malformed_svg", "the SVG document is not valid UTF-8") from exc
-        return "image/svg+xml"
     for signature, media_type in _IMAGE_SIGNATURES:
         if content.startswith(signature):
             return media_type
@@ -543,24 +536,6 @@ def _media_type(file_name: str, content: bytes) -> str:
             ".log": "text/plain",
         }[suffix]
     raise IntakeError("unsupported_media", "the File Intake Layer does not support this file type")
-
-
-def _svg_text(content: bytes) -> str:
-    """Extract bounded visible text from SVG without rendering or fetching data."""
-
-    if len(content) > MAX_SVG_TEXT_BYTES:
-        raise IntakeError("svg_text_too_large", "the SVG text representation is too large")
-    upper = content.upper()
-    if b"<!DOCTYPE" in upper or b"<!ENTITY" in upper:
-        raise IntakeError("svg_xml_entities", "SVG entity declarations are not accepted")
-    try:
-        root = ElementTree.fromstring(content)
-    except ElementTree.ParseError as exc:
-        raise IntakeError("malformed_svg", "the SVG document is malformed") from exc
-    if root.tag.rsplit("}", 1)[-1].lower() != "svg":
-        raise IntakeError("malformed_svg", "the SVG document has no SVG root")
-    parts = [text.strip() for node in root.iter() for text in (node.text, node.tail) if text and text.strip()]
-    return "\n".join(parts)[:MAX_SVG_TEXT_BYTES]
 
 
 def _pdf_pages(content: bytes) -> list[tuple[str, str]]:
@@ -859,9 +834,6 @@ class BuiltinDocumentParser:
         if media_type == "application/pdf":
             extraction_method = "pdf_text"
             page_data = _pdf_pages(request.content)
-        elif media_type == "image/svg+xml":
-            extraction_method = "svg_xml_text"
-            page_data = [("page:1", _svg_text(request.content))]
         elif media_type.startswith("image/"):
             _validate_image(request.content)
             extraction_method = "image_metadata_only"
@@ -890,7 +862,7 @@ class BuiltinDocumentParser:
                 text=text,
                 extraction_method=extraction_method,
                 confidence=1.0
-                if extraction_method in {"utf8_text_decode", "csv_table", "docx_xml_text", "xlsx_xml_table", "svg_xml_text"}
+                if extraction_method in {"utf8_text_decode", "csv_table", "docx_xml_text", "xlsx_xml_table"}
                 or (extraction_method == "pdf_text" and bool(text))
                 else 0.0,
                 clearance=request.clearance,
@@ -916,12 +888,7 @@ class LedgerSink(Protocol):
 
 def _append_evidence_event(ledger: LedgerSink, manifest: IntakeManifest) -> str:
     key = idempotency_key("intake.evidence.created", manifest.task_id, manifest.intake_id)
-    # Minimal ledger sinks used by intake integrations may only implement the
-    # append/head/events surface.  Durable ledgers expose idempotency lookup,
-    # but its absence must not turn an otherwise valid append into an
-    # AttributeError before the ledger can report its own failure.
-    find_by_idempotency = getattr(ledger, "find_by_idempotency", None)
-    existing = find_by_idempotency(key) if callable(find_by_idempotency) else None
+    existing = ledger.find_by_idempotency(key)
     if existing is not None:
         return existing.event_id
     event = build_event(
@@ -954,7 +921,7 @@ def _append_evidence_event(ledger: LedgerSink, manifest: IntakeManifest) -> str:
         },
         clearance=manifest.clearance,
             idempotency=key,
-        sequence=len(ledger.events),
+        sequence=len(ledger),
         previous_event_hash=ledger.head_hash,
         occurred_at=manifest.ingested_at,
     )

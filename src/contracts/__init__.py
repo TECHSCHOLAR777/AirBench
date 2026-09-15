@@ -43,7 +43,6 @@ from .adapters import (
 )
 from .model.remote_endpoint import RemoteEndpointProfile
 from .model.local_endpoint import LocalEndpointBinding
-from .model.deployment_attestation import RemoteDeploymentAttestation, RemoteTargetAttestation
 
 __all__ = ["ContractValidationError", "ValidationIssue", "idempotency_key", "stable_id",
            "TaskEnvelope", "TeamPlan", "TaskPlanReview", "WorkerAssignment", "WorkPacket", "WorkerResult",
@@ -79,6 +78,5 @@ __all__ += [
     "BaseToolParser", "HermesToolParser", "NoneToolParser", "StandardJsonToolParser",
     "ToolCallParserRegistry", "VllmAdapter", "NimAdapter",
      "FakeRemoteEndpoint", "RemoteEndpointAdapter", "RemoteEndpointProfile", "LocalEndpointBinding",
-     "RemoteDeploymentAttestation", "RemoteTargetAttestation",
 ]
 __all__ += ["BarrierStatus", "LeaseStatus", "work_packet_hash", "BarrierDecision", "HandoffCoordinator", "HandoffDecision", "HandoffRejected", "HandoffReplayError", "InMemoryRecordResolver"]

@@ -10,12 +10,10 @@ from airbench.node.api import NodeApiConfig, NodeApiService, create_app
 from airbench.node.hardware_gateway import hardware_status, load_hardware_profile
 from airbench.node.qualification_gateway import load_qualification_matrix, qualification_roster, qualification_status
 from airbench.node.server import add_node_asset_routes
-from airbench.node.task_execution import NodeExecutionConfig, NodeTaskExecutionCoordinator
 from contracts import Clearance, EventLedger, Orchestrator
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEMO_PROFILE = REPO_ROOT / "profiles" / "hardware" / "workstation_demo.yaml"
-AIMSLAB_RUNTIME_PROFILE = REPO_ROOT / "profiles" / "hardware" / "aimslab_titan_rtx_24gb_runtime.json"
 QUAL_MATRIX = REPO_ROOT / "qualifications" / "model_qualification_matrix.yaml"
 
 
@@ -33,23 +31,6 @@ class HardwareProfileTests(unittest.TestCase):
     def test_missing_profile_fails_closed(self):
         with self.assertRaises(Exception):
             load_hardware_profile(REPO_ROOT / "profiles" / "hardware" / "nope.yaml")
-
-    def test_aimslab_runtime_profile_loads_for_task_execution(self):
-        coordinator = NodeTaskExecutionCoordinator(
-            orchestrator=Orchestrator(EventLedger()),
-            ledger=EventLedger(),
-            intake_store=object(),
-            config=NodeExecutionConfig(
-                artifact_root="artifacts",
-                workspace_root="workspaces",
-                template_path="templates.yaml",
-                hardware_profile_path=str(AIMSLAB_RUNTIME_PROFILE),
-            ),
-        )
-        profile = coordinator._load_hardware_profile("task.hardware.profile")
-        self.assertEqual(profile.profile_id, "aimslab-titan-rtx-24gb")
-        self.assertEqual(profile.gpu_model, "NVIDIA TITAN RTX")
-        self.assertEqual(profile.vram_bytes, 24576 * 1024 * 1024)
 
 
 class QualificationStatusTests(unittest.TestCase):

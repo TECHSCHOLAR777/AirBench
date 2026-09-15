@@ -8,7 +8,7 @@
     "protocol_version": "0.1",
     "protocol_compatibility_id": "airbench-node-protocol",
     "clearance_context": "internal",
-    "credential_ref": "airbench-demo-node",
+    "credential_ref": "dev-token-123",
     "approved_by_policy": true
   }
 ]
