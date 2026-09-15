@@ -1,7 +1,9 @@
 # Shared Node Knowledge Ingestion Status
 
-Status as of 2026-09-15: implementation is committed locally; remote runtime
-deployment is not yet complete.
+Status as of 2026-09-15: the local knowledge-base ingestion path and the
+shared Linux Node validation are complete for authenticated loopback use.
+Production multi-operator HTTPS and qualified P&ID graph extraction remain
+explicit follow-up gates.
 
 ## Completed
 
@@ -20,24 +22,33 @@ deployment is not yet complete.
   Chroma/Node API/P&ID integration tests passed. A real local 21-file corpus
   dry run completed with 21 files, 18 text chunks, zero failures, and 87 ledger
   events.
-- On the model host, the application, corpus, and Python retrieval environment
-  were staged. The BGE-M3 and BGE reranker artifacts were transferred to
-  temporary operator staging but have not yet been activated by the shared
-  Node.
+- On the model host, the application, corpus, Python retrieval environment,
+  BGE-M3 encoder, and BGE reranker were activated from the mounted
+  `airbench-serving` volume. The shared launcher now handles the mounted
+  application layout, selects the available virtual environment, and locates
+  the signed domain pack beside the application source.
+- Remote Node validation completed with the real catalog: 21 files were
+  ingested, 18 text chunks were indexed, and zero files failed. Authenticated
+  search returned three cited results from the catalog, and the persisted
+  Chroma collection contained 18 chunks after the Node was stopped.
+- Restart validation completed: the Node became ready again and returned the
+  same cited search results from the persisted ledger and vector store.
+- The local security boundary was checked: an unauthenticated request returned
+  HTTP 401, the Node listener was `127.0.0.1:8765`, and no external listener
+  was present. The temporary validation Node was stopped after the run.
 
 ## Remaining
 
-- Resolve the model-host automount path race and move the staged embedding
-  artifacts into the requested `airbench-serving/models` directory.
-- Start the shared Node with an operator-provided bearer token, run the real
-  catalog ingestion, and verify nonzero Chroma/vector counts through the Node
-  API.
-- Repeat the status/query check after a restart to prove persistence.
-- Configure the approved internal HTTPS/authentication boundary if other
-  operators need network access; the startup script intentionally binds to
-  loopback and never exposes raw SQLite or Chroma files.
-- P&ID graph extraction remains a separate capability and is not claimed by
-  this ingestion slice; image OCR/graph qualification must be enabled and
-  verified before reporting graph nodes or edges.
+- Configure and validate an approved internal HTTPS and authentication
+  boundary if other operators need network access. The current launcher
+  intentionally binds to loopback and does not expose raw SQLite or Chroma
+  files. This requires an approved hostname, certificate, and reverse-proxy or
+  equivalent boundary, so it is not silently enabled by this change.
+- P&ID graph extraction remains a separate qualification gate. The remote host
+  currently lacks the detector weights and the required computer-vision/OCR
+  dependencies, so the adapter can be composed but no graph accuracy claim is
+  made. Qualification still requires representative drawings, OCR and symbol
+  checks, topology review, coordinate grounding, abstention checks, and
+  domain-expert acceptance on the intended GPU host.
 
 No SSH password or bearer token is stored in the repository.

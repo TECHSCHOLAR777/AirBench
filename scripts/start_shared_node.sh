@@ -10,11 +10,31 @@ APP_ROOT="${AIRBENCH_APP_ROOT:-$NODE_ROOT/app}"
 STATE_ROOT="${AIRBENCH_STATE_ROOT:-$NODE_ROOT/state}"
 CORPUS_ROOT="${AIRBENCH_CORPUS_ROOT:-$NODE_ROOT/corpus}"
 MODEL_STORE="${AIRBENCH_MODEL_STORE:-/media/aims-dtu/e6f3d549-768f-4cd9-bdd7-fe600ab3bf81/airbench-serving/models}"
-PYTHON_BIN="${AIRBENCH_PYTHON_BIN:-$APP_ROOT/.venv/bin/python}"
+if [[ -n "${AIRBENCH_PACK_DIR:-}" ]]; then
+    PACK_DIR="$AIRBENCH_PACK_DIR"
+elif [[ -d "$APP_ROOT/packs/refinery_psu_v0" ]]; then
+    PACK_DIR="$APP_ROOT/packs/refinery_psu_v0"
+elif [[ -d "$APP_ROOT/refinery_psu_v0" ]]; then
+    # The shared-node staging layout keeps the pack beside src/.
+    PACK_DIR="$APP_ROOT/refinery_psu_v0"
+else
+    PACK_DIR="$APP_ROOT/packs/refinery_psu_v0"
+fi
+if [[ -n "${AIRBENCH_PYTHON_BIN:-}" ]]; then
+    PYTHON_BIN="$AIRBENCH_PYTHON_BIN"
+elif [[ -x "$APP_ROOT/.venv/bin/python" ]]; then
+    PYTHON_BIN="$APP_ROOT/.venv/bin/python"
+elif [[ -x "$NODE_ROOT/.venv/bin/python" ]]; then
+    # Shared deployments may keep one environment beside app/ so the app
+    # tree can be replaced without rebuilding the runtime environment.
+    PYTHON_BIN="$NODE_ROOT/.venv/bin/python"
+else
+    PYTHON_BIN="python3"
+fi
 
 : "${AIRBENCH_BEARER_TOKEN:?Set AIRBENCH_BEARER_TOKEN without writing it to this script}"
 
-for required in "$APP_ROOT/src" "$APP_ROOT/packs/refinery_psu_v0" \
+for required in "$APP_ROOT/src" "$PACK_DIR" \
     "$CORPUS_ROOT/document_catalog.yaml" "$CORPUS_ROOT/01_knowledge_base_ingestion" \
     "$MODEL_STORE/bge-m3" "$MODEL_STORE/bge-reranker-v2-m3"; do
     if [[ ! -e "$required" ]]; then
@@ -36,7 +56,7 @@ export AIRBENCH_PORT="${AIRBENCH_PORT:-8765}"
 export AIRBENCH_BEARER_TOKEN
 export AIRBENCH_LEDGER_PATH="$STATE_ROOT/ledger.sqlite3"
 export AIRBENCH_SIGNING_KEY_PATH="${AIRBENCH_SIGNING_KEY_PATH:-$APP_ROOT/.airbench_signing_key}"
-export AIRBENCH_PACK_DIR="$APP_ROOT/packs/refinery_psu_v0"
+export AIRBENCH_PACK_DIR="$PACK_DIR"
 export AIRBENCH_PACK_SIGNING_KEY_PATH="$AIRBENCH_SIGNING_KEY_PATH"
 export AIRBENCH_INTAKE_ROOT="$STATE_ROOT/intake"
 export AIRBENCH_ARTIFACT_ROOT="$STATE_ROOT/artifacts"

@@ -25,6 +25,7 @@ class NodeKnowledgeApiTests(unittest.TestCase):
             embedding_provider=self.embeddings,
             reranker=LexicalReranker(),
             vector_store=self.store,
+            ledger=self.ledger,
         )
         self.runtime.index.upsert((self._chunk("chunk-1", "seal leakage requires isolation"),))
         self.service = NodeApiService(
@@ -82,6 +83,12 @@ class NodeKnowledgeApiTests(unittest.TestCase):
         self.assertEqual(result["taint"], "untrusted")
         self.assertEqual(result["clearance"], "internal")
         self.assertTrue(result["source_span"])
+        event_types = [event.event_type for event in self.ledger.events]
+        self.assertIn("task.created", event_types)
+        self.assertIn("retrieval.requested", event_types)
+        self.assertIn("retrieval.completed", event_types)
+        repeated = self._request("POST", "/api/v1/knowledge/search", json={"query": "seal leakage", "top_k": 3})
+        self.assertEqual(repeated.status_code, 200, repeated.text)
 
     def test_search_rejects_clearance_widening(self):
         response = self._request(

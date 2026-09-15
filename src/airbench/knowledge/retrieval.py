@@ -464,6 +464,9 @@ class RetrievalService:
         self._ledger = ledger
 
     def search(self, request: RetrievalRequest) -> tuple[CitedExcerpt, ...]:
+        # The Node provisions a durable task subject before this service is
+        # called, so retrieval provenance is fail-closed when its event cannot
+        # be committed instead of returning an unledgered result.
         self._event("retrieval.requested", request, {"query_hash": hashlib.sha256(request.query.encode("utf-8")).hexdigest()})
         try:
             query_embedding = self._embeddings.embed(request.query)
