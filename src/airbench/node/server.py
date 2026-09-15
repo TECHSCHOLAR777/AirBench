@@ -662,6 +662,7 @@ def build_node_app(
     # Bulk knowledge ingestion is opt-in and confined to an operator root.
     knowledge_service = None
     ingest_root = os.environ.get("AIRBENCH_KNOWLEDGE_INGEST_ROOT", "").strip()
+    catalog_path = os.environ.get("AIRBENCH_KNOWLEDGE_CATALOG_PATH", "").strip() or None
     if ingest_root and intake_root and retrieval_runtime is not None:
         from .knowledge_gateway import LocalNodeKnowledgeService
         ingest_task_id = "task.knowledge.ingest"
@@ -676,8 +677,9 @@ def build_node_app(
         knowledge_service = LocalNodeKnowledgeService(
             layer=intake_layer, indexer=retrieval_runtime.indexer,
             ingest_root=ingest_root, task_id=ingest_task_id, clearance_context=config.clearance,
+            catalog_path=catalog_path, ledger=ledger,
         )
-        logger.info("Bulk knowledge ingestion enabled at %s", ingest_root)
+        logger.info("Bulk knowledge ingestion enabled at %s (catalog: %s)", ingest_root, catalog_path or "none")
 
     deliverable_gateway = None
     artifact_root = os.environ.get("AIRBENCH_ARTIFACT_ROOT", "").strip()
@@ -734,6 +736,7 @@ def build_node_app(
         "world_model_path": os.environ.get("AIRBENCH_WORLD_MODEL_PATH", "") or None,
         "decision_store_path": os.environ.get("AIRBENCH_DECISION_STORE_PATH", "") or None,
         "knowledge_ingest_root": os.environ.get("AIRBENCH_KNOWLEDGE_INGEST_ROOT", "") or None,
+        "knowledge_catalog_path": catalog_path,
         "vector_store_path": os.environ.get("AIRBENCH_VECTOR_STORE_PATH", "") or None,
         "ledger_head": ledger.head_hash or "ledger.empty",
     }

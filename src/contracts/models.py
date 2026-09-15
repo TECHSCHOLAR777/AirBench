@@ -27,6 +27,7 @@ LEDGER_EVENT_TYPES = {
     "resource.plan.admitted", "resource.plan.queued", "barrier.waiting", "barrier.completed", "artifact.staged", "artifact.checked", "artifact.previewed", "artifact.downloaded",
     "human.review.required", "human.signoff", "completion.recorded", "escalation.required",
     "index.requested", "index.completed", "index.failed",
+    "knowledge.ingest.started", "knowledge.ingest.file_completed", "knowledge.ingest.file_failed", "knowledge.ingest.completed",
     "retrieval.requested", "retrieval.completed", "retrieval.failed",
     "vision.requested", "vision.completed", "vision.failed",
     "pid.extracted",

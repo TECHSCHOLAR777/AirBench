@@ -62,6 +62,33 @@ only for transport diagnostics; it does not bypass router qualification.
 The Node calls only the local loopback bindings. The desktop continues to call
 the Node API and never calls vLLM directly.
 
+## 6. Shared Node on the model host
+
+For the shared knowledge-base deployment, copy the repository application and
+the approved corpus to the model host under:
+
+```text
+/media/aims-dtu/e6f3d549-768f-4cd9-bdd7-fe600ab3bf81/airbench-serving/airbench-node/
+```
+
+Keep model artifacts under `airbench-serving/models/`. The Node's ledger,
+intake artifacts, Chroma collection, world-model database, and decision store
+belong under `airbench-node/state/`; clients must never open those files.
+
+Provision the local `bge-m3` and `bge-reranker-v2-m3` directories in the model
+store before starting retrieval. No runtime download is permitted. Start the
+shared Node with:
+
+```bash
+export AIRBENCH_BEARER_TOKEN='<operator-token>'
+bash scripts/start_shared_node.sh
+```
+
+`start_shared_node.sh` validates the catalog, corpus, local retrieval models,
+and persistent directories before binding. It is loopback-bound by default;
+shared operators must connect through the approved internal HTTPS/authenticated
+boundary, never by sharing SQLite or Chroma files.
+
 ## 5. Run the governed flow
 
 ```powershell

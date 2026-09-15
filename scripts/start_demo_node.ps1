@@ -136,6 +136,7 @@ $env:AIRBENCH_QUALIFICATION_MATRIX   = "$repo\qualifications\model_qualification
 # Bulk knowledge ingestion + durable vector store (Chroma).
 $corpusRoot = "$repo\.airbench-corpus"
 $env:AIRBENCH_KNOWLEDGE_INGEST_ROOT  = "$corpusRoot\01_knowledge_base_ingestion"
+$env:AIRBENCH_KNOWLEDGE_CATALOG_PATH  = "$corpusRoot\document_catalog.yaml"
 $env:AIRBENCH_VECTOR_STORE           = "chroma"
 $env:AIRBENCH_VECTOR_STORE_PATH      = "$repo\.airbench-chroma"
 if (-not (Test-Path $corpusRoot)) {
