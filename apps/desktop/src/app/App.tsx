@@ -688,30 +688,70 @@ function App() {
         authorizationCommandId,
         `idempotency.${authorizationCommandId}`,
       );
+      let authorizeFailed = false;
       try {
         await sendTaskCommand(profile, authorizationCommand);
         synchronizedSnapshot = await fetchTaskSnapshot(profile, result.task.task_id);
         setTaskResult({ ...result, snapshot: synchronizedSnapshot });
-      } catch {
-        setNotice("The Node accepted the task, but did not authorize it. No plan or execution was started.");
-        return;
+      } catch (error) {
+        authorizeFailed = true;
+        const errorMessage = boundaryErrorMessage(error);
+        setNotice(`Auto-authorization failed: ${errorMessage}. Task is in "created" state — use "Authorize task" to proceed manually.`);
       }
-      setPlanLoading(true);
-      try {
-        const plan = await fetchTaskPlan(profile, result.task.task_id);
-        setPlanReview(plan);
-        setNotice(`Task accepted by ${profile.displayName}. The Node owns the task state and has returned the current plan review.`);
-      } catch {
-        setNotice(`Task accepted by ${profile.displayName}. The Node plan review is not available yet.`);
-      } finally {
-        setPlanLoading(false);
+      if (!authorizeFailed) {
+        setPlanLoading(true);
+        try {
+          const plan = await fetchTaskPlan(profile, result.task.task_id);
+          setPlanReview(plan);
+          setNotice(`Task accepted by ${profile.displayName}. The Node owns the task state and has returned the current plan review.`);
+        } catch {
+          setNotice(`Task accepted by ${profile.displayName}. The Node plan review is not available yet.`);
+        } finally {
+          setPlanLoading(false);
+        }
+        await syncTask(profile, synchronizedSnapshot);
+        selectScreen("tasks");
+      } else {
+        // Keep the task in created state, allow manual authorization
+        await syncTask(profile, synchronizedSnapshot);
+        selectScreen("tasks");
       }
-      await syncTask(profile, synchronizedSnapshot);
-      selectScreen("tasks");
     } catch {
       setNotice("The Node did not accept this task. No local task state was created.");
     } finally {
       setCreatingTask(false);
+    }
+  };
+
+  const authorizeTask = async () => {
+    const profile = profiles.find((candidate) => candidate.profileId === connection.profileId);
+    if (!profile || !nodeConnected || !connection.authenticatedSubject || !taskProjection) {
+      setNotice("Connect a verified Node and select a task before authorizing.");
+      return;
+    }
+    if (taskProjection.status !== "created") {
+      setNotice("This task is not in a state that can be authorized.");
+      return;
+    }
+    setNotice(null);
+    try {
+      const snapshot = await fetchTaskSnapshot(profile, taskProjection.taskId);
+      const commandId = `command.authorize.${crypto.randomUUID()}`;
+      const command = buildAuthorizeTaskCommand(
+        connection.authenticatedSubject,
+        taskProjection.taskId,
+        snapshot.asOfSequence,
+        "operator.authorized.local-task",
+        commandId,
+        `idempotency.${commandId}`,
+      );
+      await sendTaskCommand(profile, command);
+      const updatedSnapshot = await fetchTaskSnapshot(profile, taskProjection.taskId);
+      setTaskResult((prev) => prev ? { ...prev, snapshot: updatedSnapshot } : null);
+      await refreshTask();
+      setNotice("Task authorized. The Node will now create a plan.");
+    } catch (error) {
+      setNotice(boundaryErrorMessage(error));
     }
   };
 
@@ -832,7 +872,7 @@ function App() {
         <div className="content-wrap">
           {state.screen === "home" && <HomeView outcomeInputRef={outcomeInputRef} currentTask={taskProjection} taskText={taskText} setTaskText={setTaskText} taskTitle={taskTitle} setTaskTitle={setTaskTitle} projectRef={projectRef} setProjectRef={setProjectRef} outputContract={outputContract} setOutputContract={setOutputContract} priority={priority} setPriority={setPriority} deadline={deadline} setDeadline={setDeadline} selectedFile={selectedFile} intakeState={intakeState} intakeManifest={intakeManifest} intakeStatus={intakeStatus} safePreview={safePreview} checkingIntake={checkingIntake} taskResult={taskResult} notice={notice} canStart={canStart} creatingTask={creatingTask} nodeConnected={nodeConnected} nodeLabel={nodeLabel} onAttach={attachFile} onUpload={uploadSelectedFile} onRecheckIntake={recheckIntake} onStart={startTask} onRemoveFile={() => { setSelectedFile(null); setIntakeState("idle"); setIntakeManifest(null); setIntakeStatus(null); setSafePreview(null); setCheckingIntake(false); }} onHelp={openConnectionHelp} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} onDismissCurrent={dismissCurrentTask} onNewQuery={openNewTask} />}
           {state.screen === "node" && <NodeSettingsView profiles={profiles} profilesState={profilesState} profileError={profileError} connection={connection} connectingProfileId={connectingProfileId} onConnect={connectProfile} onReconnect={reconnect} onReload={() => { setProfilesReloadToken((token) => token + 1); }} onHome={() => selectScreen("home")} operationalProjection={nodeOperationalProjection} />}
-          {state.screen === "knowledge" && <KnowledgeView profile={connectedProfile} nodeConnected={nodeConnected} />}
+          {state.screen === "knowledge" && <KnowledgeView profile={connectedProfile} nodeConnected={nodeConnected} subject={connection.authenticatedSubject} domainPackRef={connection.domainPackRef} />}
           {state.screen === "tasks" && (taskProjection ? <TaskWorkspaceView projection={taskProjection} syncState={eventSyncState} plan={planReview} routeTrace={taskRouteTrace} approval={planApprovalResult} approving={approvingPlan} controlResult={taskControlResult} controlling={controllingTask} sourcePreview={intakeManifest?.intake_id === taskProjection.inputManifestRef ? safePreview : null} artifactReview={taskArtifactReview} artifactPreview={taskArtifactPreview} artifactPreviewState={taskArtifactPreviewState} artifactPreviewError={taskArtifactPreviewError} artifactDownloadState={taskArtifactDownloadState} artifactDownloadReceipt={taskArtifactDownloadReceipt} onStop={stopTask} onRefresh={refreshTask} onApprovePlan={approvePlan} onInspectArtifact={inspectTaskArtifact} onDownloadArtifact={downloadTaskArtifact} onHome={openNewTask} onOpenNode={() => selectScreen("node")} onApproveArtifact={approveTaskArtifact} onReturnArtifact={returnTaskArtifact} isArtifactCommandPending={artifactCommandPending} profile={profiles.find((p) => p.profileId === connection.profileId) ?? null} operatorId={connection.authenticatedSubject} /> : <TaskEmptyView nodeConnected={nodeConnected} onNewTask={openNewTask} onOpenNode={() => selectScreen("node")} />)}
           {isRecordGatewayDestination(state.screen) && <RecordGatewayView destination={state.screen} nodeConnected={nodeConnected} currentTask={taskProjection} onHome={() => selectScreen("home")} onOpenNode={() => selectScreen("node")} onOpenCurrentTask={() => selectScreen("tasks")} onNewTask={openNewTask} />}
         </div>
