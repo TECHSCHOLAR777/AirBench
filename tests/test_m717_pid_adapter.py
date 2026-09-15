@@ -47,10 +47,39 @@ def test_adapter_maps_topology_to_a_typed_record(tmp_path) -> None:
     assert record.clearance == Clearance.internal
     assert [component.label for component in record.components] == ["gate_valve"]
     assert record.components[0].tag == "V-101"
-    assert record.relations[0].relation == "solid"
+    assert record.relations == ()
     assert record.texts[0]["text"] == "V-101"
     payload = record.to_dict()
-    assert payload["summary"] == {"components": 1, "relations": 1, "texts": 1}
+    assert payload["summary"] == {"components": 1, "relations": 0, "texts": 1}
+
+
+def test_adapter_resolves_connector_paths_to_symbol_relations(tmp_path) -> None:
+    topology = {
+        "symbols": [
+            {"id": "pump1", "label": "pump", "bbox": [1, 2, 3, 4], "confidence": 0.9},
+            {"id": "valve1", "label": "valve", "bbox": [5, 6, 7, 8], "confidence": 0.9},
+        ],
+        "connectors": [
+            {"id": "connector1", "parent_sym": "pump1"},
+            {"id": "connector2", "parent_sym": "valve1"},
+        ],
+        "crossings": [{"id": "crossing1"}],
+        "edges": [
+            {"id": "line_1", "source": "connector1", "target": "crossing1", "edge_label": "solid"},
+            {"id": "line_2", "source": "crossing1", "target": "connector2", "edge_label": "solid"},
+        ],
+        "texts": [],
+    }
+
+    class _PathAdapter(PidIntakeAdapter):
+        def availability(self):
+            return True, ""
+
+        def _run_pipeline(self, source, output_dir):
+            return topology
+
+    record = _process(_PathAdapter(), tmp_path)
+    assert [(item.source, item.target) for item in record.relations] == [("pump1", "valve1")]
 
 
 def test_adapter_rejects_clean_taint_hash_and_media(tmp_path) -> None:

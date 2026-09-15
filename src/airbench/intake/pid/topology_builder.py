@@ -120,7 +120,10 @@ class TopologyBuilder:
                 "label": "connector",
                 "x": c["x"],
                 "y": c["y"],
-                "parent_sym": c.get("parent_sym"),
+                # LineDetector keeps the symbol's pre-normalisation ID. The
+                # topology builder renames symbols to guarantee unique IDs,
+                # so carry that rename through connector ownership as well.
+                "parent_sym": old_to_new_id.get(c.get("parent_sym"), c.get("parent_sym")),
                 "bbox": [int(c["bbox"][0]), int(c["bbox"][1]), int(c["bbox"][2]), int(c["bbox"][3])]
             }
             connector_nodes.append(c_dict)
