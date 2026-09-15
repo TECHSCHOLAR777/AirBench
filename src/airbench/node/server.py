@@ -885,7 +885,13 @@ def add_model_serving_route(app: Any, service: NodeApiService) -> None:
                 status_code=200,
                 content={"configured": False, "status": "disabled", "endpoints": []},
             )
-        endpoints = await run_in_threadpool(probe_endpoint_readiness, router, timeout_s=2.0)
+        # A remote endpoint is reached through an SSH loopback tunnel.  The
+        # probe performs both /health and /v1/models checks for each lane, so
+        # a two-second budget is too small on a healthy but loaded GPU host
+        # and incorrectly turns a ready Node into a degraded one.  Keep the
+        # status route bounded, while allowing the complete signed readiness
+        # check to finish.
+        endpoints = await run_in_threadpool(probe_endpoint_readiness, router, timeout_s=10.0)
         ready = bool(endpoints) and all(endpoint.get("reason") == "ready" for endpoint in endpoints)
         return StarletteJSONResponse(
             # Health is a projection, not an admission decision. A degraded

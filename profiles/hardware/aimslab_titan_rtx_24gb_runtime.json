@@ -20,6 +20,6 @@
     "serial_virtual_team"
   ],
   "network_check_id": "network-check.aimslab-titan-rtx-24gb",
-  "sandbox_runtime": "podman-5.7.0",
+  "sandbox_runtime": "podman-4.9.3",
   "benchmark_result_ref": "benchmarks/model_hardware_results.yaml#aimslab-titan-rtx-24gb"
 }

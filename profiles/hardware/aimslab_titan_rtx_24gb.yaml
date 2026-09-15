@@ -2,21 +2,21 @@ profile_id: aimslab-titan-rtx-24gb
 gpu_model: NVIDIA TITAN RTX
 gpu_count: 1
 vram_bytes: 25769803776
-driver_version: "535.104"
-accelerator_runtime: "vllm-0.28.0"
-cpu_model: "unknown-cpu"
-cpu_cores: 16
-ram_bytes: 68719476736
-storage_bytes: 1000000000000
-scratch_bytes: 1000000000000
+driver_version: "580.173.02"
+accelerator_runtime: "CUDA 13.0"
+cpu_model: "Intel(R) Xeon(R) Silver 4116 CPU @ 2.10GHz"
+cpu_cores: 24
+ram_bytes: 33278758912
+storage_bytes: 1621117095936
+scratch_bytes: 8589934592
 model_context_tokens: 4096
-kv_cache_bytes: 4294967296
+kv_cache_bytes: 1073741824
 safe_parallel_slots: 2
-egress_policy: "allow-local-only"
-measurement_hash: "29bfc2335bafac46688053855b931b8d2f5b10f689da0eb6a2eb628324834c74"
+egress_policy: "deny-all"
+measurement_hash: "ba0a4a04997e7ae152fccaaed3b714affc9ee67a596d3e0bdf76826b75271344"
 supported_execution_modes:
   - parallel
   - serial_virtual_team
-network_check_id: network-check-1
-sandbox_runtime: "none"
+network_check_id: network-check.aimslab-titan-rtx-24gb
+sandbox_runtime: "podman-4.9.3"
 benchmark_result_ref: "benchmarks/model_hardware_results.yaml#aimslab-titan-rtx-24gb"
