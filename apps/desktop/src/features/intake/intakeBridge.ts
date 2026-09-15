@@ -66,6 +66,33 @@ export interface IntakeStatus {
   ledger_event_ref: string;
 }
 
+export interface PidGraphProjection {
+  status: "committed" | "needs_review" | "failed" | "empty" | "unavailable";
+  committed: number;
+  review_required: number;
+  failed: Array<{ candidate_id: string; code: string }>;
+  candidates: string[];
+}
+
+/**
+ * Safe, presentation-only projection of a Node P&ID extraction response.
+ * Component and relation payloads remain Node-owned evidence. The desktop
+ * only needs the bounded graph outcome and its provenance to report the
+ * result without treating raw extraction data as trusted UI state.
+ */
+export interface PidExtractionResponse {
+  task_id: string;
+  intake_id: string;
+  revision_id: string;
+  source_ref: string;
+  content_hash: string;
+  media_type: string;
+  clearance: Clearance;
+  taint: Taint;
+  ledger_event_ref: string;
+  graph: PidGraphProjection;
+}
+
 const MAX_QUERY_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_NODE_REFERENCE_LENGTH = 256;
 const MAX_PREVIEW_TEXT_BYTES = 10 * 1024 * 1024;
@@ -105,6 +132,12 @@ function requireSha256(value: unknown, label: string): string {
   const result = requireString(value, label);
   if (!/^sha256:[0-9a-f]{64}$/i.test(result)) throw new Error(`The Node returned an invalid ${label}.`);
   return result;
+}
+
+function requireContentHash(value: unknown, label: string): string {
+  const result = requireString(value, label);
+  if (!/^[0-9a-f]{64}$/i.test(result)) throw new Error(`The Node returned an invalid ${label}.`);
+  return result.toLowerCase();
 }
 
 function isClearance(value: unknown): value is Clearance {
@@ -299,6 +332,58 @@ export function fetchIntakeStatus(
   }).then((value) => validateIntakeStatus(value, intakeId));
 }
 
+function validatePidGraph(value: unknown): PidGraphProjection {
+  const source = requireRecord(value, "P&ID graph projection");
+  const status = source.status;
+  if (status !== "committed" && status !== "needs_review" && status !== "failed" && status !== "empty" && status !== "unavailable") {
+    throw new Error("The Node returned an invalid P&ID graph status.");
+  }
+  const failedValue = source.failed ?? [];
+  if (!Array.isArray(failedValue) || failedValue.length > 100_000) throw new Error("The Node returned an invalid P&ID graph failure list.");
+  const candidatesValue = source.candidates;
+  if (!Array.isArray(candidatesValue) || candidatesValue.length > 100_000) throw new Error("The Node returned an invalid P&ID candidate list.");
+  return {
+    status,
+    committed: requireSafeInteger(source.committed, "committed P&ID graph count", 0),
+    review_required: requireSafeInteger(source.review_required, "P&ID review count", 0),
+    failed: failedValue.map((entry, index) => {
+      const failure = requireRecord(entry, `P&ID graph failure ${index + 1}`);
+      return {
+        candidate_id: requireNodeReference(failure.candidate_id, "P&ID candidate"),
+        code: requireNonEmptyString(failure.code, "P&ID graph failure code"),
+      };
+    }),
+    candidates: candidatesValue.map((entry) => requireNodeReference(entry, "P&ID candidate")),
+  };
+}
+
+/**
+ * Re-validates the Node-owned P&ID extraction receipt before the result is
+ * presented. Raw symbols, OCR text, and relations are intentionally not
+ * copied into React state through this boundary.
+ */
+export function validatePidExtractionResponse(
+  value: unknown,
+  expectedTaskId: string,
+  approvedContext: Clearance,
+): PidExtractionResponse {
+  const source = requireRecord(value, "P&ID extraction response");
+  const taskId = requireNodeReference(source.task_id, "P&ID task");
+  if (taskId !== expectedTaskId) throw new Error("The P&ID extraction task does not match the requested task.");
+  return {
+    task_id: taskId,
+    intake_id: requireNodeReference(source.intake_id, "P&ID intake"),
+    revision_id: requireNodeReference(source.revision_id, "P&ID revision"),
+    source_ref: requireNonEmptyString(source.source_ref, "P&ID source reference"),
+    content_hash: requireContentHash(source.content_hash, "P&ID content hash"),
+    media_type: requireNonEmptyString(source.media_type, "P&ID media type"),
+    clearance: requireClearance(source.clearance, approvedContext, "P&ID clearance"),
+    taint: requireTaint(source.taint, "P&ID taint"),
+    ledger_event_ref: requireNodeReference(source.ledger_event_ref, "P&ID ledger event"),
+    graph: validatePidGraph(source.graph),
+  };
+}
+
 export function validateArtifactPreview(value: unknown, requestedArtifactId: string, approvedContext: Clearance): ArtifactPreview {
   const source = requireRecord(value, "artifact preview");
   const artifactId = requireNodeReference(source.artifact_id, "artifact");
@@ -387,20 +472,21 @@ export function uploadSelectedQueryFile(
 }
 
 /**
- * Sends a selected P&ID file to the Node for extraction and World Model graph ingestion.
+ * Sends only a native P&ID selection token through the Rust intake boundary.
+ * The webview never receives or parses the selected drawing bytes.
  */
 export function uploadSelectedPidFile(
   profile: ApprovedNodeProfileReference | ApprovedNodeProfile,
   selectionId: string,
   taskId: string,
-): Promise<unknown> {
+): Promise<PidExtractionResponse> {
   const approved = approvedProfilePayload(profile);
   if (!taskId.trim() || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(taskId)) throw new Error("The task identifier is invalid for File Intake.");
   return invoke<unknown>("upload_selected_pid_file", {
     profileId: approved.profile_id,
     selectionId,
     taskId,
-  });
+  }).then((value) => validatePidExtractionResponse(value, taskId, validateClearanceContext(profile)));
 }
 
 /**

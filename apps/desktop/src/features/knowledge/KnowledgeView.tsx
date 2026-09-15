@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchKnowledgeStatus, ingestKnowledgeFolder, searchKnowledge, type KnowledgeIngestResponse, type KnowledgeSearchResponse, type KnowledgeStatus } from "./knowledgeBridge";
-import { uploadSelectedPidFile } from "../intake/intakeBridge";
+import { uploadSelectedPidFile, type PidExtractionResponse } from "../intake/intakeBridge";
 import { invoke } from "@airbench/tauri-invoke";
 import { buildCreateTaskCommand } from "../tasks/taskComposer";
 import { createTask } from "../../platform/node/nodeCommands";
@@ -17,7 +17,7 @@ export function KnowledgeView({ profile, nodeConnected, subject, domainPackRef }
   const [ingestBusy, setIngestBusy] = useState(false);
   const [ingestResult, setIngestResult] = useState<KnowledgeIngestResponse | null>(null);
   const [pidBusy, setPidBusy] = useState(false);
-  const [pidResult, setPidResult] = useState<{ graph?: { committed: number } } | null>(null);
+  const [pidResult, setPidResult] = useState<PidExtractionResponse | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -101,7 +101,7 @@ export function KnowledgeView({ profile, nodeConnected, subject, domainPackRef }
       const taskId = taskResult.task.task_id;
 
       const response = await uploadSelectedPidFile(profile, selection.selection_id, taskId);
-      setPidResult(response as { graph?: { committed: number } });
+      setPidResult(response);
       setStatus(await fetchKnowledgeStatus(profile));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));

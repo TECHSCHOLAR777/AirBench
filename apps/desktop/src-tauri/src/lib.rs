@@ -39,6 +39,7 @@ pub fn run() {
             node_transport::ingest_knowledge_folder,
             intake::pick_query_file,
             intake::upload_selected_query_file,
+            intake::upload_selected_pid_file,
             intake::fetch_safe_preview,
             intake::fetch_intake_status,
             intake::fetch_artifact_preview,

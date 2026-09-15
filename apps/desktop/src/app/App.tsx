@@ -729,8 +729,11 @@ function App() {
       setNotice("Connect a verified Node and select a task before authorizing.");
       return;
     }
-    if (taskProjection.status !== "created") {
-      setNotice("This task is not in a state that can be authorized.");
+    // The desktop projection deliberately exposes the Node lifecycle union,
+    // where a newly created task is represented as `accepted`. Creation is
+    // retained by the Node command receipt, not invented as a second status.
+    if (taskProjection.status !== "accepted") {
+      setNotice("This task is not waiting for authorization.");
       return;
     }
     setNotice(null);
@@ -1125,7 +1128,7 @@ function TaskWorkspaceView({ projection, syncState, plan, routeTrace, approval, 
     <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">Task status: {statusLabel[projection.status] ?? projection.status}. Phase: {projection.phase}. Node cursor: {projection.lastAppliedSequence}.</div>
     <div className={`workspace-sync workspace-sync-${syncStatus}`} role="status" aria-live="polite"><span className="status-dot" aria-hidden="true" /><strong>{syncLabel[syncStatus] ?? syncStatus}</strong><span>{syncState?.error?.message ?? (syncStatus === "reconnecting" ? "The Node may continue work while this desktop reconnects." : "Task state comes from the approved Node event stream.")}</span><button type="button" className="text-button" onClick={onRefresh} disabled={syncStatus === "syncing" || syncStatus === "replaying"}>Refresh</button>{syncStatus === "reconnecting" && <button type="button" className="text-button" onClick={onOpenNode}>Reconnect Node</button>}</div>
     <section className={`workspace-sync-recovery workspace-sync-recovery-${syncRecovery.tone}`} aria-label="Task synchronization recovery guidance"><div><strong>{syncRecovery.label}</strong><span>{syncRecovery.detail}</span></div><dl><div><dt>Preserved</dt><dd>{syncRecovery.preserved}</dd></div><div><dt>Retry</dt><dd>{syncRecovery.retry}</dd></div><div><dt>Next</dt><dd>{syncRecovery.nextAction}</dd></div></dl></section>
-    <div className="workspace-actions"><button type="button" className="secondary-button bordered-button" onClick={onHome}>Back to Home</button>{projection.status === "created" && <button type="button" className="primary-button" onClick={onAuthorizeTask} disabled={controlling}>Authorize task</button>}<button type="button" className="secondary-button" onClick={onStop} disabled={!canStop} title={canStop ? "Send a Node-authorized stop command" : "Stopping is disabled until the Node is current"}>{controlling ? "Stopping..." : "Stop task"}</button><span className="workspace-command-note">Pause, resume, and question responses appear only when the Node supplies their typed command contracts.</span></div>
+    <div className="workspace-actions"><button type="button" className="secondary-button bordered-button" onClick={onHome}>Back to Home</button>{projection.status === "accepted" && !plan && <button type="button" className="primary-button" onClick={onAuthorizeTask} disabled={controlling}>Authorize task</button>}<button type="button" className="secondary-button" onClick={onStop} disabled={!canStop} title={canStop ? "Send a Node-authorized stop command" : "Stopping is disabled until the Node is current"}>{controlling ? "Stopping..." : "Stop task"}</button><span className="workspace-command-note">Pause, resume, and question responses appear only when the Node supplies their typed command contracts.</span></div>
     {trace.review.questions.length > 0 && <OperatorQuestionCard questions={trace.review.questions} taskStatus={projection.status} phase={projection.phase} synchronized={syncStatus === "connected" && projection.health === "current"} ledgerEventRef={projection.ledgerHeadRef} />}
      <section className="workspace-now" aria-label="Current Node state"><div><p className="eyebrow">CURRENT NODE STATE</p><h2>{currentNodeState}</h2><p>The task state and phase come from the latest approved Node snapshot.</p></div><div className="workspace-now-record">{trace.latestActivity ? <><span>Latest recorded activity</span><strong>{trace.latestActivity.label}</strong><p>{trace.latestActivity.summary}</p><small>{formatTraceTime(trace.latestActivity.occurredAt)}</small></> : <><span>Latest recorded activity</span><strong>No activity event yet</strong><p>The Node has supplied the task snapshot but no newer event in this cursor.</p></>}</div></section>
     <ModelIndicatorCard routeTrace={routeTrace} />
