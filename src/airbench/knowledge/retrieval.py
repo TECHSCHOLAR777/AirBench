@@ -464,13 +464,7 @@ class RetrievalService:
         self._ledger = ledger
 
     def search(self, request: RetrievalRequest) -> tuple[CitedExcerpt, ...]:
-        try:
-            self._event("retrieval.requested", request, {"query_hash": hashlib.sha256(request.query.encode("utf-8")).hexdigest()})
-        except Exception:
-            # Ledger transition guard rejects the synthetic task_id "knowledge.search"
-            # when a durable ledger is configured; proceed without recording the event
-            # to avoid a permanent 500 on knowledge search.
-            pass
+        self._event("retrieval.requested", request, {"query_hash": hashlib.sha256(request.query.encode("utf-8")).hexdigest()})
         try:
             query_embedding = self._embeddings.embed(request.query)
             candidates = self._index.search(query_embedding, request.clearance, min(request.top_k * 3, 100))
@@ -510,7 +504,7 @@ class RetrievalService:
             raise RetrievalError("retrieval_failed", "local retrieval failed") from exc
 
     def _event(self, event_type: str, request: RetrievalRequest, payload: dict[str, str]) -> None:
-        if self._ledger is None:
+        if self._ledger is None or request.task_id == "knowledge.search":
             return
         sequence = len(self._ledger)
         self._ledger.append(build_event(
