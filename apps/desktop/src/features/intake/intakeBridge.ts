@@ -387,6 +387,23 @@ export function uploadSelectedQueryFile(
 }
 
 /**
+ * Sends a selected P&ID file to the Node for extraction and World Model graph ingestion.
+ */
+export function uploadSelectedPidFile(
+  profile: ApprovedNodeProfileReference | ApprovedNodeProfile,
+  selectionId: string,
+  taskId: string,
+): Promise<unknown> {
+  const approved = approvedProfilePayload(profile);
+  if (!taskId.trim() || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(taskId)) throw new Error("The task identifier is invalid for File Intake.");
+  return invoke<unknown>("upload_selected_pid_file", {
+    profileId: approved.profile_id,
+    selectionId,
+    taskId,
+  });
+}
+
+/**
  * Requests a safe, Node-generated preview. Arbitrary HTML and document bytes
  * are intentionally not part of this frontend contract.
  */

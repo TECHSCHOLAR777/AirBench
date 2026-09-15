@@ -42,7 +42,8 @@ pub fn run() {
             intake::fetch_safe_preview,
             intake::fetch_intake_status,
             intake::fetch_artifact_preview,
-            intake::download_artifact
+            intake::download_artifact,
+            intake::upload_selected_pid_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running AirBench desktop application");
