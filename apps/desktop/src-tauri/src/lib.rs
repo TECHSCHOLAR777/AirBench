@@ -1,9 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+pub mod gemini;
 pub mod intake;
 pub mod node_transport;
 
 pub fn run() {
+    let _ = dotenvy::from_path(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"),
+    );
+
     let builder = tauri::Builder::default();
 
     #[cfg(feature = "wdio")]
@@ -46,7 +51,11 @@ pub fn run() {
             intake::fetch_intake_status,
             intake::fetch_artifact_preview,
             intake::download_artifact,
-            intake::upload_selected_pid_file
+            intake::upload_selected_pid_file,
+            gemini::gemini_chat,
+            gemini::generate_document,
+            gemini::run_python_sandbox,
+            gemini::pick_chat_attachment
         ])
         .run(tauri::generate_context!())
         .expect("error while running AirBench desktop application");

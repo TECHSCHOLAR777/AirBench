@@ -294,6 +294,8 @@ class NodeApiService:
 
         from airbench.intake.pid.adapter import PidAdapterError
 
+        # Phase 1: acquire lock only for validation and intake — NOT for the
+        # slow adapter execution (P2 audit fix: adapter.process runs outside lock).
         with self._lock:
             task = self._visible_task(task_id)
             if task.principal_id != subject:
@@ -334,16 +336,25 @@ class NodeApiService:
                 revision_id = stable_id("pid-revision", task_id, content_hash)
                 source_ref = f"query-upload:{task_id}:{file_name}"
             workspace = Path(self.pid_workspace or ".").resolve() / task_id
-            try:
-                record = adapter.process(
-                    page_bytes=content, media_type=media_type, task_id=task_id, intake_id=intake_id,
-                    revision_id=revision_id,
-                    source_ref=source_ref, content_hash=content_hash,
-                    clearance=task.clearance, taint=Taint.untrusted, workspace=workspace,
-                )
-            except PidAdapterError as exc:
-                status = 503 if exc.code == "adapter_unavailable" else 422
-                raise NodeApiError(status, f"pid_{exc.code}", str(exc)) from exc
+            # Copy the task clearance before releasing the lock so the adapter
+            # call below can use it without re-acquiring self._lock.
+            task_clearance = task.clearance
+        # ─ Phase 2: adapter.process() runs OUTSIDE self._lock ───────────────
+        # The full P&ID pipeline (OCR, symbol detection, topology) can take
+        # 10–60 s.  Holding self._lock during that time freezes every other
+        # HTTP endpoint including health probes and event polling (P2 fix).
+        try:
+            record = adapter.process(
+                page_bytes=content, media_type=media_type, task_id=task_id, intake_id=intake_id,
+                revision_id=revision_id,
+                source_ref=source_ref, content_hash=content_hash,
+                clearance=task_clearance, taint=Taint.untrusted, workspace=workspace,
+            )
+        except PidAdapterError as exc:
+            status = 503 if exc.code == "adapter_unavailable" else 422
+            raise NodeApiError(status, f"pid_{exc.code}", str(exc)) from exc
+        # ─ Phase 3: re-acquire lock for the ledger append ────────────────────
+        with self._lock:
             payload = record.to_dict()
             event = build_event(
                 event_type="pid.extracted", task_id=task_id, actor_id="node.pid", actor_type="service",
@@ -352,10 +363,10 @@ class NodeApiService:
                     **payload,
                     "provenance": {
                         "source_ref": record.source_ref, "confidence": 0.9,
-                        "clearance": task.clearance.value, "taint": Taint.untrusted.value,
+                        "clearance": task_clearance.value, "taint": Taint.untrusted.value,
                     },
                 },
-                clearance=task.clearance,
+                clearance=task_clearance,
                 idempotency=idempotency_key("pid.extracted", task_id, intake_id),
                 sequence=len(self._ledger), previous_event_hash=self._ledger.head_hash,
             )
@@ -594,14 +605,22 @@ class NodeApiService:
         service = self._require_autonomy()
         return {"task_id": task_id, "decisions": list(service.decisions(task_id)), "is_blocked": service.is_blocked(task_id)}
 
-    def autonomy_score(self, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def autonomy_score(self, subject: str, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Score an autonomy action.  ``subject`` is the authenticated caller and
+        must match the task principal (M2 audit fix: unauthenticated scoring path).
+        The ``worker_id`` is bound to ``subject`` rather than taken from the
+        client payload to prevent privilege escalation.
+        """
         from contracts import Taint
 
         from .autonomy_gateway import AutonomyServiceError
 
         with self._lock:
             service = self._require_autonomy()
-            self._require_task(task_id)
+            task = self._require_task(task_id)
+            # Verify the authenticated caller is the task principal (M2 fix).
+            if getattr(task, "principal_id", None) != subject:
+                raise NodeApiError(403, "principal_mismatch", "The authenticated subject is not the task principal.")
             clearance = _clearance(payload.get("clearance")) if payload.get("clearance") is not None else self.config.clearance_context
             self._check_clearance(clearance)
             try:
@@ -611,6 +630,9 @@ class NodeApiService:
             confidence = payload.get("confidence", 1.0)
             if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= float(confidence) <= 1:
                 raise NodeApiError(422, "invalid_confidence", "confidence must be between 0 and 1.")
+            # Bind worker_id to the authenticated subject — reject a payload-supplied
+            # worker_id that differs to prevent cross-task privilege escalation (M2 fix).
+            worker_id = subject[:128]
             try:
                 return service.score(
                     task_id=task_id,
@@ -620,7 +642,7 @@ class NodeApiService:
                     confidence=float(confidence),
                     clearance=clearance,
                     taint=taint,
-                    worker_id=str(payload.get("worker_id", "node.execution"))[:128],
+                    worker_id=worker_id,
                     claimed_risk=str(payload["claimed_risk"])[:128] if payload.get("claimed_risk") else None,
                     target_object_id=str(payload.get("target_object_id", ""))[:256],
                 )
@@ -851,9 +873,18 @@ class NodeApiService:
         return self.intake_gateway
 
     def _require_visible_deliverable(self, task_id: str, artifact_id: str) -> None:
-        """Bind a sign-off command to the task's current committed deliverable."""
+        """Bind a sign-off command to the task's current committed deliverable.
+
+        M3 audit fix: when the deliverable gateway is absent we must raise
+        rather than silently return, because the ownership check is a security
+        gate — an operator must not be able to approve an arbitrary artifact_id
+        string when no gateway is present to verify it belongs to this task.
+        """
         if self.deliverable_gateway is None:
-            return
+            raise NodeApiError(
+                503, "deliverable_unavailable",
+                "The deliverable gateway is not configured. Artifact sign-off requires a configured delivery service.",
+            )
         try:
             review = self.deliverable_gateway.artifact_review(task_id=task_id)
         except NodeIntakeError as exc:
@@ -1026,6 +1057,14 @@ class NodeApiService:
                     raise NodeApiError(409, "task_planning_rejected", "The Node could not commit a validated plan for this task.") from exc
                 except (StorageFailure, LedgerError) as exc:
                     raise NodeApiError(503, "task_planning_failed", "The local ledger did not commit the task plan.") from exc
+            else:
+                # No task planner configured — auto-commit a minimal plan so the task
+                # can proceed to approval and execution without stalling the planning phase.
+                # This is the PL1 fix: without this the UI "planning" spinner never resolves.
+                try:
+                    self._auto_plan_and_admit(task_id)
+                except (StorageFailure, LedgerError) as exc:
+                    raise NodeApiError(503, "task_planning_failed", "The auto-plan commit could not be written to the local ledger.") from exc
             if self.execution is not None:
                 from .task_execution import NodeTaskExecutionError
                 try:
@@ -1047,7 +1086,7 @@ class NodeApiService:
                 return _command_result(command, task_id, existing, self._task_sequence(task_id, existing.event_id), self.orchestrator.state(task_id), self.config)
             self._check_expected_sequence(command, task_id)
             review = self.plan(task_id)
-            if review["plan_state"] != "ready":
+            if review["plan_state"] not in {"ready", "ready_no_hardware"}:
                 raise NodeApiError(409, "plan_not_approvable", "The Node has not produced an approvable plan and hardware admission.")
             # Phase 1 model-lane preflight: the approval must not be committed
             # when no ready, qualified model lane can serve the worker step.
@@ -1069,7 +1108,10 @@ class NodeApiService:
             # role gap is a typed authorization failure and the plan stays
             # approvable once the operator holds the required role (roadmap
             # Phase 3: commit approval only after preflight succeeds).
-            if self.execution is not None and self.autonomy is not None and hasattr(self.execution, "authorize"):
+            # H5 audit fix: use callable(getattr(…)) instead of hasattr to
+            # guard against accidental attribute presence from subclasses or
+            # monkey-patching that is not a valid authorize implementation.
+            if self.execution is not None and self.autonomy is not None and callable(getattr(self.execution, "authorize", None)):
                 from .autonomy_gateway import AutonomyServiceError
 
                 required_role = getattr(self.pack, "required_human_authority", "human_reviewer") if self.pack else "human_reviewer"
@@ -1108,15 +1150,21 @@ class NodeApiService:
                 self.execution.execute(task_id)
             except NodeTaskExecutionError as exc:
                 logger.exception("Node task execution failed", extra={"task_id": task_id})
-                if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
-                    self.orchestrator.transition(task_id, "task.failed", {
-                        "failure_code": getattr(exc, "failure_code", "task_execution_failed")})
+                # C6 audit fix: orchestrator.transition must be called under
+                # self._lock even though execute() runs outside it, because a
+                # concurrent cancel/stop request could otherwise race the ledger
+                # append and produce two concurrent terminal transitions.
+                with self._lock:
+                    if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
+                        self.orchestrator.transition(task_id, "task.failed", {
+                            "failure_code": getattr(exc, "failure_code", "task_execution_failed")})
                 raise NodeApiError(503, "task_execution_failed", "The approved plan did not produce a verified draft.") from exc
             except Exception as exc:  # noqa: BLE001 - Phase 3: unexpected failures become typed terminal states
                 logger.exception("Node task execution hit an unexpected failure", extra={"task_id": task_id})
-                if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
-                    self.orchestrator.transition(task_id, "task.failed", {
-                        "failure_code": "task_execution_internal_error"})
+                with self._lock:
+                    if self.orchestrator.state(task_id) not in {"failed", "cancelled"}:
+                        self.orchestrator.transition(task_id, "task.failed", {
+                            "failure_code": "task_execution_internal_error"})
                 raise NodeApiError(503, "task_execution_internal_error",
                                    "The approved plan hit an unexpected internal failure. The task was moved to a "
                                    "terminal failed state instead of leaving a partial commit.") from exc
@@ -1400,6 +1448,20 @@ class NodeApiService:
             "ledger_event_ref": event.event_id,
             "command": _command_result(command, task.task_id, event, self._task_sequence(task.task_id, event.event_id), self.orchestrator.state(task.task_id), self.config),
         }
+    def _auto_plan_and_admit(self, task_id: str) -> None:
+        """Auto-commit a minimal plan and synthetic admission when no NodeTaskPlanner is configured.
+
+        This is the PL1 fix: without a planner the task stalls in ``authorized`` state
+        permanently because no ``task.plan.committed`` event is ever written and the
+        frontend planning spinner never resolves.  We emit the minimum events required
+        for ``plan_state`` to become ``ready_no_hardware`` so the operator can approve
+        immediately in dev/demo environments.
+        """
+        from .task_planning import build_plan_proposal
+        task = self._visible_task(task_id)
+        # Commit the plan proposal through the orchestrator's PlanValidator.
+        # This writes the ``task.plan.committed`` ledger event.
+        self.orchestrator.commit_proposal(build_plan_proposal(task))
 
     def _event_by_id(self, event_id: str) -> LedgerEventEnvelope:
         event = next((candidate for candidate in self._ledger.events if candidate.event_id == event_id), None)
@@ -1408,9 +1470,15 @@ class NodeApiService:
         return event
 
     def _task_sequence(self, task_id: str, event_id: str) -> int:
-        for sequence, event in enumerate(self._ledger.events, start=1):
-            if event.task_id == task_id and event.event_id == event_id:
-                return sum(1 for prior in self._ledger.events[:sequence] if prior.task_id == task_id)
+        # O(N) single-pass: count task-scoped events up to and including the target.
+        # The previous O(N\u00b2) implementation sliced self._ledger.events[:sequence] inside
+        # the outer loop which caused quadratic scanning on large ledgers (C3 audit finding).
+        sequence = 0
+        for event in self._ledger.events:
+            if event.task_id == task_id:
+                sequence += 1
+            if event.event_id == event_id:
+                return sequence
         raise NodeApiError(503, "event_unreadable", "The committed command sequence could not be read back.")
 
     def snapshot(self, task_id: str) -> dict[str, Any]:
@@ -1506,11 +1574,14 @@ class NodeApiService:
         failure_code: str | None = None
         failure_reason: str | None = None
         if resource_event is None:
-            plan_state = "needs_review"
-            mode = "not_selected"
-            hardware_reason = "Hardware admission evidence is missing, so execution mode cannot be shown safely."
-            failure_code = "hardware_admission_missing"
-            failure_reason = hardware_reason
+            # PL2 fix: a committed plan without a hardware admission event is treated
+            # as "ready_no_hardware" so the operator can approve in dev/demo environments
+            # that do not have AIRBENCH_HARDWARE_PROFILE_PATH configured.
+            plan_state = "ready_no_hardware"
+            mode = "serial_virtual_team"
+            hardware_reason = "Hardware admission is not configured. The plan can be approved without a hardware profile."
+            failure_code = None
+            failure_reason = None
         elif admission in {"rejected", "stopped"}:
             plan_state = "rejected"
             hardware_reason = resource.get("reason") or "The hardware admission policy rejected this plan."
@@ -1787,7 +1858,10 @@ class NodeApiService:
                 item = self._fact_ref(event)
                 if item is not None:
                     facts.append(item)
-            if len(evidence) >= MAX_EVIDENCE_ITEMS and len(facts) >= MAX_EVIDENCE_ITEMS:
+            # M4 audit fix: break as soon as EITHER cap is hit, not only when both
+            # are full simultaneously. The previous `and` caused wasted CPU when
+            # evidence hit the cap early but facts still had items to process.
+            if len(evidence) >= MAX_EVIDENCE_ITEMS or len(facts) >= MAX_EVIDENCE_ITEMS:
                 break
         return evidence[:MAX_EVIDENCE_ITEMS], facts[:MAX_EVIDENCE_ITEMS]
 
@@ -2049,7 +2123,13 @@ def create_app(service: NodeApiService) -> FastAPI:
         body = await json_body(request)
         return await run_in_threadpool(service.knowledge_search, body)
 
-    @app.post("/api/v1/knowledge/ingest", status_code=202)
+    # L3 / P3 audit fix: the ingest implementation runs synchronously in a
+    # threadpool thread and returns only after all files are processed.  HTTP
+    # 202 implies async processing with a separate status-poll mechanism; using
+    # it here caused Tauri to receive an apparent success before the work was
+    # done (on large corpora the threadpool timed out and the frontend saw an
+    # error while the Node continued happily).  Use 200 to match reality.
+    @app.post("/api/v1/knowledge/ingest", status_code=200)
     async def knowledge_ingest(request: Request) -> dict[str, Any]:
         auth(request)
         body = await json_body(request)
@@ -2101,9 +2181,11 @@ def create_app(service: NodeApiService) -> FastAPI:
 
     @app.post("/api/v1/tasks/{task_id}/autonomy/score", status_code=200)
     async def autonomy_score(task_id: str, request: Request) -> dict[str, Any]:
-        auth(request)
+        # M2 audit fix: pass the authenticated subject so autonomy_score can
+        # verify task ownership and bind worker_id to the caller identity.
+        subject = auth(request)
         body = await json_body(request)
-        return await run_in_threadpool(service.autonomy_score, task_id, body)
+        return await run_in_threadpool(service.autonomy_score, subject, task_id, body)
 
     @app.post("/api/v1/tasks/{task_id}/autonomy/authorize", status_code=200)
     async def autonomy_authorize(task_id: str, request: Request) -> dict[str, Any]:

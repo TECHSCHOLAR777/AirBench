@@ -172,7 +172,7 @@ class NodeTaskExecutionCoordinator:
         self._template_path = Path(config.template_path).resolve()
         self._hardware_profile_path = Path(config.hardware_profile_path) if config.hardware_profile_path else None
         self._runs: dict[str, NodeTaskRun] = {}
-        self._prepared: dict[str, tuple[TeamPlan, WorkerAssignment, ResourceScheduler, Any, IntakeManifest]] = {}
+        self._prepared: dict[str, tuple[TeamPlan, dict[str, WorkerAssignment], ResourceScheduler, Any, IntakeManifest]] = {}
 
     # -- orchestration entry points ----------------------------------------
 
@@ -196,35 +196,38 @@ class NodeTaskExecutionCoordinator:
             "policy_version_hash": stable_id("node-policy", task.domain_pack_ref),
             "status": ContractStatus.proposed.value,
         })
-        plan_committed = any(
-            event.task_id == task_id and event.event_type == "task.plan.committed"
-            for event in self._ledger.events
+        plan_event = next(
+            (event for event in reversed(self._ledger.events)
+             if event.task_id == task_id and event.event_type == "task.plan.committed"),
+            None
         )
-        if not plan_committed:
+        if plan_event:
+            plan = TeamPlan.from_dict(plan_event.payload["plan"])
+            team_id = plan.team_id
+        else:
             self._orchestrator.commit_plan(plan)
 
         deadline = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat().replace("+00:00", "Z")
-        assignment = WorkerAssignment.from_dict({
-            "assignment_id": assignment_id,
-            "team_id": team_id,
-            "task_id": task_id,
-            "worker_id": worker_id,
-            "role": "reasoning",
-            "stage": "source-review",
-            "input_schema": "WorkerInput.v1",
-            "output_schema": "WorkerOutput.v1",
-            # Keep the worker assignment within the task's declared evidence
-            # scope.  The demo task uses an inspection-report scope; the
-            # intake manifest remains the concrete provenance record.
-            "evidence_refs": list(task.allowed_evidence_scope) or ["task-input"],
-            "allowed_tools": [],
-            "clearance": task.clearance.value,
-            "taint": manifest.taint.value,
-            "capability_requirement": task.permitted_worker_capabilities[0] if task.permitted_worker_capabilities else "reasoning",
-            "deadline": deadline,
-            "idempotency_key": idempotency_key("node-assignment", task_id),
-            "status": ContractStatus.queued.value,
-        })
+        assignments_dict = {}
+        for a_id in plan.assignments:
+            assignments_dict[a_id] = WorkerAssignment.from_dict({
+                "assignment_id": a_id,
+                "team_id": team_id,
+                "task_id": task_id,
+                "worker_id": stable_id("node-worker", task_id, a_id),
+                "role": "reasoning",
+                "stage": "source-review",
+                "input_schema": "WorkerInput.v1",
+                "output_schema": "WorkerOutput.v1",
+                "evidence_refs": list(task.allowed_evidence_scope) or ["task-input"],
+                "allowed_tools": [],
+                "clearance": task.clearance.value,
+                "taint": manifest.taint.value,
+                "capability_requirement": task.permitted_worker_capabilities[0] if task.permitted_worker_capabilities else "reasoning",
+                "deadline": deadline,
+                "idempotency_key": idempotency_key("node-assignment", a_id),
+                "status": ContractStatus.queued.value,
+            })
 
         profile = self._load_hardware_profile(task_id)
         measurement = HardwareMeasurement(
@@ -259,14 +262,14 @@ class NodeTaskExecutionCoordinator:
         admission = AdmissionRequest(
             task_id=task_id,
             team_id=team_id,
-            worker_capabilities=((worker_id, assignment.capability_requirement),),
-            reservations=((worker_id, reservation),),
-            verifier_worker_id=worker_id,
-            worker_roles=((worker_id, assignment.role),),
-            gpu_indices=((worker_id, (0,)),),
+            worker_capabilities=tuple((a.worker_id, a.capability_requirement) for a in assignments_dict.values()),
+            reservations=tuple((a.worker_id, reservation) for a in assignments_dict.values()),
+            verifier_worker_id=list(assignments_dict.values())[-1].worker_id if assignments_dict else worker_id,
+            worker_roles=tuple((a.worker_id, a.role) for a in assignments_dict.values()),
+            gpu_indices=tuple((a.worker_id, (0,)) for a in assignments_dict.values()),
             requested_mode="serial_virtual_team",
-            model_targets=((worker_id, "node.execution-worker"),),
-            qualification_refs=((worker_id, "qualification.node.local"),),
+            model_targets=tuple((a.worker_id, "node.execution-worker") for a in assignments_dict.values()),
+            qualification_refs=tuple((a.worker_id, "qualification.node.local") for a in assignments_dict.values()),
             clearance=task.clearance,
             taint=Taint.clean,
             policy_version_hash=plan.policy_version_hash,
@@ -277,7 +280,7 @@ class NodeTaskExecutionCoordinator:
         if schedule.plan.admission != "admitted":
             raise NodeTaskExecutionError(f"hardware admission was {schedule.plan.admission}",
                                          failure_code="hardware_admission_rejected")
-        self._prepared[task_id] = (plan, assignment, scheduler, schedule, manifest)
+        self._prepared[task_id] = (plan, assignments_dict, scheduler, schedule, manifest)
 
     def authorize(self, operator_id: str, task_id: str, operator_roles: tuple[str, ...] = ()) -> dict[str, Any] | None:
         """Record the operator's plan approval as named authority for execution.
@@ -318,7 +321,7 @@ class NodeTaskExecutionCoordinator:
             # it deterministically (an already-committed plan is not re-committed)
             # so an authorized task can still be approved after a restart.
             self.prepare(task_id)
-        plan, assignment, scheduler, schedule, manifest = self._prepared[task_id]
+        plan, assignments_dict, scheduler, schedule, manifest = self._prepared[task_id]
         task = self._task(task_id)
 
         # --- Consistency gate (before running the worker team) ---
@@ -386,24 +389,26 @@ class NodeTaskExecutionCoordinator:
                 logger.exception("Node worker runner failed", extra={"task_id": task_id})
                 raise
             return WorkerResult.from_dict({
-                "result_id": stable_id("node-result", task_id),
-                "assignment_id": assignment.assignment_id,
+                "result_id": stable_id("node-result", task_id, getattr(invocation, "assignment_id", "")),
+                "assignment_id": invocation.assignment_id,
                 "task_id": task_id,
                 "status": ContractStatus.accepted.value,
                 "output": {"summary": summary, "source_evidence_ref": "task-input"},
             })
 
+        worker_runners = {aid: worker_runner for aid in assignments_dict}
+
         runtime = TeamRuntime(
             task=task,
             team_plan=plan,
-            assignments={assignment.assignment_id: assignment},
+            assignments=assignments_dict,
             schedule=schedule,
             scheduler=scheduler,
             orchestrator=self._orchestrator,
             workspace_root=self._workspace_root,
             evidence_provider=_ManifestEvidenceProvider(manifest),
             signing_key=self._signing_key,
-            worker_runners={assignment.assignment_id: worker_runner},
+            worker_runners=worker_runners,
         )
         try:
             report = runtime.execute()

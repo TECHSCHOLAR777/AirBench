@@ -1,0 +1,62 @@
+{
+  "text_triggers": [
+    {
+      "id": "findings",
+      "match": ["findings that need management review", "list the findings", "management review", "read the unit 4 inspection report"],
+      "title": "Unit 4 findings requiring management review",
+      "output_file": "text/findings-management-review.md"
+    },
+    {
+      "id": "procedure",
+      "match": ["which procedure governs", "governs the evidence", "evidence required", "unit 4 maintenance review procedure"],
+      "title": "Governing procedure for the review",
+      "output_file": "text/governing-procedure.md"
+    },
+    {
+      "id": "downstream-route",
+      "match": ["downstream of p-101", "downstream of p101", "ambiguous tag", "route component"],
+      "title": "Downstream route from P-101",
+      "output_file": "text/downstream-route.md"
+    },
+    {
+      "id": "totals",
+      "match": ["total finding count", "calculate the total", "high-priority count", "finding totals"],
+      "title": "Deterministic finding totals",
+      "output_file": "text/finding-totals.md"
+    },
+    {
+      "id": "prior-note",
+      "match": ["prior approval note", "compare the current inspection findings", "review pattern"],
+      "title": "Comparison with the prior approval note",
+      "output_file": "text/prior-note-comparison.md"
+    },
+    {
+      "id": "approval-note",
+      "match": ["prepare a review-ready", "approval note", "word approval note", "draft the approval note"],
+      "title": "Unit 4 management review note (draft)",
+      "output_file": "text/approval-note-draft.md"
+    },
+    {
+      "id": "missing-evidence",
+      "match": ["cannot be processed", "drawing adapter", "missing if the source"],
+      "title": "Evidence gap without a processed P&ID",
+      "output_file": "text/missing-pid-evidence.md"
+    }
+  ],
+  "image_triggers": [
+    {
+      "id": "pid-sd-001",
+      "match_filename": ["pid-sd-001", "pid_sd_001", "feed-transfer", "feed_transfer"],
+      "title": "P&ID review — Unit 4 feed transfer train (PID-SD-001)",
+      "output_image": "images/pid-sd-001-tag-review-output.png",
+      "output_text": "text/pid-sd-001-review.md"
+    },
+    {
+      "id": "pid-sd-003",
+      "match_filename": ["pid-sd-003", "pid_sd_003", "booster", "tk-301", "tk_301"],
+      "title": "P&ID review — Unit 4 booster pump train (PID-SD-003)",
+      "output_image": "images/pid-sd-003-route-review-output.png",
+      "output_text": "text/pid-sd-003-review.md"
+    }
+  ]
+}

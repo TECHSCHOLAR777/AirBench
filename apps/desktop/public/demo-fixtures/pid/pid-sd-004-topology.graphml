@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="label" for="node" attr.name="label" attr.type="string"/>
+  <key id="type" for="node" attr.name="type" attr.type="string"/>
+  <key id="bbox" for="node" attr.name="bbox" attr.type="string"/>
+  <key id="confidence" for="node" attr.name="confidence" attr.type="double"/>
+  <key id="source_kind" for="node" attr.name="source_kind" attr.type="string"/>
+  <key id="relation" for="edge" attr.name="relation" attr.type="string"/>
+  <graph id="PID-SD-004" edgedefault="directed">
+    <node id="E-401A"><data key="label">E-401A</data><data key="type">exchanger</data><data key="bbox">495,680,725,840</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="E-401B"><data key="label">E-401B</data><data key="type">exchanger</data><data key="bbox">1125,680,1355,840</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="TV-401"><data key="label">TV-401</data><data key="type">control_valve</data><data key="bbox">1775,705,1885,815</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="TT-401"><data key="label">TT-401</data><data key="type">instrument</data><data key="bbox">1475,445,1585,555</data><data key="confidence">0.94</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="TIC-401"><data key="label">TIC-401</data><data key="type">instrument</data><data key="bbox">1775,375,1885,485</data><data key="confidence">0.91</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="XV-401"><data key="label">XV-401</data><data key="type">valve</data><data key="bbox">290,710,390,810</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="XV-402"><data key="label">XV-402</data><data key="type">valve</data><data key="bbox">2170,710,2270,810</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="BV-401"><data key="label">BV-401</data><data key="type">control_valve</data><data key="bbox">1065,1065,1175,1175</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="PI-401"><data key="label">PI-401</data><data key="type">instrument</data><data key="bbox">765,465,875,575</data><data key="confidence">0.89</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="FI-401"><data key="label">FI-401</data><data key="type">instrument</data><data key="bbox">1925,935,2035,1045</data><data key="confidence">0.88</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="DV-401"><data key="label">DV-401</data><data key="type">valve</data><data key="bbox">570,1050,670,1150</data><data key="confidence">0.78</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="VV-401"><data key="label">VV-401</data><data key="type">valve</data><data key="bbox">1210,410,1310,510</data><data key="confidence">0.76</data><data key="source_kind">synthetic_reference</data></node>
+    <edge id="e1" source="XV-401" target="E-401A"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e2" source="E-401A" target="E-401B"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e3" source="E-401B" target="TV-401"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e4" source="TV-401" target="XV-402"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e5" source="E-401A" target="BV-401"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e6" source="BV-401" target="TV-401"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e7" source="E-401A" target="DV-401"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e8" source="E-401B" target="VV-401"><data key="relation">process_flow_candidate</data></edge>
+  </graph>
+</graphml>

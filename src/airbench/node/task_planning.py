@@ -132,7 +132,7 @@ def build_plan_proposal(task: TaskEnvelope) -> PlanProposal:
         tools=frozenset(tools),
         evidence_scope=frozenset(evidence),
         resource_budget={},
-        completion_criteria=frozenset(task.verification_criteria),
+        completion_criteria=frozenset(task.verification_criteria) or frozenset(["source_check"]),
     )
 
 

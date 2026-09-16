@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="label" for="node" attr.name="label" attr.type="string"/>
+  <key id="type" for="node" attr.name="type" attr.type="string"/>
+  <key id="bbox" for="node" attr.name="bbox" attr.type="string"/>
+  <key id="confidence" for="node" attr.name="confidence" attr.type="double"/>
+  <key id="source_kind" for="node" attr.name="source_kind" attr.type="string"/>
+  <key id="relation" for="edge" attr.name="relation" attr.type="string"/>
+  <graph id="PID-SD-001" edgedefault="directed">
+    <node id="TK-101"><data key="label">TK-101</data><data key="type">tank</data><data key="bbox">245,605,455,895</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="P-101A"><data key="label">P-101A</data><data key="type">pump</data><data key="bbox">695,675,845,825</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="P-101B"><data key="label">P-101B</data><data key="type">pump</data><data key="bbox">695,1005,845,1155</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="XV-101"><data key="label">XV-101</data><data key="type">valve</data><data key="bbox">1110,700,1210,800</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="FT-101"><data key="label">FT-101</data><data key="type">instrument</data><data key="bbox">1395,695,1505,805</data><data key="confidence">0.92</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="E-101"><data key="label">E-101</data><data key="type">exchanger</data><data key="bbox">1705,670,1935,830</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="PCV-101"><data key="label">PCV-101</data><data key="type">control_valve</data><data key="bbox">2145,695,2255,805</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="V-101"><data key="label">V-101</data><data key="type">vessel</data><data key="bbox">2390,595,2610,905</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="PSV-101"><data key="label">PSV-101</data><data key="type">relief</data><data key="bbox">2453,375,2547,485</data><data key="confidence">0.86</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="PI-101"><data key="label">PI-101</data><data key="type">instrument</data><data key="bbox">915,465,1025,575</data><data key="confidence">0.91</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="LSH-101"><data key="label">LSH-101</data><data key="type">instrument</data><data key="bbox">2645,525,2755,635</data><data key="confidence">0.89</data><data key="source_kind">synthetic_reference</data></node>
+    <edge id="e1" source="TK-101" target="P-101A"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e2" source="P-101A" target="XV-101"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e3" source="P-101B" target="XV-101"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e4" source="XV-101" target="FT-101"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e5" source="FT-101" target="E-101"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e6" source="E-101" target="PCV-101"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e7" source="PCV-101" target="V-101"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e8" source="V-101" target="PSV-101"><data key="relation">process_flow_candidate</data></edge>
+  </graph>
+</graphml>

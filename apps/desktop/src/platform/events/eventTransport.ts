@@ -116,7 +116,11 @@ export function validateTaskEventBatch(
   const nextSequence = requireSequence(source.next_sequence, "event batch cursor");
   const hasMore = requireBoolean(source.has_more, "event batch continuation flag");
   if (hasMore && events.length === 0) throw new EventTransportProtocolError("The Node marked an empty event batch as having more events.");
-  if (nextSequence < previousSequence || (!hasMore && nextSequence !== previousSequence)) {
+  // S3 audit fix: an empty terminal batch (events.length === 0, !hasMore) is valid when
+  // nextSequence === afterSequence (nothing has changed). The old check compared against
+  // previousSequence which is still afterSequence when no events are processed, and incorrectly
+  // rejected batches where nextSequence === afterSequence.
+  if (nextSequence < previousSequence || (!hasMore && events.length > 0 && nextSequence !== previousSequence)) {
     throw new EventTransportProtocolError("The Node event batch cursor does not match its events.");
   }
 

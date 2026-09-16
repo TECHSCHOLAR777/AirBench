@@ -39,6 +39,23 @@ type LifecycleEventType = "task.accepted" | "plan.created" | "plan.revised" | "p
 type WorkerEventType = "worker.started" | "worker.completed" | "tool.started" | "tool.completed";
 type ExecutionEventType = "team.created" | "team.execution.started" | "team.execution.completed" | "team.execution.failed" | "team.execution.cancelled" | "lifecycle.intercepted" | "lifecycle.blocked" | "worker.assigned" | "worker.failed" | "worker.handoff" | "worker.handoff.rejected" | "worker.handoff.late" | "worker.resource_reserved" | "worker.preempted" | "worker.cancelled" | "team.resource_plan.created" | "team.resource_plan.admitted" | "team.resource_plan.queued" | "team.resource_plan.degraded_needs_review" | "team.resource_plan.rejected" | "team.resource_plan.released" | "team.resource_plan.cancelled" | "resource.plan.admitted" | "resource.plan.queued" | "execution.mode.selected" | "execution.mode.changed" | "join_barrier.waiting" | "join_barrier.completed" | "join_barrier.resolved" | "barrier.waiting" | "barrier.completed" | "resource.exhaustion.detected" | "resource.recovered" | "resource.queue.updated" | "resource.lease.granted" | "resource.lease.activated" | "resource.lease.released" | "resource.lease.expired" | "resource.lease.cancelled" | "resource.lease.failed" | "resource.admission.degraded" | "background.work.yielded";
 type SummaryEventType = "ledger.written" | "ledger.verification_changed" | "node.connection_changed" | "node.sovereignty_changed";
+/** P&ID extraction and knowledge ingestion progress events (informational, no lifecycle transition). */
+type KnowledgeEventType =
+  | "pid.extracted"
+  | "knowledge.ingest.started"
+  | "knowledge.ingest.file_completed"
+  | "knowledge.ingest.file_failed"
+  | "knowledge.ingest.completed";
+
+/** Payload shape for knowledge/P&ID events — informational activity entries only. */
+export interface NodeKnowledgeEventPayload {
+  summary: string;
+  jobId?: string;
+  fileCount?: number;
+  chunkCount?: number;
+  status?: string;
+  fileName?: string;
+}
 
 export type TaskEvent =
   | (TaskEventBase & { eventType: LifecycleEventType; payload: NodeLifecycleEventPayload })
@@ -49,6 +66,7 @@ export type TaskEvent =
   | (TaskEventBase & { eventType: "approval.required" | "approval.recorded" | "approval.returned"; payload: NodeApprovalEventPayload })
   | (TaskEventBase & { eventType: "artifact.ready" | "artifact.superseded"; payload: NodeArtifactEventPayload })
   | (TaskEventBase & { eventType: SummaryEventType; payload: NodeSummaryEventPayload })
+  | (TaskEventBase & { eventType: KnowledgeEventType; payload: NodeKnowledgeEventPayload })
   | (TaskEventBase & { eventType: "unknown"; payload: NodeUnknownEventPayload });
 
 /** Node command types are generated from the authoritative Python contract. */
@@ -171,6 +189,23 @@ export function normalizeTaskEvent(event: NodeTaskEvent): TaskEvent {
     const candidate = payload as Partial<NodeSummaryEventPayload>;
     if (typeof candidate.summary === "string") return { ...base, eventType: event.eventType as SummaryEventType, payload: candidate as NodeSummaryEventPayload };
   }
+  // P&ID and knowledge ingestion events are informational — they appear in activity[] only
+  // and must NOT fall through to "unknown" (which sets health:"blocked" and kills the sync loop).
+  if (KNOWLEDGE_EVENT_TYPES.has(event.eventType as KnowledgeEventType)) {
+    const candidate = payload as Partial<NodeKnowledgeEventPayload>;
+    return {
+      ...base,
+      eventType: event.eventType as KnowledgeEventType,
+      payload: {
+        summary: typeof candidate.summary === "string" ? candidate.summary : event.eventType,
+        jobId: typeof candidate.jobId === "string" ? candidate.jobId : undefined,
+        fileCount: typeof candidate.fileCount === "number" ? candidate.fileCount : undefined,
+        chunkCount: typeof candidate.chunkCount === "number" ? candidate.chunkCount : undefined,
+        status: typeof candidate.status === "string" ? candidate.status : undefined,
+        fileName: typeof candidate.fileName === "string" ? candidate.fileName : undefined,
+      },
+    };
+  }
   return { ...base, eventType: "unknown", payload: { originalType: event.eventType, raw: event.payload } };
 }
 
@@ -205,6 +240,7 @@ const LIFECYCLE_EVENT_TYPES = new Set(["task.accepted", "plan.created", "plan.re
 const WORKER_EVENT_TYPES = new Set(["worker.started", "worker.completed", "tool.started", "tool.completed"]);
 const EXECUTION_EVENT_TYPES = new Set<ExecutionEventType>(["team.created", "team.execution.started", "team.execution.completed", "team.execution.failed", "team.execution.cancelled", "lifecycle.intercepted", "lifecycle.blocked", "worker.assigned", "worker.failed", "worker.handoff", "worker.handoff.rejected", "worker.handoff.late", "worker.resource_reserved", "worker.preempted", "worker.cancelled", "team.resource_plan.created", "team.resource_plan.admitted", "team.resource_plan.queued", "team.resource_plan.degraded_needs_review", "team.resource_plan.rejected", "team.resource_plan.released", "team.resource_plan.cancelled", "resource.plan.admitted", "resource.plan.queued", "execution.mode.selected", "execution.mode.changed", "join_barrier.waiting", "join_barrier.completed", "join_barrier.resolved", "barrier.waiting", "barrier.completed", "resource.exhaustion.detected", "resource.recovered", "resource.queue.updated", "resource.lease.granted", "resource.lease.activated", "resource.lease.released", "resource.lease.expired", "resource.lease.cancelled", "resource.lease.failed", "resource.admission.degraded", "background.work.yielded"]);
 const SUMMARY_EVENT_TYPES = new Set(["ledger.written", "ledger.verification_changed", "node.connection_changed", "node.sovereignty_changed"]);
+const KNOWLEDGE_EVENT_TYPES = new Set<KnowledgeEventType>(["pid.extracted", "knowledge.ingest.started", "knowledge.ingest.file_completed", "knowledge.ingest.file_failed", "knowledge.ingest.completed"]);
 
 function normalizeExecutionPayload(candidate: Partial<NodeExecutionEventPayload>): NodeExecutionEventPayload | null {
   if (typeof candidate.status !== "string" || typeof candidate.summary !== "string") return null;

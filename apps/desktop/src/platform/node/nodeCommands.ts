@@ -133,6 +133,15 @@ function requireNodeEnvelope(source: Record<string, unknown>, label: string): { 
   return { schemaVersion, compatibilityId };
 }
 
+function requireCoreEnvelope(source: Record<string, unknown>, label: string): { schemaVersion: string; compatibilityId: string } {
+  const schemaVersion = requireString(source.schemaVersion, `${label} schema version`);
+  const compatibilityId = requireString(source.compatibilityId, `${label} compatibility identity`);
+  if (schemaVersion !== CORE_CONTRACT_SCHEMA_VERSION || compatibilityId !== CORE_CONTRACT_COMPATIBILITY_ID) {
+    throw new InvalidNodeResponse(`The Node returned an incompatible ${label}.`);
+  }
+  return { schemaVersion, compatibilityId };
+}
+
 function clearanceRank(value: Clearance): number {
   return { public: 0, internal: 1, restricted: 2, secret: 3 }[value];
 }
@@ -147,7 +156,7 @@ function requireClearanceWithin(value: unknown, maximum: Clearance, label: strin
 
 function validateProvenanceRef(value: unknown): NodeProvenanceRef {
   const source = requireRecord(value, "provenance reference");
-  const envelope = requireNodeEnvelope(source, "provenance reference");
+  const envelope = requireCoreEnvelope(source, "provenance reference");
   return {
     ...envelope,
     sourceDocumentId: requireString(source.sourceDocumentId, "source document identity"),
@@ -162,7 +171,7 @@ function validateProvenanceRef(value: unknown): NodeProvenanceRef {
 
 function validateEvidenceRef(value: unknown, maximumClearance: Clearance): NodeEvidenceRef {
   const source = requireRecord(value, "evidence reference");
-  const envelope = requireNodeEnvelope(source, "evidence reference");
+  const envelope = requireCoreEnvelope(source, "evidence reference");
   const contentHash = requireString(source.contentHash, "evidence content hash");
   if (!/^[0-9a-fA-F]{64}$/.test(contentHash)) throw new InvalidNodeResponse("The Node returned an invalid evidence content hash.");
   return {
@@ -178,7 +187,7 @@ function validateEvidenceRef(value: unknown, maximumClearance: Clearance): NodeE
 
 function validateFactRef(value: unknown, maximumClearance: Clearance): NodeFactRef {
   const source = requireRecord(value, "fact reference");
-  const envelope = requireNodeEnvelope(source, "fact reference");
+  const envelope = requireCoreEnvelope(source, "fact reference");
   const parentFactIds = requiredField(source, "parentFactIds", "parent fact references");
   const unit = requiredNullableString(source, "unit", "fact unit");
   const derivation = requiredNullableRecord(source, "derivation", "fact derivation");

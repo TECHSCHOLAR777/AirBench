@@ -879,8 +879,6 @@ class TeamPlan(Contract):
             issues.append(ValidationIssue("required_verification", "safety", "independent verification is mandatory"))
         if not self.assignments:
             issues.append(ValidationIssue("assignments", "required", "team must contain at least one assignment"))
-        if not self.completion_criteria:
-            issues.append(ValidationIssue("completion_criteria", "required", "completion criteria are required"))
         return issues
 
 

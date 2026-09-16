@@ -1,6 +1,9 @@
 import { invoke } from "@airbench/tauri-invoke";
 import { toNativeNodeProfileReference } from "../../platform/node/nodeBridge";
 import { type ApprovedNodeProfile, type ApprovedNodeProfileReference } from "../../platform/node/nodeConnection";
+// M9 audit fix: import Clearance and Taint from the canonical protocol module
+// instead of redeclaring them locally, so any future type changes propagate automatically.
+import type { Clearance, Taint } from "../../platform/events/protocol";
 
 export interface IntakeManifest {
   intake_id: string;
@@ -96,8 +99,7 @@ export interface PidExtractionResponse {
 const MAX_QUERY_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_NODE_REFERENCE_LENGTH = 256;
 const MAX_PREVIEW_TEXT_BYTES = 10 * 1024 * 1024;
-type Clearance = "public" | "internal" | "restricted" | "secret";
-type Taint = "clean" | "untrusted" | "contaminated";
+// Clearance and Taint are imported from ../../platform/events/protocol (M9 audit fix).
 type IntakeProcessingStatus = "pending" | "running" | "completed" | "failed" | "not_applicable" | "unavailable";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -128,6 +130,9 @@ function requireNodeReference(value: unknown, label: string): string {
   return result;
 }
 
+// H6 audit: requireSha256 enforces the `sha256:` prefix because `source_hash` uses the OCI
+// digest format, while requireContentHash requires raw hex for internal byte hashing.
+// This semantic difference is intentional and required by the backend contract.
 function requireSha256(value: unknown, label: string): string {
   const result = requireString(value, label);
   if (!/^sha256:[0-9a-f]{64}$/i.test(result)) throw new Error(`The Node returned an invalid ${label}.`);
@@ -548,4 +553,20 @@ export async function downloadVerifiedArtifact(
   suggestedName: string,
 ): Promise<DownloadReceipt> {
   return validateDownloadReceipt(await downloadArtifact(profile, artifactId, suggestedName), artifactId);
+}
+
+/**
+ * A1 audit fix: typed bridge for the native file picker Tauri command used by
+ * KnowledgeView's P&ID extraction flow. Using a typed function here means the
+ * bare `invoke("pick_query_file")` call is kept in one place and its return
+ * shape is validated at the boundary rather than spread across UI components.
+ */
+export function pickQueryFile(): Promise<{ selection_id: string } | null> {
+  return invoke<{ selection_id: string } | null>("pick_query_file").then((result) => {
+    if (result === null || result === undefined) return null;
+    if (typeof result !== "object" || typeof result.selection_id !== "string" || !result.selection_id.trim()) {
+      throw new Error("The file picker returned an invalid selection.");
+    }
+    return { selection_id: result.selection_id };
+  });
 }

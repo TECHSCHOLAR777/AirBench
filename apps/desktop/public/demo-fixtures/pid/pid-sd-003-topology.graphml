@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="label" for="node" attr.name="label" attr.type="string"/>
+  <key id="type" for="node" attr.name="type" attr.type="string"/>
+  <key id="bbox" for="node" attr.name="bbox" attr.type="string"/>
+  <key id="confidence" for="node" attr.name="confidence" attr.type="double"/>
+  <key id="source_kind" for="node" attr.name="source_kind" attr.type="string"/>
+  <key id="relation" for="edge" attr.name="relation" attr.type="string"/>
+  <graph id="PID-SD-003" edgedefault="directed">
+    <node id="TK-301"><data key="label">TK-301</data><data key="type">tank</data><data key="bbox">205,705,415,995</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="P-301A"><data key="label">P-301A</data><data key="type">pump</data><data key="bbox">635,645,785,795</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="P-301B"><data key="label">P-301B</data><data key="type">pump</data><data key="bbox">635,975,785,1125</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="NRV-301A"><data key="label">NRV-301A</data><data key="type">check</data><data key="bbox">1023,673,1117,767</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="NRV-301B"><data key="label">NRV-301B</data><data key="type">check</data><data key="bbox">1023,1003,1117,1097</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="FT-301"><data key="label">FT-301</data><data key="type">instrument</data><data key="bbox">1375,795,1485,905</data><data key="confidence">0.95</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="PCV-301"><data key="label">PCV-301</data><data key="type">control_valve</data><data key="bbox">1755,795,1865,905</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="E-301"><data key="label">E-301</data><data key="type">exchanger</data><data key="bbox">2065,770,2295,930</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="FIC-301"><data key="label">FIC-301</data><data key="type">instrument</data><data key="bbox">1375,465,1485,575</data><data key="confidence">0.89</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="FCV-302"><data key="label">FCV-302</data><data key="type">control_valve</data><data key="bbox">1375,1165,1485,1275</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="PI-301"><data key="label">PI-301</data><data key="type">instrument</data><data key="bbox">925,445,1035,555</data><data key="confidence">0.93</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="XV-301"><data key="label">XV-301</data><data key="type">valve</data><data key="bbox">380,800,480,900</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="XV-302"><data key="label">XV-302</data><data key="type">valve</data><data key="bbox">2530,800,2630,900</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <edge id="e1" source="TK-301" target="XV-301"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e2" source="XV-301" target="P-301A"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e3" source="XV-301" target="P-301B"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e4" source="P-301A" target="NRV-301A"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e5" source="P-301B" target="NRV-301B"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e6" source="NRV-301A" target="FT-301"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e7" source="NRV-301B" target="FT-301"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e8" source="FT-301" target="PCV-301"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e9" source="PCV-301" target="E-301"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e10" source="E-301" target="XV-302"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e11" source="FT-301" target="FCV-302"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e12" source="FCV-302" target="TK-301"><data key="relation">process_flow_candidate</data></edge>
+  </graph>
+</graphml>

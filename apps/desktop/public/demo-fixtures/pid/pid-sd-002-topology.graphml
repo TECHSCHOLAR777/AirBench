@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="label" for="node" attr.name="label" attr.type="string"/>
+  <key id="type" for="node" attr.name="type" attr.type="string"/>
+  <key id="bbox" for="node" attr.name="bbox" attr.type="string"/>
+  <key id="confidence" for="node" attr.name="confidence" attr.type="double"/>
+  <key id="source_kind" for="node" attr.name="source_kind" attr.type="string"/>
+  <key id="relation" for="edge" attr.name="relation" attr.type="string"/>
+  <graph id="PID-SD-002" edgedefault="directed">
+    <node id="E-201"><data key="label">E-201</data><data key="type">exchanger</data><data key="bbox">235,700,465,860</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="FCV-201"><data key="label">FCV-201</data><data key="type">control_valve</data><data key="bbox">675,725,785,835</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="V-201"><data key="label">V-201</data><data key="type">vessel</data><data key="bbox">1070,625,1290,935</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="LT-201"><data key="label">LT-201</data><data key="type">instrument</data><data key="bbox">1395,565,1505,675</data><data key="confidence">0.94</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="LIC-201"><data key="label">LIC-201</data><data key="type">instrument</data><data key="bbox">1685,445,1795,555</data><data key="confidence">0.90</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="LV-201"><data key="label">LV-201</data><data key="type">control_valve</data><data key="bbox">1705,985,1815,1095</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="P-201"><data key="label">P-201</data><data key="type">pump</data><data key="bbox">2115,965,2265,1115</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="PCV-202"><data key="label">PCV-202</data><data key="type">control_valve</data><data key="bbox">1725,645,1835,755</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="PSV-201"><data key="label">PSV-201</data><data key="type">relief</data><data key="bbox">1133,335,1227,445</data><data key="confidence">0.88</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="PI-201"><data key="label">PI-201</data><data key="type">instrument</data><data key="bbox">925,465,1035,575</data><data key="confidence">0.93</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="XV-201"><data key="label">XV-201</data><data key="type">valve</data><data key="bbox">560,730,660,830</data><data key="confidence">0.97</data><data key="source_kind">synthetic_reference</data></node>
+    <node id="DV-201"><data key="label">DV-201</data><data key="type">valve</data><data key="bbox">1070,1120,1170,1220</data><data key="confidence">0.80</data><data key="source_kind">synthetic_reference</data></node>
+    <edge id="e1" source="E-201" target="XV-201"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e2" source="XV-201" target="FCV-201"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e3" source="FCV-201" target="V-201"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e4" source="V-201" target="PSV-201"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e5" source="V-201" target="PCV-202"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e6" source="V-201" target="LV-201"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e7" source="LV-201" target="P-201"><data key="relation">process_flow_candidate</data></edge>
+    <edge id="e8" source="V-201" target="DV-201"><data key="relation">process_flow_candidate</data></edge>
+  </graph>
+</graphml>

@@ -15,12 +15,22 @@ acceptance/m10_latency_measurements.json
 
 # Environments
 .env
+.env.*
+*.env
+*.env.*
+!.env.example
+!*.env.example
+!**/.env.example
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+askpass.bat
+-File
+[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-*
+.claude/
 
 # IDEs
 .vscode/

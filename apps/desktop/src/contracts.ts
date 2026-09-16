@@ -1,5 +1,5 @@
 export type ConnectionState = "offline" | "not_connected" | "connected";
-export type Screen = "home" | "tasks" | "review" | "artifacts" | "history" | "audit" | "knowledge" | "node";
+export type Screen = "home" | "pid" | "chat" | "sandbox" | "knowledge" | "review" | "node";
 
 export interface NodeStatus {
   state: ConnectionState;

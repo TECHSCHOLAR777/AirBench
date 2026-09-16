@@ -971,7 +971,7 @@ fn validate_artifact_review(
     )
     .map_err(|error| error)?;
     validate_node_wire_compatibility(&review.compatibility_id)?;
-    if review.schema_version != profile.protocol_version {
+    if review.schema_version != CORE_SCHEMA_VERSION {
         return Err(NodeTransportError::ProtocolMismatch(
             "The Node artifact review schema is not compatible with this application.".to_string(),
         ));
@@ -1850,7 +1850,7 @@ pub async fn fetch_knowledge_status(
 ) -> Result<Value, String> {
     let profile = approved_profile_by_id(&app, &profile_id)?;
     let result: Value = request_json(&profile, Method::GET, "/api/v1/knowledge/status", None)
-        .await.map_err(|e| e.to_string())?;
+        .await.map_err(|e| NodeTransportError::RequestFailed(format!("{}", e)).to_string())?;
     if result.get("configured").and_then(Value::as_bool).is_none() {
         return Err(NodeTransportError::NonAirbenchResponse("The Node returned an invalid knowledge status.".to_string()).to_string());
     }
@@ -1866,7 +1866,7 @@ pub async fn search_knowledge(
 ) -> Result<Value, String> {
     let profile = approved_profile_by_id(&app, &profile_id)?;
     let result: Value = request_json(&profile, Method::POST, "/api/v1/knowledge/search", Some(&body))
-        .await.map_err(|e| e.to_string())?;
+        .await.map_err(|e| NodeTransportError::RequestFailed(format!("{}", e)).to_string())?;
     if result.get("query").and_then(Value::as_str).is_none() || result.get("mode").and_then(Value::as_str).is_none() {
         return Err(NodeTransportError::NonAirbenchResponse("The Node returned an invalid knowledge search.".to_string()).to_string());
     }
@@ -1882,7 +1882,7 @@ pub async fn query_knowledge_graph(
 ) -> Result<Value, String> {
     let profile = approved_profile_by_id(&app, &profile_id)?;
     let result: Value = request_json(&profile, Method::POST, "/api/v1/knowledge/graph/query", Some(&body))
-        .await.map_err(|e| e.to_string())?;
+        .await.map_err(|e| NodeTransportError::RequestFailed(format!("{}", e)).to_string())?;
     if result.get("result_count").and_then(Value::as_u64).is_none() || result.get("facts").and_then(Value::as_array).is_none() {
         return Err(NodeTransportError::NonAirbenchResponse("The Node returned an invalid knowledge graph response.".to_string()).to_string());
     }
@@ -1897,7 +1897,7 @@ pub async fn fetch_graph_review_queue(
 ) -> Result<Value, String> {
     let profile = approved_profile_by_id(&app, &profile_id)?;
     let result: Value = request_json(&profile, Method::GET, "/api/v1/knowledge/graph/review-queue", None)
-        .await.map_err(|e| e.to_string())?;
+        .await.map_err(|e| NodeTransportError::RequestFailed(format!("{}", e)).to_string())?;
     if result.get("count").and_then(Value::as_u64).is_none()
         || result.get("items").and_then(Value::as_array).is_none()
     {
@@ -1917,7 +1917,7 @@ pub async fn resolve_graph_review(
 ) -> Result<Value, String> {
     let profile = approved_profile_by_id(&app, &profile_id)?;
     let result: Value = request_json(&profile, Method::POST, "/api/v1/knowledge/graph/review/resolve", Some(&body))
-        .await.map_err(|e| e.to_string())?;
+        .await.map_err(|e| NodeTransportError::RequestFailed(format!("{}", e)).to_string())?;
     if result.get("candidate_id").and_then(Value::as_str).is_none()
         || result.get("decision").and_then(Value::as_str).is_none()
     {
@@ -1943,7 +1943,7 @@ pub async fn ingest_knowledge_folder(
     let body = serde_json::json!({"path": path.to_string_lossy().to_string()});
     let result: Value = request_json(&profile, Method::POST, "/api/v1/knowledge/ingest", Some(&body))
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| NodeTransportError::RequestFailed(format!("{}", e)).to_string())?;
     if result.get("status").and_then(Value::as_str).is_none()
         || result.get("file_count").and_then(Value::as_u64).is_none()
         || result.get("failure_count").and_then(Value::as_u64).is_none()

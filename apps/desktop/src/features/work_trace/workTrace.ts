@@ -405,6 +405,11 @@ function stageForEvent(event: TaskEvent): WorkTraceStageId | "system" {
     case "resource.lease.failed":
     case "resource.admission.degraded":
     case "background.work.yielded":
+    case "pid.extracted":
+    case "knowledge.ingest.started":
+    case "knowledge.ingest.file_completed":
+    case "knowledge.ingest.file_failed":
+    case "knowledge.ingest.completed":
       return "execution";
     case "evidence.added":
     case "evidence.revised":
@@ -509,6 +514,11 @@ function eventLabel(event: TaskEvent): string {
     "resource.lease.failed": "Resource lease failed",
     "resource.admission.degraded": "Resource admission degraded",
     "background.work.yielded": "Background work yielded",
+    "pid.extracted": "P&ID extracted",
+    "knowledge.ingest.started": "Knowledge ingestion started",
+    "knowledge.ingest.file_completed": "Knowledge file ingested",
+    "knowledge.ingest.file_failed": "Knowledge file failed",
+    "knowledge.ingest.completed": "Knowledge ingestion completed",
     unknown: "Unknown Node event",
   };
   return labels[event.eventType];
@@ -594,6 +604,12 @@ function eventSummary(event: TaskEvent): string {
     case "resource.admission.degraded":
     case "background.work.yielded":
       return executionSummary(event.payload);
+    case "pid.extracted":
+    case "knowledge.ingest.started":
+    case "knowledge.ingest.file_completed":
+    case "knowledge.ingest.file_failed":
+    case "knowledge.ingest.completed":
+      return event.payload.summary;
     case "unknown":
       return "The Node returned an event this desktop cannot safely interpret.";
   }

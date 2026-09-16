@@ -502,6 +502,8 @@ def build_node_app(
 
     # Hardware and qualification projections for the Node settings surface.
     hardware_profile = None
+    if os.environ.get("AIRBENCH_HARDWARE_PROFILE_PATH", "").strip():
+        logger.warning("Deprecation: AIRBENCH_HARDWARE_PROFILE_PATH is deprecated. Use AIRBENCH_HARDWARE_PROFILE instead.")
     hardware_path = (
         os.environ.get("AIRBENCH_HARDWARE_PROFILE", "").strip()
         or os.environ.get("AIRBENCH_HARDWARE_PROFILE_PATH", "").strip()
@@ -538,8 +540,6 @@ def build_node_app(
         logger.warning("P&ID adapter not initialized: %s", exc)
     pid_workspace = (
         os.environ.get("AIRBENCH_PID_WORKSPACE", "").strip()
-        or os.environ.get("AIRBENCH_ARTIFACT_ROOT", "").strip()
-        or os.environ.get("AIRBENCH_INTAKE_ROOT", "").strip()
         or str(Path.cwd())
     )
 
@@ -577,7 +577,7 @@ def build_node_app(
         bearer_token=config.bearer_token,
         handshake_ledger_event_ref=head,
         sovereignty_evidence_ref=f"evidence.local.{config.node_identity}",
-        require_orchestrator_authorization=False,
+        require_orchestrator_authorization=os.environ.get("AIRBENCH_REQUIRE_ORCHESTRATOR_AUTHORIZATION", "").strip().lower() in {"1", "true", "yes"},
     )
 
     # Model serving is opt-in.  When enabled the signed roster must load and
@@ -792,9 +792,14 @@ def add_node_asset_routes(app: Any, service: NodeApiService) -> None:
     async def qualification_roster(request: StarletteRequest) -> StarletteJSONResponse:  # noqa: ARG001
         return StarletteJSONResponse(status_code=200, content=service.qualification_roster())
 
-    app.router.routes.insert(0, Route("/api/v1/node/hardware", endpoint=hardware, methods=["GET"]))
-    app.router.routes.insert(0, Route("/api/v1/node/qualification", endpoint=qualification_roster, methods=["GET"]))
-    app.router.routes.insert(0, Route("/api/v1/node/qualification/{target_id}", endpoint=qualification, methods=["GET"]))
+    # L5 audit fix: the original three insert(0, …) calls reversed the route
+    # order, putting the parameterized ``{target_id}`` route first and allowing
+    # it to shadow the exact ``/qualification`` roster route on some routers.
+    # Append the routes in matching-priority order instead: most-specific paths
+    # first, then the parameterized catch-all, which is the Starlette convention.
+    app.router.routes.append(Route("/api/v1/node/hardware", endpoint=hardware, methods=["GET"]))
+    app.router.routes.append(Route("/api/v1/node/qualification", endpoint=qualification_roster, methods=["GET"]))
+    app.router.routes.append(Route("/api/v1/node/qualification/{target_id}", endpoint=qualification, methods=["GET"]))
 
 
 def add_pack_route(app: Any, service: NodeApiService) -> None:

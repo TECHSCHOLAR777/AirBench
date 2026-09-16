@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_AIRBENCH_WDIO?: string;
+  readonly VITE_GEMINI_API_KEYS?: string;
 }
 
 interface ImportMeta {

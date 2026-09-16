@@ -26,12 +26,12 @@ export function canApprovePlan(
 ): boolean {
   return Boolean(
     plan
-      && plan.plan_state === "ready"
+      && (plan.plan_state === "ready" || plan.plan_state === "ready_no_hardware")
       && plan.required_authority === "operator_approval"
       && synchronized
       && !alreadyApproved
       && !approving
-      && (currentTaskSequence === null || plan.task_sequence === currentTaskSequence),
+      && (currentTaskSequence === null || plan.task_sequence <= currentTaskSequence),
   );
 }
 

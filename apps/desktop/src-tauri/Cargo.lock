@@ -32,6 +32,8 @@ dependencies = [
 name = "airbench-desktop"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "dotenvy",
  "hex",
  "keyring",
  "keyring-core",
@@ -1062,6 +1064,12 @@ dependencies = [
  "selectors",
  "tendril",
 ]
+
+[[package]]
+name = "dotenvy"
+version = "0.15.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dpi"
@@ -4674,6 +4682,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

@@ -1,0 +1,109 @@
+{
+  "drawings": [
+    {
+      "id": "0",
+      "tag": "PID-101",
+      "title": "Crude feed and preheat train",
+      "unit": "Unit 100 - Crude distillation",
+      "thumb": "/pid-corpus/0-thumb.jpg",
+      "display": "/pid-corpus/0-display.jpg",
+      "width": 7168,
+      "height": 4562,
+      "node_count": 452,
+      "edge_count": 496,
+      "labels": {
+        "crossing": 92,
+        "general": 34,
+        "connector": 235,
+        "instrumentation": 25,
+        "arrow": 4,
+        "valve": 58,
+        "background": 4
+      }
+    },
+    {
+      "id": "1",
+      "tag": "PID-102",
+      "title": "Atmospheric column overhead",
+      "unit": "Unit 100 - Crude distillation",
+      "thumb": "/pid-corpus/1-thumb.jpg",
+      "display": "/pid-corpus/1-display.jpg",
+      "width": 7168,
+      "height": 4562,
+      "node_count": 450,
+      "edge_count": 500,
+      "labels": {
+        "crossing": 105,
+        "general": 36,
+        "connector": 226,
+        "valve": 56,
+        "instrumentation": 19,
+        "arrow": 4,
+        "background": 4
+      }
+    },
+    {
+      "id": "2",
+      "tag": "PID-103",
+      "title": "Debutanizer reflux loop",
+      "unit": "Unit 200 - Light ends recovery",
+      "thumb": "/pid-corpus/2-thumb.jpg",
+      "display": "/pid-corpus/2-display.jpg",
+      "width": 7168,
+      "height": 4562,
+      "node_count": 434,
+      "edge_count": 477,
+      "labels": {
+        "crossing": 100,
+        "general": 32,
+        "connector": 216,
+        "instrumentation": 28,
+        "valve": 53,
+        "arrow": 1,
+        "background": 4
+      }
+    },
+    {
+      "id": "3",
+      "tag": "PID-104",
+      "title": "Hydrotreater reactor loop",
+      "unit": "Unit 300 - Distillate hydrotreating",
+      "thumb": "/pid-corpus/3-thumb.jpg",
+      "display": "/pid-corpus/3-display.jpg",
+      "width": 7168,
+      "height": 4562,
+      "node_count": 629,
+      "edge_count": 688,
+      "labels": {
+        "crossing": 116,
+        "general": 42,
+        "connector": 337,
+        "valve": 88,
+        "instrumentation": 40,
+        "arrow": 2,
+        "background": 4
+      }
+    },
+    {
+      "id": "4",
+      "tag": "PID-105",
+      "title": "Product rundown and storage",
+      "unit": "Unit 400 - Rundown and tankage",
+      "thumb": "/pid-corpus/4-thumb.jpg",
+      "display": "/pid-corpus/4-display.jpg",
+      "width": 7168,
+      "height": 4562,
+      "node_count": 556,
+      "edge_count": 605,
+      "labels": {
+        "crossing": 107,
+        "general": 45,
+        "connector": 293,
+        "instrumentation": 35,
+        "valve": 67,
+        "arrow": 5,
+        "background": 4
+      }
+    }
+  ]
+}

@@ -63,9 +63,10 @@ class PlanValidator:
             if not set(step.dependencies).issubset(ids) or step.step_id in step.dependencies:
                 raise PlanValidationError("step dependency is invalid")
         self._check_acyclic(proposal.steps)
+        assignment_ids = {step.step_id: stable_id("assignment", proposal.team_id, step.step_id) for step in proposal.steps}
         return TeamPlan(team_id=proposal.team_id, task_id=proposal.task_id,
-                        assignments=tuple(stable_id("assignment", proposal.team_id, step.step_id) for step in proposal.steps),
-                        dependency_graph={step.step_id: step.dependencies for step in proposal.steps},
+                        assignments=tuple(assignment_ids[step.step_id] for step in proposal.steps),
+                        dependency_graph={assignment_ids[step.step_id]: tuple(assignment_ids[dep] for dep in step.dependencies) for step in proposal.steps},
                         concurrency_ceiling=max(1, min(len(proposal.steps), task.resource_budget.get("max_concurrency", len(proposal.steps)))),
                         required_verification=True, completion_criteria=tuple(sorted(proposal.completion_criteria)),
                         plan_version_hash=stable_id("plan", proposal.task_id, proposal.team_id, tuple(step.step_id for step in proposal.steps)),
