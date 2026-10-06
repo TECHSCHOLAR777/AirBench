@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Newsreader", "Instrument Serif", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-sans: "Plus Jakarta Sans", Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --color-enclave-bg: #121211;
+  --color-enclave-sidebar: #171615;
+  --color-enclave-surface: #1a1918;
+  --color-enclave-surface-alt: #22211e;
+  --color-enclave-border: #282725;
+  --color-enclave-border-light: #383633;
+  --color-enclave-text: #ede8dd;
+  --color-enclave-muted: #9c978f;
+  --color-enclave-dim: #63605a;
+  --color-enclave-accent: #bd5b38;
+  --color-enclave-accent-hover: #a74f30;
+  --color-enclave-emerald: #3ea877;
+  --color-enclave-amber: #d99c43;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #121211;
+}
+::-webkit-scrollbar-thumb {
+  background: #282725;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #383633;
+}
+
+/* Tabular figures for telemetry & data */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+

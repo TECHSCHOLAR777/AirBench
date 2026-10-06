@@ -1,0 +1,8 @@
+{
+  "name": "Remix AirBench - Sovereign Task Command",
+  "description": "AirBench sovereign engineering task command and isolated enclave workstation for P\u0026ID digitization, Python sandbox computation, knowledge base indexing, and zero-egress network verification.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
