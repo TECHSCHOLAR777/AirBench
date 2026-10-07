@@ -24,7 +24,9 @@ System execution is governed by three foundational invariants:
 
 Task execution progresses through an explicit, bounded state machine:
 
-$$\text{received} \longrightarrow \text{authorized} \longrightarrow \text{planned} \longrightarrow \text{plan\_validated} \longrightarrow \text{executing} \longrightarrow \text{awaiting\_check} \longrightarrow \text{awaiting\_review} \longrightarrow \text{rendering} \longrightarrow \text{deliverable\_verified} \longrightarrow \text{complete}$$
+```text
+received → authorized → planned → plan_validated → executing → awaiting_check → awaiting_review → rendering → deliverable_verified → complete
+```
 
 All deliverable numbers are calculated by deterministic Python solvers in an isolated sandbox, narrative prose is drafted by qualified local models referencing named values, and the Deliverable Engine renders the results into verified Office artifacts.
 
