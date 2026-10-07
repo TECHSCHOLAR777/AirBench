@@ -22,12 +22,6 @@ System execution is governed by three foundational invariants:
 2. **Confidence, source, and clearance travel with every fact.** Facts enter the system as typed `FactEnvelope` contracts carrying immutable source document IDs, exact span coordinates, extraction methods, calibrated confidence scores, clearance tiers, and taint labels. Uploaded files enter exclusively as `UntrustedEvidence`—data that models may inspect, but that can never become instructions or policy.
 3. **Everything is provable after the fact.** Consequential state transitions, model calls, tool executions, and human reviews are permanently recorded in an append-only, signed cryptographic audit ledger that can be replayed and independently checked offline.
 
-Task execution progresses through an explicit, bounded state machine:
-
-```text
-received → authorized → planned → plan_validated → executing → awaiting_check → awaiting_review → rendering → deliverable_verified → complete
-```
-
 All deliverable numbers are calculated by deterministic Python solvers in an isolated sandbox, narrative prose is drafted by qualified local models referencing named values, and the Deliverable Engine renders the results into verified Office artifacts.
 
 ---
